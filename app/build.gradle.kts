@@ -58,7 +58,10 @@ android {
         }
     }
 
-    testOptions { unitTests.isReturnDefaultValues = true }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        unitTests.all { it.useJUnitPlatform() }
+    }
 }
 
 kotlin {
@@ -85,4 +88,6 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.bundles.test)
+    // Gradle 8.13 注入的 launcher 与 jupiter 5.13 引擎版本不对齐，需显式对齐
+    testRuntimeOnly(libs.junit.platform.launcher)
 }

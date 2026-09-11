@@ -15,6 +15,7 @@
 | 约束 | 值 |
 |---|---|
 | 语言 | Kotlin（协程 + Flow） |
+| 发布版本号 | 正式包 `versionCode` 必须 **> 28187853**（用户设备上生产 RN 版 1.21.9 的当前值，2026-09-11 观测；且 RN 侧启用过 ABI splits，取其观测最大值） |
 | UI | Jetpack Compose，单 Activity；Material 3 风格，**配色/间距/圆角 tokens 与 RN 版一致**（源：`appiaMobile/src/theme/colors.ts` + `tokens.ts`） |
 | applicationId | `cn.appia.im`（原地升级，沿用原签名） |
 | SDK | minSdk 24 · targetSdk 36 · compileSdk 36 |
