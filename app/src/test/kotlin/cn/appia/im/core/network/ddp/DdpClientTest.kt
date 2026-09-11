@@ -276,11 +276,72 @@ class DdpClientTest {
 
     @Test
     fun `heartbeat schedules next ping only after pong`() {
-        val srv = DdpServer()
+        // 门控语义（TS:257-260）：第二轮 ping 排在【pong 到达】之后再 delay(pingMs)。
+        // 让首个 pong 迟到 600ms >> pingMs(250)：正确实现第二轮 ping 出现在 ≥600ms 后
+        // （pong 到达 + pingMs）；若实现不等待 pong 就排下一轮，第二轮会在 ~500ms（首个
+        // ping 后 250ms）出现 —— 断言间隔 ≥500ms 可区分两种实现。
+        val pingTimes = CopyOnWriteArrayList<Long>()
+        val srv = object : ScriptedWsServer() {
+            override fun onFrame(text: String, webSocket: WebSocket) {
+                when (parse(text)?.str("msg")) {
+                    "connect" -> webSocket.send("""{"msg":"connected","session":"s"}""")
+                    "ping" -> {
+                        pingTimes.add(System.currentTimeMillis())
+                        val first = pingTimes.size == 1
+                        thread(isDaemon = true) {
+                            if (first) Thread.sleep(600)
+                            webSocket.send("""{"msg":"pong"}""")
+                        }
+                    }
+                }
+            }
+        }
         val client = testClient(startServer(srv), pingMs = 250)
         runBlocking { client.connect() }
-        // 若不等 pong 就不会出现第二轮 ping，这里超时即失败
-        awaitCond("second ping after pong") { srv.received.count { parse(it)?.str("msg") == "ping" } >= 2 }
+
+        awaitCond("second ping arrives") { pingTimes.size >= 2 }
+        assertTrue(
+            pingTimes[1] - pingTimes[0] >= 500,
+            "second ping must be scheduled only after pong (interval ${pingTimes[1] - pingTimes[0]}ms)",
+        )
+    }
+
+    // ---- 评审 Important-1 回归：超时握手的残留协程不得污染重连出的新连接 ----
+    //
+    // 时序（注入 connectTimeoutMs(300) < responseTimeoutMs(1000)）：
+    // A 连接：服务端收 connect 不回 → 300ms 时 openConnection 超时 fail(A) → connect() 抛；
+    // 立即重连 B：服务端正常回 connected，B 在线；
+    // A 残留的 onOpen 协程随后因 connect 帧被 B supersede（最迟 1000ms 自身 responseTimeout）
+    // 触发 fail —— 修复前 fail 无条件清 active/connected，杀死 B；修复后 isCurrent() 短路。
+
+    @Test
+    fun `timed out handshake coroutine does not poison reconnected transport`() {
+        val first = object : ScriptedWsServer() {} // 对 connect 帧保持沉默
+        val second = DdpServer()
+        val client = testClient(startServer(first, second), connectTimeoutMs = 300, responseTimeoutMs = 1_000)
+
+        runBlocking { runCatching { client.connect() } } // A：connect 超时，预期失败
+        awaitCond("reconnect B succeeds") {
+            runBlocking { runCatching { client.connect() }.isSuccess } && client.isTransportOpen()
+        }
+
+        // 越过 A 残留协程的整个 responseTimeout 窗口后，B 必须仍在线
+        Thread.sleep(1_400)
+        assertTrue(client.isTransportOpen(), "stale handshake coroutine must not kill the new transport")
+        assertEquals(2, server.requestCount)
+    }
+
+    // ---- 评审 Important-2 回归：连接结束的 socket 从 allWs 摘除，列表无界滞留 ----
+
+    @Test
+    fun `closed transports are dropped from the registry`() {
+        val srv = DdpServer()
+        val client = testClient(startServer(srv))
+        runBlocking { client.connect() }
+        assertEquals(1, client.liveTransportCount)
+
+        client.cancelTransport() // 客户端强杀 → onFailure → gone → 摘除
+        awaitCond("registry drops socket after failure") { client.liveTransportCount == 0 }
     }
 
     // ---- 语义 3：ping 发送失败（等 pong 超时）→ disconnect + tryReopen ----

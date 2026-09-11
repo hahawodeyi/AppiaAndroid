@@ -49,6 +49,7 @@ class DdpClient(
     private val client: OkHttpClient = OkHttpClient(),
     private val eventListener: DdpEventListener? = null,
 ) {
+    @Volatile
     var userId: String? = null
         private set
 
@@ -68,6 +69,7 @@ class DdpClient(
     @Volatile
     private var connected = false
 
+    @Volatile
     private var lastPing = 0L // TS 同名字段仅记录、未参与逻辑（ddpClient.ts:82）
     private var connectInflight: CompletableDeferred<Unit>? = null
     private val connectMutex = Mutex()
@@ -77,8 +79,11 @@ class DdpClient(
     @Volatile
     private var active: Connection? = null
 
-    /** 全部物理 socket（disconnect 置空 socket 后仍可强杀；数量受连接次数约束，不清理）。 */
+    /** 全部在途物理 socket（disconnect 置空 socket 后仍可强杀；连接结束即在 gone/fail 摘除）。 */
     private val allWs = CopyOnWriteArrayList<WebSocket>()
+
+    /** 存活物理连接数（测试观测 allWs 摘除用）。 */
+    internal val liveTransportCount: Int get() = allWs.size
 
     /** TS 硬编码 25s（ddpClient.ts:388）；internal 以便测试注入短超时。 */
     internal var subscribeTimeoutMs = 25_000L
@@ -225,17 +230,17 @@ class DdpClient(
             withTimeout(options.connectTimeoutMs) { conn.handshake.await() }
         } catch (e: TimeoutCancellationException) {
             val err = DdpException("[ddp] connection timeout", e)
-            conn.fail(err)
+            conn.fail(ws, err)
             throw err
         } catch (e: CancellationException) {
-            conn.fail(DdpException("[ddp] connect cancelled", e))
+            conn.fail(ws, DdpException("[ddp] connect cancelled", e))
             throw e
         } catch (e: DdpException) {
             // conn.gone 已完成清理，直接上抛
             throw e
         } catch (e: Throwable) {
             val err = DdpException("[ddp] connect failed", e)
-            conn.fail(err)
+            conn.fail(ws, err)
             throw err
         }
     }
@@ -367,7 +372,8 @@ class DdpClient(
                 deferred.completeExceptionally(DdpMethodError(err)) // TS:337
             }
         }
-        pending.put(expectedEvent, Pending(expectedEvent, wrapper, deferred))?.let { old ->
+        val entry = Pending(expectedEvent, wrapper, deferred)
+        pending.put(expectedEvent, entry)?.let { old ->
             removeListener(old.event, old.wrapper)
             old.deferred.completeExceptionally(DdpException("[ddp] superseded"))
         }
@@ -380,7 +386,8 @@ class DdpClient(
             }
         } finally {
             removeListener(expectedEvent, wrapper)
-            pending.remove(expectedEvent)
+            // 按引用删：同 key 的新 pending（如重连后的 connect 握手）不能被旧请求的 finally 误删
+            pending.remove(expectedEvent, entry)
         }
     }
 
@@ -508,6 +515,8 @@ class DdpClient(
 
     private inner class Connection : WebSocketListener() {
         val handshake = CompletableDeferred<Unit>()
+
+        @Volatile
         private var ws: WebSocket? = null
 
         private fun isCurrent(): Boolean = active === this
@@ -527,7 +536,7 @@ class DdpClient(
                     eventListener?.onConnected()
                     handshake.complete(Unit)
                 } catch (e: Throwable) {
-                    fail(if (e is DdpException) e else DdpException("[ddp] connect handshake failed", e))
+                    fail(null, if (e is DdpException) e else DdpException("[ddp] connect handshake failed", e))
                 }
             }
         }
@@ -539,17 +548,18 @@ class DdpClient(
 
         // TS onclose ddpClient.ts:203-214
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            gone(DdpCloseEvent(code, reason, null))
+            gone(webSocket, DdpCloseEvent(code, reason, null))
         }
 
         // TS onerror ddpClient.ts:199-201
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            gone(DdpCloseEvent(0, "", t))
+            gone(webSocket, DdpCloseEvent(0, "", t))
         }
 
-        private fun gone(event: DdpCloseEvent) {
+        private fun gone(webSocket: WebSocket, event: DdpCloseEvent) {
             if (!isCurrent()) return
             active = null
+            allWs.remove(webSocket)
             val wasSettled = connected
             socket = null
             connected = false
@@ -576,11 +586,17 @@ class DdpClient(
         }
 
         // TS finishReject ddpClient.ts:148-168：detach handlers + close + 置空
-        fun fail(err: Throwable) {
+        // 守卫：本连接已被 supersede（超时后重连出 B）时，残留握手协程的 fail 不得污染 B 的状态
+        fun fail(webSocket: WebSocket?, err: Throwable) {
+            if (!isCurrent()) return
             active = null
             connected = false
-            if (socket === ws) socket = null
-            runCatching { ws?.cancel() }
+            val target = webSocket ?: ws
+            if (socket === target) socket = null
+            target?.let {
+                allWs.remove(it)
+                runCatching { it.cancel() }
+            }
             handshake.completeExceptionally(err)
         }
     }
