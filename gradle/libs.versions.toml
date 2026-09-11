@@ -18,12 +18,10 @@ junit4 = "4.13.2"
 robolectric = "4.16"
 androidx-test-core = "1.7.0"
 mockwebserver = "5.3.0"
-turbine = "1.2.1"
 navigation-compose = "2.9.5"
 activity-compose = "1.11.0"
 lifecycle = "2.9.4"
 core-ktx = "1.17.0"
-datastore = "1.1.7"
 
 [libraries]
 # Compose
@@ -38,7 +36,6 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 
 # 网络
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
@@ -66,7 +63,6 @@ junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.r
 junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher", version.ref = "junit-platform" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "mockwebserver" }
-turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 junit4 = { group = "junit", name = "junit", version.ref = "junit4" }
 junit-vintage-engine = { group = "org.junit.vintage", name = "junit-vintage-engine", version.ref = "junit5" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
@@ -76,7 +72,7 @@ androidx-test-core = { group = "androidx.test", name = "core", version.ref = "an
 compose = ["compose-ui", "compose-material3", "compose-foundation", "navigation-compose", "hilt-navigation-compose"]
 network = ["retrofit", "okhttp", "okhttp-logging", "retrofit-serialization"]
 room = ["room-runtime", "room-ktx"]
-test = ["junit-jupiter", "coroutines-test", "mockwebserver", "turbine"]
+test = ["junit-jupiter", "coroutines-test", "mockwebserver"]
 test-android = ["junit4", "robolectric", "androidx-test-core"]
 
 [plugins]

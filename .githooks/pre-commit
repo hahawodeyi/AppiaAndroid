@@ -1,9 +1,13 @@
 #!/bin/bash
 # 检查暂存的 .kt 文件代码区是否含中文（注释除外）
 # 用 perl 而非 grep -P：macOS BSD grep 不支持 -P；且需剔除行尾 // 注释
+#
+# 新克隆仓库需先执行一次 `scripts/setup-hooks.sh` 启用本钩子（core.hooksPath .githooks）。
 set -e
-FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.kt$' || true)
-[ -z "$FILES" ] && exit 0
+# 逐行读入数组：文件名含空格时不做 word-split（bash 3.2 无 mapfile）
+FILES=()
+while IFS= read -r f; do FILES+=("$f"); done < <(git diff --cached --name-only --diff-filter=ACM | grep '\.kt$' || true)
+[ ${#FILES[@]} -eq 0 ] && exit 0
 violations=$(perl -CSD -ne '
   s{(?<!:)//.*$}{};   # 剔除行尾 // 注释（(?<!:) 避免误伤 https:// 字符串）
   s{/\*.*?\*/}{}g;    # 剔除同行 /* */ 注释
@@ -11,7 +15,7 @@ violations=$(perl -CSD -ne '
   s{^\s*\*.*$}{};     # 剔除块注释中间与收尾行（* ... */
   print "$ARGV:$.: $_" if /\p{Han}/;
   close ARGV if eof;  # 每个文件重置行号
-' $FILES)
+' "${FILES[@]}")
 if [ -n "$violations" ]; then
   echo "$violations"
   echo "错误：代码中检测到硬编码中文，请使用 i18n 资源" >&2
