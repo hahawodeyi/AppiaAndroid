@@ -25,6 +25,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 /** REST 登录结果：RN sdk/index.ts:149-180 的 `data ?? resp` 平铺字段（brief：{authToken, userId, me?}）。 */
@@ -98,10 +99,11 @@ class RocketSdk(
     /**
      * RN login sdk/index.ts:149-180：REST 登录成功 → 设会话 → 立即 DDP `login{resume}`。
      * REST 失败直接上抛、不触碰 DDP（无 connect、无 resume）；resume 失败同样上抛（会话已设，与 RN 一致）。
+     * timeoutMs：仅约束 REST 请求（RN restClient 调用点 timeoutMs:30_000 的等价通道，DDP resume 不受限）。
      */
-    suspend fun login(credentials: LoginCredentials): LoginResult {
+    suspend fun login(credentials: LoginCredentials, timeoutMs: Long? = null): LoginResult {
         val call = LoginRequestFactory.create(credentials)
-        val resp = restRequest("POST", call.endpoint, call.body)
+        val resp = restRequest("POST", call.endpoint, call.body, timeoutMs = timeoutMs)
         val data = flatten(resp) as? JsonObject
         val authToken = data.str("authToken")
             ?: throw ApiException("[rocket] login: missing authToken in response")
@@ -202,6 +204,7 @@ class RocketSdk(
         endpoint: String,
         body: JsonElement?,
         params: Map<String, String>? = null,
+        timeoutMs: Long? = null,
     ): JsonElement = withContext(Dispatchers.IO) {
         val host = server ?: throw IllegalStateException("RocketSdk not initialized")
         val url = buildString {
@@ -221,7 +224,10 @@ class RocketSdk(
                 post((body?.toString() ?: "").toRequestBody("application/json".toMediaType()))
             }
         }.build()
-        http.newCall(request).execute().use { resp ->
+        val call = http.newCall(request)
+        // RN restClient.ts:44-50 AbortController：per-call 超时落在本次 REST 请求上（Call.timeout 等价 callTimeout）
+        timeoutMs?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
+        call.execute().use { resp ->
             val text = resp.body.string()
             if (text.isEmpty()) JsonObject(emptyMap()) else sdkJson.parseToJsonElement(text)
         }
