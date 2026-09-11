@@ -82,6 +82,21 @@ cn.appia.im/
 
 **依赖关系**：M0 → M1 → M2 → M3 → M4 → M5 →（M6–M10 依赖 M2/M3 的基础，可乱序）→ M11。
 
+## 4.1 M0 遗留与 M1 前置任务（2026-09-11 最终评审裁定，不得静默丢失）
+
+**M1 计划必须包含一个显式的「session 层加固」任务**，一次性吸收（全在 M1 必经路径上）：
+1. per-request `timeoutMs`（组织切换需要 30s，TS `restClient.ts` 按次超时）
+2. host 归一单源化：REST/DDP/db 名三处共用一个 `normalizeServer` 顶层函数（现为两套口径：DDP 静默降级 ws://，Retrofit 抛错）
+3. 共享 OkHttpClient 单例（现每次 `RetrofitFactory.create` 新建，M1 多组织 = N 客户端 N 连接池）
+4. DatabaseManager 缓存并发加固（注释或 ConcurrentHashMap/sync）
+5. TS `raw?.data ?? raw` 平铺回退建模进 LoginResponse
+
+**M2 开工前处理**：FontSize `Dp`→`sp`（无障碍字体缩放）；`t()` resId lazy 缓存（进 Compose 每帧调用前必须）；Maestro YAML appId 参数化（配 `.debug` 后缀）；`AppiaTheme` 包 MaterialTheme/Material3 colorScheme；debug 构建 `applicationIdSuffix ".debug"`（M1 落，同步 YAML）。
+
+**M11 发布清单**：release.properties VERSION_* 接线（versionCode > 28187853）；应用图标；.gitignore 死路径清理；gradlew.bat 重生成。
+
+**可带走的小项**（机会主义清理）：AppiaColors KDoc 错位；dark/light 字段集断言同义反复；pre-commit 脚本轮边（暂存区校验、启发式假阴性）；MmkvKvStore 委托补测；`1.json` 末尾换行；DdpClientTest 慢机 flake 加固；`File.delete()` 返回值检查（Windows 场景）。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
