@@ -18,6 +18,7 @@ import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.VerifyEnterpriseResponse
+import cn.appia.im.feature.login.ui.AuthWebScreen
 import cn.appia.im.feature.login.ui.EnterpriseCodeScreen
 import cn.appia.im.feature.login.verifyEnterprise
 import dagger.hilt.android.AndroidEntryPoint
@@ -42,6 +43,15 @@ data class LoginRoute(val serversJson: String) {
 }
 
 private val loginRouteJson = Json { ignoreUnknownKeys = true }
+
+/** RN AuthWebScreen 路由参数：忘记密码 Web（url 直开）与 CAS SSO（authType='cas' + ssoToken）共用。 */
+@Serializable
+data class AuthWebRoute(
+    val url: String,
+    val title: String = "",
+    val authType: String? = null,
+    val ssoToken: String? = null,
+)
 
 @Serializable
 data object MainRoute
@@ -68,6 +78,18 @@ fun AppiaNavHost(
             Text(
                 LocalContext.current.t("feature_not_implemented") +
                     " servers=${servers.size} ${servers.firstOrNull()?.url.orEmpty()}",
+            )
+        }
+        composable<AuthWebRoute> { entry ->
+            val route = entry.toRoute<AuthWebRoute>()
+            AuthWebScreen(
+                url = route.url,
+                title = route.title,
+                authType = route.authType,
+                ssoToken = route.ssoToken,
+                // T5 接线点：CAS 命中 → AuthApi.login(server, creds) 走与账密/SMS 相同成功路径（回调参数化，此处仅壳）
+                onSsoLogin = {},
+                onBack = { nav.popBackStack() },
             )
         }
         composable<MainRoute> {
