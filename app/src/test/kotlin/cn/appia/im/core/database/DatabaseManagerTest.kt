@@ -39,6 +39,15 @@ class DatabaseManagerTest {
     }
 
     @Test
+    fun `normalize server empty protocol forms match RN`() {
+        // RN：判空在 replace **之前**，仅空白串回占位库；replace 后为空（空协议形态）返回空串 → appia_.db
+        assertEquals("appia.cn", manager.normalizeServer("//appia.cn"))
+        assertEquals("", manager.normalizeServer("https://"))
+        assertEquals("", manager.normalizeServer(" // "))
+        assertEquals("appia_.db", DatabaseManager.dbNameFor(""))
+    }
+
+    @Test
     fun `databaseFor caches instance per normalized server`() {
         val a = manager.databaseFor("chat.example.com")
         val b = manager.databaseFor("chat.example.com")

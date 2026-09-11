@@ -59,6 +59,21 @@ class ServerUrlTest {
     }
 
     @Test
+    fun `dbKey strips empty protocol form`() {
+        // RN `(^\w+:|^)\/\/`：|^ 分支匹配空串 → "//appia.cn" 的 "//" 被剥掉；ws:// 同理
+        assertEquals("appia.cn", ServerUrl.normalizeServerToDbKey("//appia.cn"))
+        assertEquals("a.b", ServerUrl.normalizeServerToDbKey("ws://a.b"))
+    }
+
+    @Test
+    fun `dbKey of protocol only input is empty string not placeholder`() {
+        // db.ts:43-46 判空在 replace 前："https://" 过判空、replace 后为空 → 空串（占位库映射归 DatabaseManager）
+        assertEquals("", ServerUrl.normalizeServerToDbKey("https://"))
+        // 对照：无协议的 "///" 只剥得掉开头 "//"，replace 后是 "."，不是空
+        assertEquals(".", ServerUrl.normalizeServerToDbKey("///"))
+    }
+
+    @Test
     fun `dbKey trims and is empty for blank input`() {
         assertEquals("", ServerUrl.normalizeServerToDbKey("   "))
     }

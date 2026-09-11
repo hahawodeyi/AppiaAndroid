@@ -12,8 +12,9 @@ import java.util.concurrent.ConcurrentHashMap
  * 多组织切换的 generation 机制（M1）不在本类范围。
  *
  * 并发约定：库实例可能从 UI/会话层并发请求（组织切换与后台同步并行），
- * 缓存用 ConcurrentHashMap（getOrPut 走 computeIfAbsent，同 key 只建一个实例），
- * active 用 @Volatile 保证跨线程可见；switch 的读-写-用仍由调用方串行化（M1 session 层）。
+ * 缓存用 ConcurrentHashMap：插入原子（putIfAbsent），并发下实例可能重复构建一次后弃置
+ * （Room.build 不落盘、胜者唯一），active 用 @Volatile 保证跨线程可见；
+ * switch 的读-写-用仍由调用方串行化（M1 session 层）。
  */
 class DatabaseManager(private val context: Context) {
 
@@ -72,9 +73,13 @@ class DatabaseManager(private val context: Context) {
     }
 
     /**
-     * 规范化 server 串为库 key：去协议、路径 slash→dot；空串回占位库。
+     * 规范化 server 串为库 key：去协议、路径 slash→dot；仅空白串回占位库。
      * 复用 ServerUrl.normalizeServerToDbKey（逐字符复刻 db.ts `normalizeServerToDbFileBase`）。
+     * 判空必须在 replace **之前**（db.ts:43-44）：`https://`、` // ` 这类 replace 后为空的输入
+     * 返回空串（落 `appia_.db`），不得回占位库——dbKey 失守会把库文件指向错位。
      */
-    fun normalizeServer(server: String): String =
-        ServerUrl.normalizeServerToDbKey(server).ifEmpty { PRELOGIN_NORMALIZED }
+    fun normalizeServer(server: String): String {
+        val t = server.trim()
+        return if (t.isEmpty()) PRELOGIN_NORMALIZED else ServerUrl.normalizeServerToDbKey(t)
+    }
 }

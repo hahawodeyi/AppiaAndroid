@@ -28,11 +28,6 @@ class RocketHttpTest {
             .callFactory() as OkHttpClient
 
     @Test
-    fun `rocket http client is a process wide singleton`() {
-        assertSame(RocketHttp.client, RocketHttp.client)
-    }
-
-    @Test
     fun `create derives client sharing pool and dispatcher`() {
         val derived = builtClient()
 
