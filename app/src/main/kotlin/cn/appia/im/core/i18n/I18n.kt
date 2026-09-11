@@ -10,5 +10,7 @@ import android.content.Context
 fun Context.t(key: String, vararg args: Any): String {
     val resId = resources.getIdentifier(key.lowercase(), "string", packageName)
     if (resId == 0) return key // 缺失回退：显示 key 本身（与 RN t() 行为一致）
+    // 空参走非格式化路径：spread 空数组仍会进 String.format，裸 % 文案会抛 UnknownFormatConversionException
+    if (args.isEmpty()) return resources.getString(resId)
     return getString(resId, *args)
 }

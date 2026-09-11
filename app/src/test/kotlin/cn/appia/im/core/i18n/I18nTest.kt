@@ -38,4 +38,11 @@ class I18nTest {
     fun `missing key falls back to key itself`() {
         assertEquals("noSuch_key_here", context.t("noSuch_key_here"))
     }
+
+    @Test
+    fun `percent literal is safe on no-arg call`() {
+        // 回归：getString(resId, *args) 空参 spread 仍走 String.format，
+        // 裸 % 结尾的文案（appupdate_downloading）会抛 UnknownFormatConversionException
+        assertEquals("Downloading update {{percent}}%", context.t("appUpdate_downloading"))
+    }
 }
