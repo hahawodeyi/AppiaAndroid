@@ -60,6 +60,8 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric 需要真实资源（strings.xml）才能解析 getIdentifier / getString
+        unitTests.isIncludeAndroidResources = true
         unitTests.all { it.useJUnitPlatform() }
     }
 }
@@ -88,6 +90,9 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.bundles.test)
+    // Robolectric 仍是 JUnit4 runner，经 vintage 引擎混跑在 JUnit Platform 上
+    testImplementation(libs.bundles.test.android)
+    testRuntimeOnly(libs.junit.vintage.engine)
     // Gradle 8.13 注入的 launcher 与 jupiter 5.13 引擎版本不对齐，需显式对齐
     testRuntimeOnly(libs.junit.platform.launcher)
 }
