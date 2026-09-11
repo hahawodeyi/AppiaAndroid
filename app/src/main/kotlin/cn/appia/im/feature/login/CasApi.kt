@@ -62,9 +62,11 @@ object CasApi {
         "$casLoginUrl?service=$server/_cas/$ssoToken"
 
     /**
-     * 回调判定纯函数（RN AuthWebScreen:37-69，评审裁定收敛：service 参数取自当前跳转 URL，
-     * 与 serverHost 比对）。先 decodeURIComponent（%2B 保护 `+` 不折成空格，同 decodeURIComponent 语义）；
-     * 带 ticket → Allow 放行服务端消费；service host == serverHost → Success；其余/坏 URL → Allow。
+     * 回调判定纯函数（RN AuthWebScreen:37-69）：先 decodeURIComponent（%2B 保护 `+` 不折成空格，
+     * 同 decodeURIComponent 语义）；带 ticket → Allow 放行服务端消费；
+     * **当前跳转 URL 自身 host** == serverHost → Success（RN:50-54 `service.hostname === u.hostname`，
+     * service 取自初始页 URL 即 `{server}/_cas/{token}`，故 serverHost 即企业服务器 host，屏层从初始
+     * url 的 service 参数提取传入）；其余/坏 URL → Allow。
      */
     fun evaluateCasRedirect(rawUrl: String, serverHost: String): CasRedirect {
         val decoded = runCatching { URLDecoder.decode(rawUrl.trim().replace("+", "%2B"), "UTF-8") }
@@ -72,12 +74,8 @@ object CasApi {
         val url = decoded.toHttpUrlOrNull() ?: return CasRedirect.Allow
         // RN `searchParams.get('ticket')` 真值判定：空串不算 ticket
         if (!url.queryParameter("ticket").isNullOrEmpty()) return CasRedirect.Allow
-        val serviceHost = url.queryParameter("service")
-            ?.trim()?.takeIf { it.isNotEmpty() }
-            ?.let { it.toHttpUrlOrNull()?.host }
-            ?: return CasRedirect.Allow
         // HttpUrl.host 已小写；ignoreCase 兜底调用方传入大小写不一的 host
-        return if (serviceHost.equals(serverHost.trim(), ignoreCase = true)) CasRedirect.Success else CasRedirect.Allow
+        return if (url.host.equals(serverHost.trim(), ignoreCase = true)) CasRedirect.Success else CasRedirect.Allow
     }
 
     private val json = Json { ignoreUnknownKeys = true }

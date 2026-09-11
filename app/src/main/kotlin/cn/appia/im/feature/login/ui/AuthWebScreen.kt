@@ -106,7 +106,7 @@ fun AuthWebScreen(
                         loadUrl(trimmed)
                     }
                 },
-                update = { it.loadUrl(trimmed) },
+                onRelease = { it.destroy() },
             )
         }
     }

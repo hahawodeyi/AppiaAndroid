@@ -14,7 +14,8 @@ import org.junit.jupiter.api.Test
 /**
  * CAS SSO 三件套（对照 RN LoginScreen:91-108/:214-233 + AuthWebScreen:37-69）：
  * - fetchCasLoginUrl：GET {server}/api/v1/settings.oauth → services[] 中 `service==='cas' && enabled` 的 login_url（trim）
- * - evaluateCasRedirect：先 decodeURIComponent；带 ticket → Allow（服务端消费）；service 参数 host == serverHost → Success；其余 Allow
+ * - evaluateCasRedirect：先 decodeURIComponent；带 ticket → Allow（服务端消费）；
+ *   当前跳转 URL 自身 host == serverHost → Success（RN:50-54 service 初始页取、u 取当前跳转）；其余 Allow
  * - generateSsoToken / buildCasUrl：17 位随机 base36；`{casLoginUrl}?service={server}/_cas/{ssoToken}` 原样拼接
  */
 class CasApiTest {
@@ -107,52 +108,50 @@ class CasApiTest {
     // ---- 回调判定纯函数（RN AuthWebScreen:37-69）----
 
     @Test
-    fun `ticket param allows load even when service matches server`() {
-        val url = "https://sso/cas/login?service=https%3A%2F%2Fappia.cn%2F_cas%2Fab&ticket=ST-123"
+    fun `ticket param allows load even when landing on server host`() {
+        val url = "https://appia.cn/_cas/ab?service=https%3A%2F%2Fappia.cn%2F_cas%2Fab&ticket=ST-123"
 
         assertEquals(CasRedirect.Allow, CasApi.evaluateCasRedirect(url, "appia.cn"))
     }
 
     @Test
-    fun `service host equal to server host succeeds`() {
+    fun `final hop back to server host without params succeeds`() {
+        // 决定性一跳：票据消费后服务端 302 回 https://server/_cas/TOKEN（无 ticket/service）
+        assertEquals(CasRedirect.Success, CasApi.evaluateCasRedirect("https://appia.cn/_cas/ab17token", "appia.cn"))
+    }
+
+    @Test
+    fun `intermediate cas domain redirect with server service param allows`() {
+        // RN:50-54 操作数方向：比对的是**当前 URL 自身 host**（sso ≠ serverHost），
+        // CAS 内部带 ?service=<server-url> 的常见跳转不得误判 Success
         val url = "https://sso/cas/login?service=https%3A%2F%2Fappia.cn%2F_cas%2Fab"
 
-        assertEquals(CasRedirect.Success, CasApi.evaluateCasRedirect(url, "appia.cn"))
-    }
-
-    @Test
-    fun `service host different from server host allows`() {
-        val url = "https://sso/cas/login?service=https%3A%2F%2Fother.cn%2F_cas%2Fab"
-
         assertEquals(CasRedirect.Allow, CasApi.evaluateCasRedirect(url, "appia.cn"))
     }
 
     @Test
-    fun `missing service param allows`() {
-        assertEquals(CasRedirect.Allow, CasApi.evaluateCasRedirect("https://sso/cas/login", "appia.cn"))
+    fun `different current host allows`() {
+        assertEquals(CasRedirect.Allow, CasApi.evaluateCasRedirect("https://other.cn/_cas/ab", "appia.cn"))
     }
 
     @Test
-    fun `empty ticket value falls through to service check`() {
-        // RN `searchParams.get('ticket')` 真值判定：空串不算 ticket，继续 service 判定
-        val url = "https://sso/cas/login?ticket=&service=https%3A%2F%2Fappia.cn%2F_cas%2Fab"
-
-        assertEquals(CasRedirect.Success, CasApi.evaluateCasRedirect(url, "appia.cn"))
+    fun `empty ticket value falls through to host check`() {
+        // RN `searchParams.get('ticket')` 真值判定：空串不算 ticket，继续 host 判定
+        assertEquals(CasRedirect.Success, CasApi.evaluateCasRedirect("https://appia.cn/_cas/ab?ticket=", "appia.cn"))
+        assertEquals(CasRedirect.Allow, CasApi.evaluateCasRedirect("https://sso/cas/login?ticket=", "appia.cn"))
     }
 
     @Test
     fun `double encoded url is decoded before recognition`() {
-        // RN AuthWebScreen:40 先 decodeURIComponent：%253A → %3A，service 才能解析出 host
-        val url = "https://sso/cas/login?service=https%253A%252F%252Fappia.cn%252F_cas%252Fab"
+        // RN AuthWebScreen:40 先 decodeURIComponent 再解析
+        val url = "https://appia.cn/_cas/ab?next=https%253A%252F%252Fsso.example%252Fcas"
 
         assertEquals(CasRedirect.Success, CasApi.evaluateCasRedirect(url, "appia.cn"))
     }
 
     @Test
     fun `host comparison is case insensitive`() {
-        val url = "https://sso/cas/login?service=https%3A%2F%2Fappia.cn%2F_cas%2Fab"
-
-        assertEquals(CasRedirect.Success, CasApi.evaluateCasRedirect(url, "APPIA.CN"))
+        assertEquals(CasRedirect.Success, CasApi.evaluateCasRedirect("https://appia.cn/_cas/ab", "APPIA.CN"))
     }
 
     @Test
