@@ -8,6 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
@@ -15,18 +20,26 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import cn.appia.im.core.i18n.t
+import cn.appia.im.core.network.LoginCredentials
 import cn.appia.im.core.theme.AppiaTheme
+import cn.appia.im.feature.login.AuthApi
 import cn.appia.im.feature.login.CompanyServer
+import cn.appia.im.feature.login.LoginAreaCodeOption
 import cn.appia.im.feature.login.VerifyEnterpriseResponse
 import cn.appia.im.feature.login.ui.AuthWebScreen
 import cn.appia.im.feature.login.ui.EnterpriseCodeScreen
+import cn.appia.im.feature.login.ui.LoginScreen
+import cn.appia.im.feature.login.ui.AreaCodeScreen
+import cn.appia.im.feature.login.ui.isLoginNetworkTimeoutError
 import cn.appia.im.feature.login.verifyEnterprise
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** Auth 图路由（T3 建立导航骨架；Main 占位留给 T11）。 */
+/** Auth 图路由（T3 建立导航骨架）：Enterprise → Login → (AreaCode | AuthWeb) → Main。 */
 @Serializable
 data object EnterpriseCodeRoute
 
@@ -36,7 +49,6 @@ data object EnterpriseCodeRoute
  */
 @Serializable
 data class LoginRoute(val serversJson: String) {
-    /** T5 消费入口：serversJson → List<CompanyServer>；坏参回落空列表（T5 换真 UI 时按需收紧）。 */
     fun servers(): List<CompanyServer> =
         runCatching { loginRouteJson.decodeFromString<List<CompanyServer>>(serversJson) }
             .getOrDefault(emptyList())
@@ -44,13 +56,19 @@ data class LoginRoute(val serversJson: String) {
 
 private val loginRouteJson = Json { ignoreUnknownKeys = true }
 
-/** RN AuthWebScreen 路由参数：忘记密码 Web（url 直开）与 CAS SSO（authType='cas' + ssoToken）共用。 */
+/** 区号选择页路由参数（RN:189-196 navigate(AreaCodeScreen, {server})）。 */
+@Serializable
+data class AreaCodeRoute(val server: String)
+
+/** RN AuthWebScreen 路由参数：忘记密码 Web（url 直开）与 CAS SSO（authType='cas' + ssoToken）共用；
+ *  `server` 为发起页选中的企业服务器（RN 闭包捕获 selectedUrl 的等价物，CAS 成功回调用）。 */
 @Serializable
 data class AuthWebRoute(
     val url: String,
     val title: String = "",
     val authType: String? = null,
     val ssoToken: String? = null,
+    val server: String = "",
 )
 
 @Serializable
@@ -62,6 +80,34 @@ fun AppiaNavHost(
     verify: suspend (String, String) -> VerifyEnterpriseResponse = ::verifyEnterprise,
 ) {
     val nav = rememberNavController()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    // CAS SSO 登录失败要落回登录页弹窗（RN runLogin 的 Alert；导航级状态跨屏传递）
+    var loginAlert by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // 区号选择回调：type-safe nav 参数不携带 lambda，暂存导航级状态（RN 路由 params.onSelect 等价物）
+    var areaCodeSelect by remember { mutableStateOf<((LoginAreaCodeOption) -> Unit)?>(null) }
+
+    fun goMain() = nav.navigate(MainRoute) { popUpTo(0) { inclusive = true } }
+
+    /** CAS 命中 → 与账密/SMS 同走 AuthApi.login 成功路径（RN handleCasSsoLogin → runLogin）。 */
+    fun runSsoLogin(server: String, ssoToken: String) {
+        scope.launch {
+            try {
+                AuthApi.login(server, LoginCredentials.Cas(ssoToken), AuthApi.LOGIN_TIMEOUT_MS)
+                goMain() // popUpTo(0) 清空 Auth 栈（含 AuthWeb），等价 RN goBack + 切 Main
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                nav.popBackStack() // 回登录页再弹告警（RN runLogin catch → Alert on LoginScreen）
+                loginAlert = context.t("login_alertfailedtitle") to when {
+                    isLoginNetworkTimeoutError(e) -> context.t("login_network_timeout")
+                    e.message != null -> e.message!!
+                    else -> context.t("login_alertfailedunknown")
+                }
+            }
+        }
+    }
+
     NavHost(navController = nav, startDestination = EnterpriseCodeRoute) {
         composable<EnterpriseCodeRoute> {
             EnterpriseCodeScreen(verify = verify, onVerified = { servers ->
@@ -72,12 +118,43 @@ fun AppiaNavHost(
             })
         }
         composable<LoginRoute> { entry ->
-            // T5 LoginScreen 占位：展示收到的 servers 供走查/测试断言
             val route = entry.toRoute<LoginRoute>()
-            val servers = route.servers()
-            Text(
-                LocalContext.current.t("feature_not_implemented") +
-                    " servers=${servers.size} ${servers.firstOrNull()?.url.orEmpty()}",
+            LoginScreen(
+                servers = route.servers(),
+                onLoginSuccess = { _, _ ->
+                    // T7 接 AuthRepository.login(result, server) 持久化；M1 本阶段先进 Main 占位
+                    goMain()
+                },
+                onMissingServers = {
+                    nav.navigate(EnterpriseCodeRoute) { popUpTo(0) { inclusive = true } } // RN:147 replace
+                },
+                onOpenAreaCode = { server, onSelect ->
+                    areaCodeSelect = onSelect
+                    nav.navigate(AreaCodeRoute(server))
+                },
+                onOpenAuthWeb = { request ->
+                    nav.navigate(
+                        AuthWebRoute(
+                            url = request.url,
+                            title = request.title,
+                            authType = request.authType,
+                            ssoToken = request.ssoToken,
+                            server = request.server,
+                        ),
+                    )
+                },
+                externalAlert = loginAlert,
+                onConsumeExternalAlert = { loginAlert = null },
+            )
+        }
+        composable<AreaCodeRoute> { entry ->
+            AreaCodeScreen(
+                server = entry.toRoute<AreaCodeRoute>().server,
+                onSelect = { option ->
+                    areaCodeSelect?.invoke(option) // RN onSelect(areaCode) 后 goBack
+                    nav.popBackStack()
+                },
+                onBack = { nav.popBackStack() },
             )
         }
         composable<AuthWebRoute> { entry ->
@@ -87,12 +164,13 @@ fun AppiaNavHost(
                 title = route.title,
                 authType = route.authType,
                 ssoToken = route.ssoToken,
-                // T5 接线点：CAS 命中 → AuthApi.login(server, creds) 走与账密/SMS 相同成功路径（回调参数化，此处仅壳）
-                onSsoLogin = {},
+                // T5 接线点：CAS 回调判定命中 → AuthApi.login → Main（失败落回登录页告警）
+                onSsoLogin = { runSsoLogin(route.server, it.credentialToken) },
                 onBack = { nav.popBackStack() },
             )
         }
         composable<MainRoute> {
+            // M2 将替换为会话列表；不放企业 servers 明文
             Text(LocalContext.current.t("feature_not_implemented"))
         }
     }

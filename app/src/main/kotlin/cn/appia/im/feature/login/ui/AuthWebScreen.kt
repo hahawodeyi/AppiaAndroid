@@ -1,8 +1,6 @@
 package cn.appia.im.feature.login.ui
 
-import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
@@ -73,17 +71,8 @@ fun AuthWebScreen(
                 factory = { ctx ->
                     val web = WebView(ctx)
                     web.apply {
-                        // RN:93-97 配置逐一映射
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        }
-                        // RN sharedCookiesEnabled + originWhitelist ['*']：全局接受 cookie（含三方）
-                        CookieManager.getInstance().apply {
-                            setAcceptCookie(true)
-                            setAcceptThirdPartyCookies(web, true)
-                        }
+                        // RN:93-97 配置逐一映射（与滑块 WebView 共享封装）
+                        web.applyAuthWebSettings()
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 view: WebView,

@@ -87,10 +87,10 @@ class EnterpriseCodeScreenTest {
         rule.onNodeWithTag("enterprise_code_input").performTextInput("ab12")
         rule.onNodeWithText(context.t("enterprise_next")).performClick()
 
-        // Login 占位展示收到的 servers（type-safe nav 参数化）：2 台、首台 url
+        // Login 真屏（T5）：企业 label + 下拉展示首台服务器名（type-safe nav 参数化传递 servers）
         rule.waitUntil(5_000) {
-            rule.onAllNodesWithText("servers=2 https://s1", substring = true)
-                .fetchSemanticsNodes().isNotEmpty()
+            rule.onAllNodesWithText(context.t("login_enterprise")).fetchSemanticsNodes().isNotEmpty()
         }
+        rule.onNodeWithText("S1").assertExists()
     }
 }

@@ -6,6 +6,7 @@ import cn.appia.im.core.network.RocketHttp
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.ServerUrl
 import cn.appia.im.core.network.rest.AuthInterceptor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -91,11 +92,15 @@ object AuthApi {
     suspend fun loginGetAreaCodes(host: String, locale: String, fallbackLabel: String): List<LoginAreaCodeOption> {
         val key = "${ServerUrl.normalizeServer(host)}|$locale"
         areaCodeCache[key]?.let { return it }
-        val list = runCatching {
+        val list = try {
             val raw = restCall(host, "getAreaCode", method = "GET", params = mapOf("locale" to locale))
             val data = (raw as? JsonObject)?.get("data")
             if (data is JsonArray) json.decodeFromJsonElement<List<LoginAreaCodeOption>>(data) else emptyList()
-        }.getOrDefault(emptyList())
+        } catch (e: CancellationException) {
+            throw e // 取消不是“拉取失败”，不得被回落 +86 吞掉（Minor 统一修复）
+        } catch (_: Exception) {
+            emptyList()
+        }
         if (list.isEmpty()) {
             return listOf(LoginAreaCodeOption(label = fallbackLabel, areaCode = "+86", code = "CN"))
         }

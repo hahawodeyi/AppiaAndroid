@@ -1,9 +1,7 @@
 package cn.appia.im.feature.login.ui
 
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -33,6 +31,7 @@ import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.DEFAULT_VERIFY_ENV_HOST
 import cn.appia.im.feature.login.VerifyEnterpriseResponse
 import cn.appia.im.feature.login.verifyEnterprise
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private const val TAG_CODE_INPUT = "enterprise_code_input"
@@ -66,8 +65,9 @@ fun EnterpriseCodeScreen(
         }
         // 绑定裁定#3：envHost 空回落 DEFAULT（RN:61-64 为 missingHost alert，Android 按裁定收敛）
         val host = envHost.trim().ifEmpty { DEFAULT_VERIFY_ENV_HOST }
+        // loading 提到 launch 前：同帧双击时第二击已能看到守卫（Minor 竞态修复）
+        loading = true
         scope.launch {
-            loading = true
             try {
                 val resp = verify(host, trimmed)
                 if (resp.pass) {
@@ -76,6 +76,8 @@ fun EnterpriseCodeScreen(
                     // RN:78 失败分支：msg 缺省回落 verifyFailedUnknown
                     alert = t("enterprise_verifyFailedTitle") to (resp.msg ?: t("enterprise_verifyFailedUnknown"))
                 }
+            } catch (e: CancellationException) {
+                throw e // 协程取消不是校验失败（Minor 统一修复：不吞 CancellationException）
             } catch (_: Exception) {
                 alert = t("enterprise_verifyFailedTitle") to t("enterprise_verifyFailedUnknown")
             } finally {
@@ -84,11 +86,13 @@ fun EnterpriseCodeScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 32.dp)) {
-        Spacer(Modifier.height(96.dp))
-        Text(t("enterprise_welcome"), style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(48.dp))
-
+    AuthBrandedLayout(
+        title = t("enterprise_welcome"),
+        footer = {
+            // RN:174-178 底部版本行
+            VersionLine(t("enterprise_versionLine").replace("{{version}}", BuildConfig.VERSION_NAME))
+        },
+    ) {
         // RN:95-106 长按 label 开发后门（__DEV__ 等价 BuildConfig.DEBUG）；切换不改已输 code
         Text(
             text = t("enterprise_codeLabel"),

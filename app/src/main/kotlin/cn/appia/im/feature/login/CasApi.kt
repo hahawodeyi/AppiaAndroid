@@ -2,6 +2,7 @@ package cn.appia.im.feature.login
 
 import cn.appia.im.core.network.RocketHttp
 import cn.appia.im.core.network.ServerUrl
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -37,7 +38,7 @@ object CasApi {
      * 中 `service === 'cas' && enabled` 的 `login_url`（trim）；未启用/未找到/空值/异常 → null。
      * 逐条目 JsonElement 遍历：单条脏数据不炸整响应（同 AuthApi 口径）。
      */
-    suspend fun fetchCasLoginUrl(server: String): String? = runCatching {
+    suspend fun fetchCasLoginUrl(server: String): String? = try {
         withContext(Dispatchers.IO) {
             val url = "${ServerUrl.normalizeServer(server)}/api/v1/settings.oauth"
             RocketHttp.client.newCall(Request.Builder().url(url).get().build()).execute().use { resp ->
@@ -50,7 +51,11 @@ object CasApi {
                 cas.textField("login_url")?.trim()?.ifEmpty { null }
             }
         }
-    }.getOrNull()
+    } catch (e: CancellationException) {
+        throw e // 取消不是“探测失败”，不得被隐藏按钮的 null 吞掉（Minor 统一修复）
+    } catch (_: Exception) {
+        null // RN:103-105 网络异常一律忽略，CAS 按钮保持隐藏
+    }
 
     /** RN LoginScreen:222-224：17 位随机 base36（`nextInt(36)` 有界随机源，字母表纯净无负号）。 */
     fun generateSsoToken(): String = buildString {
