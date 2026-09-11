@@ -1,0 +1,47 @@
+package cn.appia.im.core.network.rest
+
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
+
+/** TS restClient.ts:9 —— i18n key，401 登出后 UI 层据此提示。 */
+const val AUTH_SESSION_EXPIRED_ERROR = "auth_session_expired"
+
+/**
+ * TS restClient.ts:82 —— 401 时抛出，message 即 i18n key。
+ * 继承 IOException：OkHttp 5 会把 interceptor 抛的非 IOException 包成
+ * `IOException("canceled due to …")`，网络层失败走 IOException 通道才能原样穿透。
+ */
+class AuthSessionExpiredException : IOException(AUTH_SESSION_EXPIRED_ERROR)
+
+/** 非 401 的 REST 错误（对应 TS restClient.ts:90 的 Error）。 */
+class ApiException(message: String) : IOException(message)
+
+/** TS services/auth/orgSwitchInProgress.ts：组织换票期间 401 不触发登出。 */
+object OrgSwitchState {
+    private val inProgress = AtomicBoolean(false)
+
+    fun begin() {
+        inProgress.set(true)
+    }
+
+    fun end() {
+        inProgress.set(false)
+    }
+
+    fun isInProgress(): Boolean = inProgress.get()
+}
+
+/**
+ * TS authActions.logout() 的缝：401（且非组织切换中）时发事件，M1 由 authStore 订阅后登出。
+ * extraBufferCapacity 保证 collector 未挂时事件不丢（无 replay：M1 订阅时机由 authStore 决定）。
+ */
+object SessionExpiredBus {
+    private val _events = MutableSharedFlow<Unit>(extraBufferCapacity = 16)
+    val events: SharedFlow<Unit> = _events
+
+    fun emit() {
+        _events.tryEmit(Unit)
+    }
+}
