@@ -99,6 +99,9 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.bundles.test)
+    // Compose UI 测试：Robolectric + createComposeRule（T3 起）；manifest 提供 test activity
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
     // Robolectric 仍是 JUnit4 runner，经 vintage 引擎混跑在 JUnit Platform 上
     testImplementation(libs.bundles.test.android)
     testRuntimeOnly(libs.junit.vintage.engine)
