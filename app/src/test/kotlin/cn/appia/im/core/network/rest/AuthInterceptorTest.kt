@@ -158,6 +158,23 @@ class AuthInterceptorTest {
         assertNull(recorded.getHeader("X-User-Id"))
     }
 
+    // ---- T2 回归：verify-ic（LDAP 登录）与 login 同属登录类端点，不带鉴权头 ----
+
+    @Test
+    fun `verify-ic omits auth headers even when session present`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"data":{"userId":"u-9","authToken":"t-9"}}"""),
+        )
+        val api = api { AuthSession(token = "stale-org-token", userId = "stale-org-user") }
+
+        api.verifyIc(LoginRequest(username = "bob", password = "secret"))
+
+        val recorded = server.takeRequest()
+        assertEquals("/api/v1/verify-ic", recorded.path)
+        assertNull(recorded.getHeader("X-Auth-Token"), "verify-ic must not carry stale org token")
+        assertNull(recorded.getHeader("X-User-Id"))
+    }
+
     // ---- 评审 Important-5 回归：错误链 JSON-null 边角 ----
 
     @Test

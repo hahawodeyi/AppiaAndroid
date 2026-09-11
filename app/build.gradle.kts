@@ -34,7 +34,10 @@ android {
         versionName = "0.1.0"
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true // RocketSdk.initialize 的 dev 重连间隔（RN __DEV__ → BuildConfig.DEBUG）
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

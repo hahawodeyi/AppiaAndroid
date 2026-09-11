@@ -14,8 +14,14 @@ data class AuthSession(val token: String, val userId: String)
 private val errorJson = Json { ignoreUnknownKeys = true }
 
 /**
+ * 登录类端点不带鉴权头（TS headers 由调用方按次拼；换组织/重登录不得携带旧组织 token）。
+ * `verify-ic`（LDAP 登录）与 `login` 同属登录调用（loginCredentialsRest.ts 两分支）。
+ */
+private val ANONYMOUS_LOGIN_ENDPOINTS = setOf("login", "verify-ic")
+
+/**
  * 逐行为移植 appiaMobile/src/services/sdk/restClient.ts（单个函数拆成 interceptor 两段）：
- * - 请求前：已登录时注入 X-Auth-Token / X-User-Id；login 端点除外
+ * - 请求前：已登录时注入 X-Auth-Token / X-User-Id；登录类端点（login / verify-ic）除外
  *   （TS headers 由调用方按次拼，login 调用不带——换组织/重登录不得携带旧组织 token）
  * - 401 且非组织切换中 → 发 SessionExpiredBus，总是抛 AuthSessionExpiredException（TS:78-83）
  * - 其余非 2xx → 按 message ?? error ?? 原始 text ?? HTTP <status> 提取后抛 ApiException（TS:85-90）
@@ -23,7 +29,8 @@ private val errorJson = Json { ignoreUnknownKeys = true }
 class AuthInterceptor(private val authProvider: () -> AuthSession?) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val session = if (request.url.encodedPathSegments.lastOrNull() == "login") null else authProvider()
+        val session =
+            if (request.url.encodedPathSegments.lastOrNull() in ANONYMOUS_LOGIN_ENDPOINTS) null else authProvider()
         val authorized = if (session == null) {
             request
         } else {
