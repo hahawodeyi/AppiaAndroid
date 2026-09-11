@@ -8,6 +8,26 @@ import androidx.compose.ui.graphics.Color
  * - light/dark/black 中的 `...mentions` 对象展开转录为同名字段。
  * - `SWITCH_TRACK_COLOR*` 中的 `rgba(...)` 保持 RN 原式，转为 Compose 浮点构造，不做手工换算。
  */
+object Colors {
+    // RN src/theme/tokens.ts 的应用级调色板（MeetingFormScreen 等十余处使用）
+    val primary = Color(0xFF2878FF)
+    val primaryLight = Color(0xFFE8F3FF)
+    val textPrimary = Color(0xFF1D2129)
+    val textSecondary = Color(0xFF4E5969)
+    val textTertiary = Color(0xFF86909C)
+    val textDisabled = Color(0xFFC9CDD4)
+    val textWhite = Color(0xFFFFFFFF)
+    val bgBase = Color(0xFFFFFFFF)
+    val bgSecondary = Color(0xFFF7F8FA)
+    val bgTertiary = Color(0xFFF2F3F5)
+    val border = Color(0xFFE5E6EB)
+    val borderLight = Color(0xFFF2F3F5)
+    val success = Color(0xFF00B42A)
+    val warning = Color(0xFFFF7D00)
+    val danger = Color(0xFFF53F3F)
+}
+
+/** RN `src/theme/colors.ts` 的逐字段转录（字段名保持 RN 命名）. */
 class Palette(
     val primary: Color,
     val backgroundColor: Color,

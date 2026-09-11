@@ -41,6 +41,16 @@ class AppiaColorsTest {
         assertEquals(73, AppiaColors.black.paletteFieldCount())
     }
 
+    // 排除编译器生成字段：Compose 的 $stable 与 Kotlin object 的静态 INSTANCE
     private fun Any.paletteFieldCount(): Int =
-        javaClass.declaredFields.count { !it.name.startsWith("$") }
+        javaClass.declaredFields.count { !it.name.startsWith("$") && it.name != "INSTANCE" }
+
+    @Test
+    fun `tokens Colors matches RN tokens ts`() {
+        assertHex("#2878FF", Colors.primary)
+        assertHex("#00B42A", Colors.success)
+        assertHex("#F53F3F", Colors.danger)
+        // tokens.ts 的 Colors 全量 15 个字段（不计 $stable 合成字段）
+        assertEquals(15, Colors.paletteFieldCount())
+    }
 }
