@@ -86,7 +86,7 @@ cn.appia.im/
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
 2. **REST 401 处理**：非组织切换期间收到 401 → 全局登出（移植 `restClient.ts` 的 `AUTH_SESSION_EXPIRED_ERROR` 行为）。
-3. **Room schema 对照 WatermelonDB v6**（9 表：chats、subscriptions、rooms、messages、threads、users、settings、uploads、custom_emojis）。列名保持 snake_case 原名（`_id`、`fname`、`tunread` 等），便于与服务端文档字段直接对照。JSON 复杂字段（roles、uids 等）存 TEXT，kotlinx.serialization 编解码。
+3. **Room schema 对照 WatermelonDB v6**（8 表：chats、subscriptions、rooms、messages、users、settings、uploads、custom_emojis；✍️ 修订 2026-09-11：原记 9 表含 threads——核实 Thread.ts 为 0 字节未注册文件，RN 以 `messages.tmid` 表达线程，故无 threads 表；M2 若需线程表再以权威来源设计）。列名保持 snake_case 原名（`_id`、`fname`、`tunread` 等），便于与服务端文档字段直接对照。JSON 复杂字段（roles、uids 等）存 TEXT，kotlinx.serialization 编解码。
 4. **富文本编辑器**：优先方案 c——WebView 包装现有 ProseMirror（10tap-editor）构建产物，JS bridge 收发 HTML/Markdown；若 bridge 调试不可行降级方案 b（纯文本输入 + 附件，渲染侧仍完整）。M3 第一个任务做技术验证 spike。
 5. **i18n key 不转换**：zh/en.json 的 `{模块}_{含义}` key 原样搬入 `strings.xml`（key 含大写/下划线，Android 资源名需转义——用 `res/values/strings-zh.xml` + 自定义查找函数 `t(key)` 封装，避免手工重命名 29KB×2 的映射错误）。pre-commit 中文检查用等价 shell 脚本。
 6. **每组织独立数据库**：db 文件名 = 规范化 server URL（对照 `db.ts` 的 `PRELOGIN_NORMALIZED = '__prelogin__'`），MMKV 存多组织认证信息，切换 = 断 DDP → 换 db → 重连（generation 机制取消进行中操作）。

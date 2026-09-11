@@ -1,0 +1,7 @@
+# M0 冒烟：壳应用仅占位 Text("Appia")（MainActivity，RootNavHost 自 M2 起），
+# 无 testID 可断言，故以「启动成功 + 占位文本可见」为目标；
+# M2 接入导航后换回 testID 断言（参考 appiaMobile/maestro/launch_android.yaml）。
+appId: cn.appia.im
+---
+- launchApp
+- assertVisible: "Appia"
