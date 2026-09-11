@@ -35,7 +35,8 @@ object OrgSwitchState {
 
 /**
  * TS authActions.logout() 的缝：401（且非组织切换中）时发事件，M1 由 authStore 订阅后登出。
- * extraBufferCapacity 保证 collector 未挂时事件不丢（无 replay：M1 订阅时机由 authStore 决定）。
+ * 注意：无 replay——订阅者未挂时事件直接丢弃，M1 authStore 须尽早订阅；
+ * extraBufferCapacity 仅兜底「已有订阅者但暂未消费」（慢消费不丢）。
  */
 object SessionExpiredBus {
     private val _events = MutableSharedFlow<Unit>(extraBufferCapacity = 16)

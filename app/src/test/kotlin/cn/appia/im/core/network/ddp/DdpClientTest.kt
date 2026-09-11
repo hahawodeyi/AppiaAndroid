@@ -633,4 +633,69 @@ class DdpClientTest {
         assertTrue(elapsed < 3_000, "must fail before responseTimeout(5s), took ${elapsed}ms")
         assertTrue(e!!.message!!.contains("connection closed"))
     }
+
+    // ---- 评审 Important-4a 回归：disconnect 落在建连中途，握手完成后不得复活传输 ----
+    //
+    // OkHttp 应用拦截器把 WS 升级请求拦在闸门后：openConnection 已挂起等握手时调 disconnect，
+    // 再放行升级 → onOpen 在 disconnect 之后才到达。修复前 isCurrent() 仍成立 → connected=true
+    // 并发出 DDP connect 帧（孤儿连接）；修复后代次作废，迟到握手整体丢弃。
+
+    @Test
+    fun `handshake completing after disconnect does not resurrect transport`() {
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val srv = DdpServer()
+        server.start()
+        server.enqueue(MockResponse().withWebSocketUpgrade(srv))
+        val gated = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                gate.await()
+                chain.proceed(chain.request())
+            }
+            .build()
+        val client = DdpClient(
+            DdpOptions(host = server.url("/websocket").toString(), connectTimeoutMs = 2_000),
+            gated,
+        )
+        clients.add(client)
+
+        val err = AtomicReference<Throwable?>(null)
+        val t = thread { runBlocking { runCatching { client.connect() }.onFailure { err.set(it) } } }
+        awaitCond("openConnection suspended before upgrade") { client.isConnecting() }
+        client.disconnect()
+        gate.countDown()
+        t.join(5_000)
+
+        // 等在建连上的 connect 调用方快速失败（而非挂到 connectTimeout）
+        val e = err.get()
+        assertNotNull(e, "connect must fail fast after disconnect")
+        assertTrue(e is DdpException && e.message!!.contains("disconnected"), "got: $e")
+
+        Thread.sleep(500) // 放行迟到 onOpen 及其协程
+        assertFalse(client.isTransportOpen(), "late handshake must not resurrect the transport")
+        assertNull(client.userId)
+        assertTrue(
+            srv.received.none { parse(it)?.str("msg") == "connect" },
+            "late onOpen must not send the DDP connect frame, received=${srv.received}",
+        )
+    }
+
+    // ---- 评审 Important-4b 回归：close() 终态——disconnect + 取消 scope，此后不可复用 ----
+
+    @Test
+    fun `close disposes client and subsequent connects fail fast`() {
+        val srv = DdpServer()
+        val client = testClient(startServer(srv))
+        runBlocking { client.connect() }
+        assertTrue(client.isTransportOpen())
+
+        client.close()
+        assertFalse(client.isTransportOpen())
+
+        val ex = assertThrows<DdpException> { runBlocking { client.connect() } }
+        assertEquals("[ddp] client closed", ex.message)
+
+        client.checkAndReopen() // close 后必须无副作用：不得触发重连
+        Thread.sleep(400)
+        assertEquals(1, server.requestCount, "closed client must not reconnect")
+    }
 }

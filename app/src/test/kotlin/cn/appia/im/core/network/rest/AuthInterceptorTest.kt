@@ -141,6 +141,47 @@ class AuthInterceptorTest {
         assertTrue(ex.contains("HTTP 504"))
     }
 
+    // ---- 评审 Important-3 回归：login 端点不注入鉴权头（换组织/重登录不得携带旧 token）----
+
+    @Test
+    fun `login omits auth headers even when session present`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"status":"success","data":{"userId":"u-9","authToken":"t-9"}}"""),
+        )
+        val api = api { AuthSession(token = "stale-org-token", userId = "stale-org-user") }
+
+        api.login(LoginRequest(username = "bob", password = "secret"))
+
+        val recorded = server.takeRequest()
+        assertEquals("/api/v1/login", recorded.path)
+        assertNull(recorded.getHeader("X-Auth-Token"), "login must not carry stale org token")
+        assertNull(recorded.getHeader("X-User-Id"))
+    }
+
+    // ---- 评审 Important-5 回归：错误链 JSON-null 边角 ----
+
+    @Test
+    fun `error message falls back to error when message is json null`() = runBlocking {
+        val api = api { null }
+
+        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"message":null,"error":"e-null"}"""))
+        val ex = runCatching { api.serverInfo() }.exceptionOrNull()!!.message!!
+
+        assertTrue(ex.contains("e-null"), "JsonNull message must fall through to error, got: $ex")
+    }
+
+    @Test
+    fun `error message falls back instead of crashing when message is an object`() = runBlocking {
+        val api = api { null }
+
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody("""{"message":{"deep":"x"},"error":"e-obj"}"""),
+        )
+        val ex = runCatching { api.serverInfo() }.exceptionOrNull()!!.message!!
+
+        assertTrue(ex.contains("e-obj"), "non-primitive message must fall through to error, got: $ex")
+    }
+
     // ---- 语义 1（base URL）+ 端点形态：POST login / GET info ----
 
     @Test

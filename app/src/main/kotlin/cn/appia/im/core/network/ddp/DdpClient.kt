@@ -7,11 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlin.concurrent.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -29,6 +29,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.coroutines.coroutineContext
 
 private fun textOf(e: JsonElement?): String? = (e as? JsonPrimitive)?.contentOrNull
@@ -72,8 +74,20 @@ class DdpClient(
     @Volatile
     private var lastPing = 0L // TS 同名字段仅记录、未参与逻辑（ddpClient.ts:82）
     private var connectInflight: CompletableDeferred<Unit>? = null
-    private val connectMutex = Mutex()
+
+    /** 建队互斥：非 suspend 的 disconnect/close 也要与 connect 的建队段互斥，故用 ReentrantLock。 */
+    private val connectLock = ReentrantLock()
     private val reopenLock = Any()
+
+    /**
+     * 连接代次：disconnect/close 时自增，作废在途 connect 的握手回调——
+     * 断开落在建连中途时，随后完成的 onOpen/握手被整体丢弃（原生版加固，TS 无此保护）。
+     */
+    private val generation = AtomicLong(0)
+
+    /** close() 后的终态：不可再用（connect 快速失败），disconnect 可重连、close 不行。 */
+    @Volatile
+    private var closed = false
 
     /** 当前活跃连接；finishReject/detach 的等价物是把它置 null（过期 socket 回调全部忽略）。 */
     @Volatile
@@ -84,6 +98,9 @@ class DdpClient(
 
     /** 存活物理连接数（测试观测 allWs 摘除用）。 */
     internal val liveTransportCount: Int get() = allWs.size
+
+    /** 是否有在途 connect（测试观测 disconnect 竞态用）。 */
+    internal fun isConnecting(): Boolean = connectLock.withLock { connectInflight != null }
 
     /** TS 硬编码 25s（ddpClient.ts:388）；internal 以便测试注入短超时。 */
     internal var subscribeTimeoutMs = 25_000L
@@ -119,6 +136,7 @@ class DdpClient(
      * 启动前清掉未触发的 reopen 定时器。
      */
     suspend fun connect() {
+        if (closed) throw DdpException("[ddp] client closed")
         if (isTransportOpen()) return
         // TS:125 clearTimeout(reopenTimer)；reopen 协程自身调 connect 时不能自杀
         val currentJob = coroutineContext[Job]
@@ -129,12 +147,16 @@ class DdpClient(
             }
         }
 
-        val deferred = connectMutex.withLock {
+        val deferred = connectLock.withLock {
+            if (closed) throw DdpException("[ddp] client closed")
             if (isTransportOpen()) return
             connectInflight ?: CompletableDeferred<Unit>().also { d ->
                 connectInflight = d
+                val genAtStart = generation.get()
                 scope.launch {
                     try {
+                        // disconnect 抢在建队与执行之间到达：不建 socket，直接以「已断开」失败
+                        if (generation.get() != genAtStart) throw DdpException("[ddp] disconnected")
                         openConnection()
                         d.complete(Unit)
                     } catch (e: Throwable) {
@@ -142,7 +164,7 @@ class DdpClient(
                         d.completeExceptionally(if (e is CancellationException) DdpException("[ddp] connect cancelled", e) else e)
                     } finally {
                         // TS:127-129 finally { connectInflight = null }
-                        connectMutex.withLock { if (connectInflight === d) connectInflight = null }
+                        connectLock.withLock { if (connectInflight === d) connectInflight = null }
                     }
                 }
             }
@@ -153,8 +175,20 @@ class DdpClient(
     /** TS disconnect ddpClient.ts:221-235：close code 4000，清 userId/reopenTimer/ping，不再自动重连。 */
     fun disconnect() = disconnectInternal()
 
-    /** TS checkAndReopen ddpClient.ts:237-242：未连接时 fire-and-forget。 */
+    /**
+     * 终态销毁（M1 session 层持有）：disconnect + 取消内部 scope。
+     * 与 disconnect 不同：此后 connect 等方法快速失败，实例不可复用。
+     */
+    fun close() {
+        if (closed) return
+        closed = true
+        disconnectInternal()
+        scope.cancel()
+    }
+
+    /** TS checkAndReopen ddpClient.ts:237-242：未连接时 fire-and-forget（close 后无副作用）。 */
     fun checkAndReopen() {
+        if (closed) return
         if (!isTransportOpen()) {
             scope.launch { runCatching { connect() } }
         }
@@ -219,7 +253,7 @@ class DdpClient(
         emit("connecting", DDP_EMPTY_OBJECT) // TS:134
         eventListener?.onConnecting()
 
-        val conn = Connection()
+        val conn = Connection(generation.get())
         active = conn
         val ws = client.newWebSocket(Request.Builder().url(wsUrl).build(), conn)
         socket = ws
@@ -248,12 +282,22 @@ class DdpClient(
     private fun disconnectInternal() {
         stopPing()
         cancelReopen()
+        // 作废在途 connect（与 connect 的建队段同锁互斥）：断开落在建连中途时，
+        // 迟到的握手整体丢弃，等在建连上的调用方快速失败（supersede，原生版加固）
+        connectLock.withLock {
+            generation.incrementAndGet()
+            connectInflight?.completeExceptionally(DdpException("[ddp] disconnected"))
+        }
         connected = false
         userId = null
         failPending("[ddp] disconnected")
         val ws = socket
         socket = null // 旧 socket 的 onClosed 由此走「过期连接」早退，不会触发重连
         runCatching { ws?.close(4000, "client disconnect") }
+        // 兜底：onOpen 尚未到达的在建 socket 也一并关闭（close 对未开连接等同 fail）
+        allWs.forEach { candidate ->
+            if (candidate !== ws) runCatching { candidate.close(4000, "client disconnect") }
+        }
     }
 
     // TS tryReopen ddpClient.ts:244-250：reopenTimer 已存在则不重复排
@@ -513,13 +557,14 @@ class DdpClient(
 
     // ---- 内部：单条连接的 WS 监听（per-connection，等价 TS 每次重挂 handler）----
 
-    private inner class Connection : WebSocketListener() {
+    private inner class Connection(private val gen: Long) : WebSocketListener() {
         val handshake = CompletableDeferred<Unit>()
 
         @Volatile
         private var ws: WebSocket? = null
 
-        private fun isCurrent(): Boolean = active === this
+        /** 当前连接且未被 disconnect/close 作废（代次匹配）才允许触碰共享状态。 */
+        private fun isCurrent(): Boolean = active === this && gen == this@DdpClient.generation.get()
 
         // TS onopen ddpClient.ts:178-193
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -557,9 +602,10 @@ class DdpClient(
         }
 
         private fun gone(webSocket: WebSocket, event: DdpCloseEvent) {
-            if (!isCurrent()) return
+            val current = isCurrent()
+            allWs.remove(webSocket) // 过期连接也要从注册表摘除，防 allWs 无界滞留
+            if (!current) return
             active = null
-            allWs.remove(webSocket)
             val wasSettled = connected
             socket = null
             connected = false
@@ -586,18 +632,21 @@ class DdpClient(
         }
 
         // TS finishReject ddpClient.ts:148-168：detach handlers + close + 置空
-        // 守卫：本连接已被 supersede（超时后重连出 B）时，残留握手协程的 fail 不得污染 B 的状态
+        // 守卫：本连接已被 supersede（超时/断开后重连出 B）时，残留握手协程的 fail 不得污染 B 的状态；
+        // 但自己的 socket 仍要强杀 + 从 allWs 摘除（disconnect 落在建连中途的孤儿连接）。
         fun fail(webSocket: WebSocket?, err: Throwable) {
-            if (!isCurrent()) return
-            active = null
-            connected = false
+            val current = isCurrent()
+            if (current) {
+                active = null
+                connected = false
+            }
             val target = webSocket ?: ws
-            if (socket === target) socket = null
+            if (current && socket === target) socket = null
             target?.let {
                 allWs.remove(it)
                 runCatching { it.cancel() }
             }
-            handshake.completeExceptionally(err)
+            if (current) handshake.completeExceptionally(err)
         }
     }
 }
