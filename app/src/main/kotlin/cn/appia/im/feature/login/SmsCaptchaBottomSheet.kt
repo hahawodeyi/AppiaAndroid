@@ -85,6 +85,7 @@ fun SmsCaptchaBottomSheet(
                     modifier = Modifier,
                     onMessage = { raw -> parseIc(raw)?.let(onIc) },
                     onWebViewError = { loadError = it },
+                    onHttpError = { loadError = it }, // RN onWebViewHttpError → 错误横幅（4xx/5xx 非空白页）
                 )
             }
         }

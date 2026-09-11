@@ -82,7 +82,8 @@ fun AppiaNavHost(
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    // CAS SSO 登录失败要落回登录页弹窗（RN runLogin 的 Alert；导航级状态跨屏传递）
+    // CAS SSO 登录失败要落回登录页弹窗（RN runLogin 的 Alert；导航级状态跨屏传递）。
+    // 一次性：LoginScreen 投递即消费（externalAlert 投递即清 + 本地暂存展示），导航往返不重显示
     var loginAlert by remember { mutableStateOf<Pair<String, String>?>(null) }
     // 区号选择回调：type-safe nav 参数不携带 lambda，暂存导航级状态（RN 路由 params.onSelect 等价物）
     var areaCodeSelect by remember { mutableStateOf<((LoginAreaCodeOption) -> Unit)?>(null) }
@@ -98,7 +99,8 @@ fun AppiaNavHost(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                nav.popBackStack() // 回登录页再弹告警（RN runLogin catch → Alert on LoginScreen）
+                // AuthWebScreen 的 Success 分支已自行 onBack()，此处不再 pop（避免与导航时序竞态误弹栈）；
+                // 回到登录页弹告警（RN runLogin catch → Alert on LoginScreen）
                 loginAlert = context.t("login_alertfailedtitle") to when {
                     isLoginNetworkTimeoutError(e) -> context.t("login_network_timeout")
                     e.message != null -> e.message!!

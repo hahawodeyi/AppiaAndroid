@@ -138,6 +138,8 @@ internal fun filterDigits(phone: String): String = phone.filter { it in '0'..'9'
  * RN `JSON.parse(raw)` 等价（LoginScreen:293-301 / SmsCaptchaBottomSheet:44-55）：
  * 解析失败/裸字符串字面量（H5 心跳 "ping"，JS 会抛错）→ null 忽略；
  * kotlinx 的 parseToJsonElement 对裸串宽松返回 JsonPrimitive，需按 JS 语义回绝。
+ * 良性偏差（不影响 ic 语义）："null" 放行为 JsonNull（JS 亦返回 null）；
+ * "NaN"/"Infinity" 此处被回绝，JS 同样抛错——仅裸非数字字面量的归属两者一致。
  */
 internal fun parseJsJson(raw: String, json: Json = Json): JsonElement? {
     if (raw.isEmpty()) return null
@@ -679,10 +681,15 @@ fun LoginScreen(
             Spacer(Modifier.height(14.dp))
         }
 
-        // 短信滑块弹层（RN:613-620）：每次点发码换 nonce → 换新 t
+        // 短信滑块弹层（RN:613-620）：每次点发码换 nonce → 换新 t。
+        // uri 必须按 [selectedUrl, locale, nonce] memo（RN useMemo:121-130）：否则任意重组（如
+        // CAS 探测完成写状态）都会换 t → key(uri) 重建 WebView，拖滑块进度丢失；nowMillis 只随 key 变化取一次
+        val sheetUri = remember(state.selectedUrl, locale, state.smsSheetUriNonce) {
+            buildSmsCaptchaUri(state.selectedUrl, locale, state.deps.nowMillis() + state.smsSheetUriNonce)
+        }
         SmsCaptchaBottomSheet(
             visible = state.smsSheetVisible,
-            uri = buildSmsCaptchaUri(state.selectedUrl, locale, state.deps.nowMillis() + state.smsSheetUriNonce),
+            uri = sheetUri,
             title = t("login_sms_captcha_sheet_title"),
             closeLabel = t("login_sms_captcha_sheet_close"),
             onIc = { ic -> scope.launch { state.handleSmsSheetIc(ic) } },
@@ -723,12 +730,20 @@ fun LoginScreen(
         }
     }
 
-    // 本页告警 + 导航级 CAS 失败告警（RN Alert.alert 单按钮）
-    val currentAlert = state.alert ?: externalAlert
+    // 本页告警 + 导航级 CAS 失败告警（RN Alert.alert 单按钮）。
+    // 导航级告警一次性消费：投递即清源状态、本地暂存展示，导航往返后不重显示
+    var externalAlertShown by remember { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(externalAlert) {
+        if (externalAlert != null) {
+            externalAlertShown = externalAlert
+            onConsumeExternalAlert()
+        }
+    }
+    val currentAlert = state.alert ?: externalAlertShown
     if (currentAlert != null) {
         val (title, message) = currentAlert
         val dismiss = {
-            if (state.alert != null) state.alert = null else onConsumeExternalAlert()
+            if (state.alert != null) state.alert = null else externalAlertShown = null
         }
         AlertDialog(
             onDismissRequest = dismiss,

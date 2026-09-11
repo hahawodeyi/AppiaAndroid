@@ -7,6 +7,7 @@ import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -45,6 +46,7 @@ fun CaptchaWebView(
     modifier: Modifier = Modifier,
     onMessage: (String) -> Unit = {},
     onWebViewError: (String) -> Unit = {},
+    onHttpError: (String) -> Unit = {},
 ) {
     key(uri) {
         AndroidView(
@@ -76,6 +78,19 @@ fun CaptchaWebView(
                             // RN onWebViewError：仅主框架错误算加载失败（子资源失败不弹）
                             if (request.isForMainFrame) {
                                 onWebViewError(error.description?.toString() ?: "WebView error")
+                            }
+                        }
+
+                        override fun onReceivedHttpError(
+                            view: WebView,
+                            request: WebResourceRequest,
+                            errorResponse: WebResourceResponse,
+                        ) {
+                            // RN onWebViewHttpError（SmsCaptchaBottomSheet:62-65）：`HTTP {status}: {desc}`
+                            if (request.isForMainFrame) {
+                                onHttpError(
+                                    "HTTP ${errorResponse.statusCode}: ${errorResponse.reasonPhrase}".trim(),
+                                )
                             }
                         }
                     }
