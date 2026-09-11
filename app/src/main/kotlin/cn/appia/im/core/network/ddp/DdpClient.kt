@@ -1,5 +1,6 @@
 package cn.appia.im.core.network.ddp
 
+import cn.appia.im.core.network.RocketHttp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -48,7 +49,7 @@ private fun textOf(e: JsonElement?): String? = (e as? JsonPrimitive)?.contentOrN
  */
 class DdpClient(
     private val options: DdpOptions,
-    private val client: OkHttpClient = OkHttpClient(),
+    private val client: OkHttpClient = RocketHttp.client, // 进程级共享连接池/调度器
     private val eventListener: DdpEventListener? = null,
 ) {
     @Volatile

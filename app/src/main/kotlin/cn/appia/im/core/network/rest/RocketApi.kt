@@ -9,12 +9,22 @@ import retrofit2.http.POST
 @Serializable
 data class LoginRequest(val username: String, val password: String)
 
-/** TS parseSwitchOrgLoginResponse：登录响应从 .data 取 authToken/userId/me。 */
+/**
+ * TS parseSwitchOrgLoginResponse：登录响应从 .data 取 authToken/userId/me；
+ * auth.ts:126 `raw?.data ?? raw` —— 兼容 `{data:{...}}` 包裹与裸 `{authToken,...}` 两形态。
+ */
 @Serializable
 data class LoginResponse(
     val status: String? = null,
     val data: LoginData? = null,
-)
+    val userId: String? = null,
+    val authToken: String? = null,
+    val me: Me? = null,
+) {
+    /** 平铺后的会话字段：包一层取 .data，裸形态整包就是数据（与 RN 同优先级：data 优先）。 */
+    val payload: LoginData?
+        get() = data ?: LoginData(userId = userId, authToken = authToken, me = me)
+}
 
 @Serializable
 data class LoginData(

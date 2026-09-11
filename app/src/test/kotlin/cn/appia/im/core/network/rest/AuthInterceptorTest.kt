@@ -201,8 +201,40 @@ class AuthInterceptorTest {
         val body = recorded.body.readUtf8()
         assertTrue(body.contains("\"username\":\"bob\""))
         assertTrue(body.contains("\"password\":\"secret\""))
-        assertEquals("u-9", resp.data?.userId)
-        assertEquals("t-9", resp.data?.authToken)
-        assertEquals("bob", resp.data?.me?.username)
+        assertEquals("u-9", resp.payload?.userId)
+        assertEquals("t-9", resp.payload?.authToken)
+        assertEquals("bob", resp.payload?.me?.username)
+    }
+
+    // ---- auth.ts:126 `raw?.data ?? raw` 平铺：裸 {authToken,...} 形态同样解出 authToken/userId ----
+
+    @Test
+    fun `bare login response without data wrapper still yields session fields`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"status":"success","userId":"u-8","authToken":"t-8","me":{"username":"bob"}}"""),
+        )
+        val api = api { null }
+
+        val resp = api.login(LoginRequest(username = "bob", password = "secret"))
+
+        assertEquals("t-8", resp.payload?.authToken)
+        assertEquals("u-8", resp.payload?.userId)
+        assertEquals("bob", resp.payload?.me?.username)
+        assertEquals("success", resp.status)
+    }
+
+    @Test
+    fun `wrapped login response wins over top level fields`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"status":"success","data":{"userId":"u-inner","authToken":"t-inner"},"userId":"u-outer","authToken":"t-outer"}""",
+            ),
+        )
+        val api = api { null }
+
+        val resp = api.login(LoginRequest(username = "bob", password = "secret"))
+
+        assertEquals("u-inner", resp.payload?.userId)
+        assertEquals("t-inner", resp.payload?.authToken)
     }
 }

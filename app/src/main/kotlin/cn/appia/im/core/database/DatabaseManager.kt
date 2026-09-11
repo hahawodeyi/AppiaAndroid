@@ -2,18 +2,25 @@ package cn.appia.im.core.database
 
 import android.content.Context
 import androidx.room.Room
+import cn.appia.im.core.network.ServerUrl
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 对照 appiaMobile `src/database/db.ts`：以规范化 server 串区分 SQLite 文件，
  * 未选服 / 已登出使用 `__prelogin__` 占位库。
  * 多组织切换的 generation 机制（M1）不在本类范围。
+ *
+ * 并发约定：库实例可能从 UI/会话层并发请求（组织切换与后台同步并行），
+ * 缓存用 ConcurrentHashMap（getOrPut 走 computeIfAbsent，同 key 只建一个实例），
+ * active 用 @Volatile 保证跨线程可见；switch 的读-写-用仍由调用方串行化（M1 session 层）。
  */
 class DatabaseManager(private val context: Context) {
 
-    private val cache = mutableMapOf<String, AppiaDatabase>()
+    private val cache = ConcurrentHashMap<String, AppiaDatabase>()
 
     /** 当前业务库（对应 db.ts `database.active`），初始为占位库。 */
+    @Volatile
     var active: AppiaDatabase = databaseFor(PRELOGIN_NORMALIZED)
         private set
 
@@ -65,12 +72,9 @@ class DatabaseManager(private val context: Context) {
     }
 
     /**
-     * 规范化 server 串：去协议、路径 slash→dot；空串回占位库。
-     * 与 db.ts `normalizeServerToDbFileBase` 相同规则。
+     * 规范化 server 串为库 key：去协议、路径 slash→dot；空串回占位库。
+     * 复用 ServerUrl.normalizeServerToDbKey（逐字符复刻 db.ts `normalizeServerToDbFileBase`）。
      */
-    fun normalizeServer(server: String): String {
-        val t = server.trim()
-        if (t.isEmpty()) return PRELOGIN_NORMALIZED
-        return t.replace(Regex("""(^\w+:|^)//"""), "").replace("/", ".")
-    }
+    fun normalizeServer(server: String): String =
+        ServerUrl.normalizeServerToDbKey(server).ifEmpty { PRELOGIN_NORMALIZED }
 }
