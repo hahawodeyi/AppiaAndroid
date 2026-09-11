@@ -71,6 +71,30 @@ class DatabaseManagerTest {
         assertEquals(manager.databaseFor(DatabaseManager.PRELOGIN_NORMALIZED), manager.active)
     }
 
+    @Test
+    fun `resetDatabase clears only target org and falls back to prelogin`() = runTest {
+        val orgA = "https://chat-a.example.com"
+        val orgB = "https://chat-b.example.com"
+        manager.switchDatabase(orgA).also { it.chatDao().insert(sampleChat()) }
+        manager.switchDatabase(orgB).also { it.chatDao().insert(sampleChat()) }
+        manager.switchDatabase(orgA) // 让待清理库成为 active，验证回落
+        val pathA = context.getDatabasePath(DatabaseManager.dbNameFor(manager.normalizeServer(orgA)))
+        val pathB = context.getDatabasePath(DatabaseManager.dbNameFor(manager.normalizeServer(orgB)))
+        assertTrue(pathA.exists())
+
+        manager.resetDatabase(manager.normalizeServer(orgA))
+
+        // A：文件全清、可重建且为空；active 回落占位库（对照 db.ts resetServerDatabaseByUrl）
+        assertFalse(pathA.exists())
+        assertFalse(File(pathA.path + "-wal").exists())
+        assertFalse(File(pathA.path + "-shm").exists())
+        assertEquals(manager.databaseFor(DatabaseManager.PRELOGIN_NORMALIZED), manager.active)
+        assertEquals(0, manager.databaseFor(manager.normalizeServer(orgA)).chatDao().getAll().size)
+        // B：其它组织本地数据原样保留（resetAll 会误删）
+        assertTrue(pathB.exists())
+        assertEquals(1, manager.databaseFor(manager.normalizeServer(orgB)).chatDao().getAll().size)
+    }
+
     private fun sampleChat() = ChatEntity(
         _id = "rid-1", subscription_doc_id = "sub-doc-1",
         f = true, t = "c", ts = 1700000000000.0, ls = 1700000001000.0,

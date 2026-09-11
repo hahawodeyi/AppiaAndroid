@@ -6,7 +6,7 @@
 
     <application
         android:name=".AppiaApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:label="Appia"
         android:supportsRtl="true"
         android:theme="@style/Theme.Appia">

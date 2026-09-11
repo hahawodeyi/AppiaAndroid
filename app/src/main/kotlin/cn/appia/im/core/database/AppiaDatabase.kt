@@ -22,7 +22,7 @@ import cn.appia.im.core.database.entity.UserEntity
 /**
  * 对照 appiaMobile `src/database/schema.ts`（WatermelonDB appSchema v6，8 表）。
  * Android 侧 Room 版本号从 1 重新计数，与 WatermelonDB 的 6 无关。
- * exportSchema 暂关：M1 引入迁移时再配置 room.schemaLocation。
+ * schema JSON 导出到 app/schemas（KSP room.schemaLocation），迁移基线随版本提交。
  */
 @Database(
     entities = [
@@ -36,7 +36,7 @@ import cn.appia.im.core.database.entity.UserEntity
         CustomEmojiEntity::class,
     ],
     version = 1,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class AppiaDatabase : RoomDatabase() {
     abstract fun roomDao(): RoomDao

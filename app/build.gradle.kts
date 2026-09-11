@@ -72,6 +72,11 @@ kotlin {
     }
 }
 
+// Room schema 导出（app/schemas/<Db>/<version>.json），迁移评审与测试基线
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.bundles.compose)

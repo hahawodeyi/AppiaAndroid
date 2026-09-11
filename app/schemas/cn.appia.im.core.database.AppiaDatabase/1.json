@@ -1,0 +1,1590 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "c18239617eaaa2df96cb6500e0cc742f",
+    "entities": [
+      {
+        "tableName": "rooms",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` TEXT NOT NULL, `custom_fields` TEXT NOT NULL, `broadcast` INTEGER NOT NULL, `encrypted` INTEGER NOT NULL, `ro` INTEGER NOT NULL, `v` TEXT, `department_id` TEXT, `served_by` TEXT, `livechat_data` TEXT, `tags` TEXT, `e2e_key_id` TEXT, `avatar_etag` TEXT, `federated` INTEGER, `rt` TEXT, `rooms` TEXT, `onCallStatus` INTEGER, `callMsg` TEXT, `bot` INTEGER, `showAppiaTag` REAL, `appiaUsage` TEXT, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "_id",
+            "columnName": "_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "custom_fields",
+            "columnName": "custom_fields",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "broadcast",
+            "columnName": "broadcast",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encrypted",
+            "columnName": "encrypted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ro",
+            "columnName": "ro",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "v",
+            "columnName": "v",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "department_id",
+            "columnName": "department_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "served_by",
+            "columnName": "served_by",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "livechat_data",
+            "columnName": "livechat_data",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "e2e_key_id",
+            "columnName": "e2e_key_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "avatar_etag",
+            "columnName": "avatar_etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "federated",
+            "columnName": "federated",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rt",
+            "columnName": "rt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rooms",
+            "columnName": "rooms",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "onCallStatus",
+            "columnName": "onCallStatus",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "callMsg",
+            "columnName": "callMsg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bot",
+            "columnName": "bot",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "showAppiaTag",
+            "columnName": "showAppiaTag",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "appiaUsage",
+            "columnName": "appiaUsage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        }
+      },
+      {
+        "tableName": "subscriptions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` TEXT NOT NULL, `f` INTEGER NOT NULL, `t` TEXT NOT NULL, `ts` REAL NOT NULL, `ls` REAL NOT NULL, `name` TEXT NOT NULL, `fname` TEXT NOT NULL, `rid` TEXT NOT NULL, `open` INTEGER NOT NULL, `alert` INTEGER NOT NULL, `roles` TEXT, `unread` REAL NOT NULL, `user_mentions` REAL NOT NULL, `group_mentions` REAL NOT NULL, `tunread` TEXT, `tunread_user` TEXT, `tunread_group` TEXT, `lm` REAL, `room_updated_at` REAL NOT NULL, `subscription_updated_at` REAL, `ro` INTEGER NOT NULL, `last_open` REAL, `last_message` TEXT, `description` TEXT, `announcement` TEXT, `announcements` TEXT, `room_value_proposition` TEXT, `banner_closed` INTEGER, `topic` TEXT, `blocked` INTEGER, `blocker` INTEGER, `react_when_read_only` INTEGER, `archived` INTEGER NOT NULL, `join_code_required` INTEGER, `muted` TEXT, `ignored` TEXT, `broadcast` INTEGER, `prid` TEXT, `draft_message` TEXT, `draft_message_plain` TEXT, `draft_reply_msg_id` TEXT, `last_thread_sync` REAL, `jitsi_timeout` REAL, `auto_translate` INTEGER, `auto_translate_language` TEXT NOT NULL, `hide_unread_status` INTEGER, `disable_notifications` INTEGER, `sys_mes` TEXT, `uids` TEXT, `usernames` TEXT, `visitor` TEXT, `department_id` TEXT, `served_by` TEXT, `livechat_data` TEXT, `tags` TEXT, `e2e_key` TEXT, `e2e_suggested_key` TEXT, `encrypted` INTEGER, `e2e_key_id` TEXT, `avatar_etag` TEXT, `team_id` TEXT NOT NULL, `team_main` INTEGER, `on_hold` INTEGER, `source` TEXT, `hide_mention_status` INTEGER, `users_count` REAL, `federated` INTEGER, `rt` TEXT, `todoCount` REAL, `dname` TEXT, `onCallStatus` INTEGER, `callMsg` TEXT, `bot` INTEGER, `welcomeMsg` TEXT, `memberName` TEXT, `memberNumber` REAL, `showAppiaTag` REAL, `isRoomToDo` INTEGER, `highTodoCount` REAL, `defaultTodoCount` REAL, `like` INTEGER, `tSearch` REAL, `appiaUsage` TEXT, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "_id",
+            "columnName": "_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "f",
+            "columnName": "f",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "t",
+            "columnName": "t",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ts",
+            "columnName": "ts",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ls",
+            "columnName": "ls",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fname",
+            "columnName": "fname",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "open",
+            "columnName": "open",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alert",
+            "columnName": "alert",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "roles",
+            "columnName": "roles",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unread",
+            "columnName": "unread",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "user_mentions",
+            "columnName": "user_mentions",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "group_mentions",
+            "columnName": "group_mentions",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tunread",
+            "columnName": "tunread",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tunread_user",
+            "columnName": "tunread_user",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tunread_group",
+            "columnName": "tunread_group",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lm",
+            "columnName": "lm",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "room_updated_at",
+            "columnName": "room_updated_at",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subscription_updated_at",
+            "columnName": "subscription_updated_at",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "ro",
+            "columnName": "ro",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "last_open",
+            "columnName": "last_open",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "last_message",
+            "columnName": "last_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "announcement",
+            "columnName": "announcement",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "announcements",
+            "columnName": "announcements",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "room_value_proposition",
+            "columnName": "room_value_proposition",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "banner_closed",
+            "columnName": "banner_closed",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "topic",
+            "columnName": "topic",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "blocked",
+            "columnName": "blocked",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "blocker",
+            "columnName": "blocker",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "react_when_read_only",
+            "columnName": "react_when_read_only",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "archived",
+            "columnName": "archived",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "join_code_required",
+            "columnName": "join_code_required",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "muted",
+            "columnName": "muted",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ignored",
+            "columnName": "ignored",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "broadcast",
+            "columnName": "broadcast",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "prid",
+            "columnName": "prid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "draft_message",
+            "columnName": "draft_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "draft_message_plain",
+            "columnName": "draft_message_plain",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "draft_reply_msg_id",
+            "columnName": "draft_reply_msg_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "last_thread_sync",
+            "columnName": "last_thread_sync",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "jitsi_timeout",
+            "columnName": "jitsi_timeout",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "auto_translate",
+            "columnName": "auto_translate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "auto_translate_language",
+            "columnName": "auto_translate_language",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hide_unread_status",
+            "columnName": "hide_unread_status",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "disable_notifications",
+            "columnName": "disable_notifications",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sys_mes",
+            "columnName": "sys_mes",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uids",
+            "columnName": "uids",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "usernames",
+            "columnName": "usernames",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "visitor",
+            "columnName": "visitor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "department_id",
+            "columnName": "department_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "served_by",
+            "columnName": "served_by",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "livechat_data",
+            "columnName": "livechat_data",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "e2e_key",
+            "columnName": "e2e_key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "e2e_suggested_key",
+            "columnName": "e2e_suggested_key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "encrypted",
+            "columnName": "encrypted",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "e2e_key_id",
+            "columnName": "e2e_key_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "avatar_etag",
+            "columnName": "avatar_etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "team_id",
+            "columnName": "team_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "team_main",
+            "columnName": "team_main",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "on_hold",
+            "columnName": "on_hold",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hide_mention_status",
+            "columnName": "hide_mention_status",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "users_count",
+            "columnName": "users_count",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "federated",
+            "columnName": "federated",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rt",
+            "columnName": "rt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "todoCount",
+            "columnName": "todoCount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "dname",
+            "columnName": "dname",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "onCallStatus",
+            "columnName": "onCallStatus",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "callMsg",
+            "columnName": "callMsg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bot",
+            "columnName": "bot",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "welcomeMsg",
+            "columnName": "welcomeMsg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "memberName",
+            "columnName": "memberName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "memberNumber",
+            "columnName": "memberNumber",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "showAppiaTag",
+            "columnName": "showAppiaTag",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "isRoomToDo",
+            "columnName": "isRoomToDo",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "highTodoCount",
+            "columnName": "highTodoCount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "defaultTodoCount",
+            "columnName": "defaultTodoCount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "like",
+            "columnName": "like",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tSearch",
+            "columnName": "tSearch",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "appiaUsage",
+            "columnName": "appiaUsage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_subscriptions_t",
+            "unique": false,
+            "columnNames": [
+              "t"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_subscriptions_t` ON `${TABLE_NAME}` (`t`)"
+          },
+          {
+            "name": "index_subscriptions_name",
+            "unique": false,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_subscriptions_name` ON `${TABLE_NAME}` (`name`)"
+          },
+          {
+            "name": "index_subscriptions_rid",
+            "unique": false,
+            "columnNames": [
+              "rid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_subscriptions_rid` ON `${TABLE_NAME}` (`rid`)"
+          },
+          {
+            "name": "index_subscriptions_team_id",
+            "unique": false,
+            "columnNames": [
+              "team_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_subscriptions_team_id` ON `${TABLE_NAME}` (`team_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "chats",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` TEXT NOT NULL, `subscription_doc_id` TEXT, `f` INTEGER NOT NULL, `t` TEXT NOT NULL, `ts` REAL NOT NULL, `ls` REAL NOT NULL, `name` TEXT NOT NULL, `fname` TEXT NOT NULL, `rid` TEXT NOT NULL, `open` INTEGER NOT NULL, `alert` INTEGER NOT NULL, `roles` TEXT, `unread` REAL NOT NULL, `user_mentions` REAL NOT NULL, `group_mentions` REAL NOT NULL, `tunread` TEXT, `tunread_user` TEXT, `tunread_group` TEXT, `lm` REAL, `room_updated_at` REAL NOT NULL, `subscription_updated_at` REAL, `ro` INTEGER NOT NULL, `last_open` REAL, `last_message` TEXT, `description` TEXT, `announcement` TEXT, `announcements` TEXT, `room_value_proposition` TEXT, `banner_closed` INTEGER, `topic` TEXT, `blocked` INTEGER, `blocker` INTEGER, `react_when_read_only` INTEGER, `archived` INTEGER NOT NULL, `join_code_required` INTEGER, `muted` TEXT, `ignored` TEXT, `broadcast` INTEGER, `prid` TEXT, `draft_message` TEXT, `draft_message_plain` TEXT, `draft_reply_msg_id` TEXT, `last_thread_sync` REAL, `jitsi_timeout` REAL, `auto_translate` INTEGER, `auto_translate_language` TEXT NOT NULL, `hide_unread_status` INTEGER, `disable_notifications` INTEGER, `sys_mes` TEXT, `uids` TEXT, `usernames` TEXT, `visitor` TEXT, `department_id` TEXT, `served_by` TEXT, `livechat_data` TEXT, `tags` TEXT, `e2e_key` TEXT, `e2e_suggested_key` TEXT, `encrypted` INTEGER, `e2e_key_id` TEXT, `avatar_etag` TEXT, `team_id` TEXT NOT NULL, `team_main` INTEGER, `on_hold` INTEGER, `source` TEXT, `hide_mention_status` INTEGER, `users_count` REAL, `federated` INTEGER, `rt` TEXT, `todoCount` REAL, `dname` TEXT, `onCallStatus` INTEGER, `callMsg` TEXT, `bot` INTEGER, `welcomeMsg` TEXT, `memberName` TEXT, `memberNumber` REAL, `showAppiaTag` REAL, `isRoomToDo` INTEGER, `highTodoCount` REAL, `defaultTodoCount` REAL, `like` INTEGER, `tSearch` REAL, `appiaUsage` TEXT, `draft_attachments` TEXT, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "_id",
+            "columnName": "_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subscription_doc_id",
+            "columnName": "subscription_doc_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "f",
+            "columnName": "f",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "t",
+            "columnName": "t",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ts",
+            "columnName": "ts",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ls",
+            "columnName": "ls",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fname",
+            "columnName": "fname",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "open",
+            "columnName": "open",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alert",
+            "columnName": "alert",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "roles",
+            "columnName": "roles",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unread",
+            "columnName": "unread",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "user_mentions",
+            "columnName": "user_mentions",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "group_mentions",
+            "columnName": "group_mentions",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tunread",
+            "columnName": "tunread",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tunread_user",
+            "columnName": "tunread_user",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tunread_group",
+            "columnName": "tunread_group",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lm",
+            "columnName": "lm",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "room_updated_at",
+            "columnName": "room_updated_at",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subscription_updated_at",
+            "columnName": "subscription_updated_at",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "ro",
+            "columnName": "ro",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "last_open",
+            "columnName": "last_open",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "last_message",
+            "columnName": "last_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "announcement",
+            "columnName": "announcement",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "announcements",
+            "columnName": "announcements",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "room_value_proposition",
+            "columnName": "room_value_proposition",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "banner_closed",
+            "columnName": "banner_closed",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "topic",
+            "columnName": "topic",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "blocked",
+            "columnName": "blocked",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "blocker",
+            "columnName": "blocker",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "react_when_read_only",
+            "columnName": "react_when_read_only",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "archived",
+            "columnName": "archived",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "join_code_required",
+            "columnName": "join_code_required",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "muted",
+            "columnName": "muted",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "ignored",
+            "columnName": "ignored",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "broadcast",
+            "columnName": "broadcast",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "prid",
+            "columnName": "prid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "draft_message",
+            "columnName": "draft_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "draft_message_plain",
+            "columnName": "draft_message_plain",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "draft_reply_msg_id",
+            "columnName": "draft_reply_msg_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "last_thread_sync",
+            "columnName": "last_thread_sync",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "jitsi_timeout",
+            "columnName": "jitsi_timeout",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "auto_translate",
+            "columnName": "auto_translate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "auto_translate_language",
+            "columnName": "auto_translate_language",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hide_unread_status",
+            "columnName": "hide_unread_status",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "disable_notifications",
+            "columnName": "disable_notifications",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sys_mes",
+            "columnName": "sys_mes",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uids",
+            "columnName": "uids",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "usernames",
+            "columnName": "usernames",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "visitor",
+            "columnName": "visitor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "department_id",
+            "columnName": "department_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "served_by",
+            "columnName": "served_by",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "livechat_data",
+            "columnName": "livechat_data",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "e2e_key",
+            "columnName": "e2e_key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "e2e_suggested_key",
+            "columnName": "e2e_suggested_key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "encrypted",
+            "columnName": "encrypted",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "e2e_key_id",
+            "columnName": "e2e_key_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "avatar_etag",
+            "columnName": "avatar_etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "team_id",
+            "columnName": "team_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "team_main",
+            "columnName": "team_main",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "on_hold",
+            "columnName": "on_hold",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hide_mention_status",
+            "columnName": "hide_mention_status",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "users_count",
+            "columnName": "users_count",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "federated",
+            "columnName": "federated",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rt",
+            "columnName": "rt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "todoCount",
+            "columnName": "todoCount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "dname",
+            "columnName": "dname",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "onCallStatus",
+            "columnName": "onCallStatus",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "callMsg",
+            "columnName": "callMsg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bot",
+            "columnName": "bot",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "welcomeMsg",
+            "columnName": "welcomeMsg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "memberName",
+            "columnName": "memberName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "memberNumber",
+            "columnName": "memberNumber",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "showAppiaTag",
+            "columnName": "showAppiaTag",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "isRoomToDo",
+            "columnName": "isRoomToDo",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "highTodoCount",
+            "columnName": "highTodoCount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "defaultTodoCount",
+            "columnName": "defaultTodoCount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "like",
+            "columnName": "like",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tSearch",
+            "columnName": "tSearch",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "appiaUsage",
+            "columnName": "appiaUsage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "draft_attachments",
+            "columnName": "draft_attachments",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_chats_subscription_doc_id",
+            "unique": false,
+            "columnNames": [
+              "subscription_doc_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chats_subscription_doc_id` ON `${TABLE_NAME}` (`subscription_doc_id`)"
+          },
+          {
+            "name": "index_chats_t",
+            "unique": false,
+            "columnNames": [
+              "t"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chats_t` ON `${TABLE_NAME}` (`t`)"
+          },
+          {
+            "name": "index_chats_name",
+            "unique": false,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chats_name` ON `${TABLE_NAME}` (`name`)"
+          },
+          {
+            "name": "index_chats_rid",
+            "unique": false,
+            "columnNames": [
+              "rid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chats_rid` ON `${TABLE_NAME}` (`rid`)"
+          },
+          {
+            "name": "index_chats_team_id",
+            "unique": false,
+            "columnNames": [
+              "team_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chats_team_id` ON `${TABLE_NAME}` (`team_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` TEXT NOT NULL, `msg` TEXT, `t` TEXT, `rid` TEXT NOT NULL, `ts` REAL NOT NULL, `u` TEXT NOT NULL, `roomSender` TEXT, `rollbacker` TEXT, `alias` TEXT NOT NULL, `parse_urls` TEXT NOT NULL, `groupable` INTEGER, `avatar` TEXT, `emoji` TEXT, `attachments` TEXT, `files` TEXT, `urls` TEXT, `_updated_at` REAL NOT NULL, `status` REAL, `pinned` INTEGER, `starred` INTEGER, `edited_by` TEXT, `reactions` TEXT, `role` TEXT, `role_name` TEXT, `drid` TEXT, `dcount` REAL, `dlm` REAL, `tmid` TEXT, `tcount` REAL, `tlm` REAL, `replies` TEXT, `mentions` TEXT, `channels` TEXT, `unread` INTEGER, `auto_translate` INTEGER, `translations` TEXT, `tmsg` TEXT, `blocks` TEXT, `e2e` TEXT, `tshow` INTEGER, `md` TEXT, `comment` TEXT, `msg_type` TEXT, `msg_data` TEXT, `survey_status` INTEGER, `appia_todo` TEXT, `local_record_path` TEXT, `show_image_summary` TEXT, `show_document_summary` TEXT, `appia_quick_replies` TEXT, `original_content` TEXT, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "_id",
+            "columnName": "_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "msg",
+            "columnName": "msg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "t",
+            "columnName": "t",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ts",
+            "columnName": "ts",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "u",
+            "columnName": "u",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "roomSender",
+            "columnName": "roomSender",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rollbacker",
+            "columnName": "rollbacker",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "alias",
+            "columnName": "alias",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parse_urls",
+            "columnName": "parse_urls",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupable",
+            "columnName": "groupable",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "avatar",
+            "columnName": "avatar",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "emoji",
+            "columnName": "emoji",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "attachments",
+            "columnName": "attachments",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "files",
+            "columnName": "files",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "urls",
+            "columnName": "urls",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "_updated_at",
+            "columnName": "_updated_at",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "starred",
+            "columnName": "starred",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "edited_by",
+            "columnName": "edited_by",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reactions",
+            "columnName": "reactions",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "role_name",
+            "columnName": "role_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "drid",
+            "columnName": "drid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "dcount",
+            "columnName": "dcount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "dlm",
+            "columnName": "dlm",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "tmid",
+            "columnName": "tmid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tcount",
+            "columnName": "tcount",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "tlm",
+            "columnName": "tlm",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "replies",
+            "columnName": "replies",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "mentions",
+            "columnName": "mentions",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channels",
+            "columnName": "channels",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unread",
+            "columnName": "unread",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "auto_translate",
+            "columnName": "auto_translate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "translations",
+            "columnName": "translations",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tmsg",
+            "columnName": "tmsg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "blocks",
+            "columnName": "blocks",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "e2e",
+            "columnName": "e2e",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tshow",
+            "columnName": "tshow",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "md",
+            "columnName": "md",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "msg_type",
+            "columnName": "msg_type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "msg_data",
+            "columnName": "msg_data",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "survey_status",
+            "columnName": "survey_status",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "appia_todo",
+            "columnName": "appia_todo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "local_record_path",
+            "columnName": "local_record_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "show_image_summary",
+            "columnName": "show_image_summary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "show_document_summary",
+            "columnName": "show_document_summary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "appia_quick_replies",
+            "columnName": "appia_quick_replies",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "original_content",
+            "columnName": "original_content",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_messages_rid",
+            "unique": false,
+            "columnNames": [
+              "rid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_rid` ON `${TABLE_NAME}` (`rid`)"
+          }
+        ]
+      },
+      {
+        "tableName": "users",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` TEXT NOT NULL, `name` TEXT NOT NULL, `username` TEXT NOT NULL, `avatar_etag` TEXT, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "_id",
+            "columnName": "_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avatar_etag",
+            "columnName": "avatar_etag",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_users_username",
+            "unique": false,
+            "columnNames": [
+              "username"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_users_username` ON `${TABLE_NAME}` (`username`)"
+          }
+        ]
+      },
+      {
+        "tableName": "settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` TEXT NOT NULL, `value_as_string` TEXT, `value_as_boolean` INTEGER, `value_as_number` REAL, `_updated_at` REAL, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "_id",
+            "columnName": "_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value_as_string",
+            "columnName": "value_as_string",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "value_as_boolean",
+            "columnName": "value_as_boolean",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "value_as_number",
+            "columnName": "value_as_number",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "_updated_at",
+            "columnName": "_updated_at",
+            "affinity": "REAL"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        }
+      },
+      {
+        "tableName": "uploads",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` TEXT NOT NULL, `rid` TEXT NOT NULL, `path` TEXT NOT NULL, `name` TEXT NOT NULL, `size` REAL NOT NULL, `type` TEXT NOT NULL, `progress` REAL NOT NULL, `error` INTEGER NOT NULL, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "_id",
+            "columnName": "_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rid",
+            "columnName": "rid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "progress",
+            "columnName": "progress",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_uploads_rid",
+            "unique": false,
+            "columnNames": [
+              "rid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_uploads_rid` ON `${TABLE_NAME}` (`rid`)"
+          }
+        ]
+      },
+      {
+        "tableName": "custom_emojis",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`name` TEXT NOT NULL, `aliases` TEXT, `extension` TEXT NOT NULL, `_updated_at` REAL NOT NULL, PRIMARY KEY(`name`))",
+        "fields": [
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aliases",
+            "columnName": "aliases",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "extension",
+            "columnName": "extension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "_updated_at",
+            "columnName": "_updated_at",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "name"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c18239617eaaa2df96cb6500e0cc742f')"
+    ]
+  }
+}

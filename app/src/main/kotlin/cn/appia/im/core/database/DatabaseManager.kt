@@ -2,6 +2,7 @@ package cn.appia.im.core.database
 
 import android.content.Context
 import androidx.room.Room
+import java.io.File
 
 /**
  * 对照 appiaMobile `src/database/db.ts`：以规范化 server 串区分 SQLite 文件，
@@ -31,7 +32,19 @@ class DatabaseManager(private val context: Context) {
         return active
     }
 
-    /** 登出清理：关闭并清空缓存，删除全部 `appia_*` 库文件（含 -wal/-shm）。 */
+    /**
+     * 登出清理（对照 db.ts `resetServerDatabaseByUrl`）：关闭并删除指定组织的库文件（含 -wal/-shm），
+     * 若它是当前业务库则回落占位库。
+     */
+    fun resetDatabase(normalizedServer: String) {
+        val db = cache.remove(normalizedServer) ?: return
+        db.close()
+        if (active === db) active = databaseFor(PRELOGIN_NORMALIZED)
+        val base = context.getDatabasePath(dbNameFor(normalizedServer)).path
+        listOf(base, "$base-wal", "$base-shm").forEach { File(it).delete() }
+    }
+
+    /** 全量清理：清空全部组织本地数据（慎用，仅限显式全量清理，如测试 teardown）。 */
     fun resetAll() {
         cache.values.forEach { it.close() }
         cache.clear()
