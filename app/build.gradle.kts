@@ -42,6 +42,8 @@ android {
     }
 
     buildTypes {
+        // debug 与生产版共存（T1-T12 冒烟用 Maestro appId cn.appia.im.debug）
+        debug { applicationIdSuffix = ".debug" }
         release {
             isMinifyEnabled = false
             val keystorePath = releaseProp("KEYSTORE")

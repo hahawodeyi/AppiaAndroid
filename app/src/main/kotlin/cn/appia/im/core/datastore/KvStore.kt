@@ -1,6 +1,5 @@
 package cn.appia.im.core.datastore
 
-import android.content.Context
 import com.tencent.mmkv.MMKV
 import dagger.Module
 import dagger.Provides
@@ -52,10 +51,8 @@ class MmkvKvStore(private val mmkv: MMKV) : KvStore {
 @Module
 @InstallIn(SingletonComponent::class)
 object KvStoreModule {
+    /** MMKV.initialize 已在 AppiaApplication.onCreate 提前完成，这里只取默认实例。 */
     @Provides
     @Singleton
-    fun provideKvStore(@ApplicationContext context: Context): KvStore {
-        MMKV.initialize(context)
-        return MmkvKvStore(MMKV.defaultMMKV())
-    }
+    fun provideKvStore(): KvStore = MmkvKvStore(MMKV.defaultMMKV())
 }

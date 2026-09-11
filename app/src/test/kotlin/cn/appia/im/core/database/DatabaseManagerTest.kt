@@ -1,5 +1,6 @@
 package cn.appia.im.core.database
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import cn.appia.im.core.database.entity.ChatEntity
@@ -17,7 +18,8 @@ import java.io.File
 
 // 同 SchemaParityTest：JUnit4 + Robolectric，钉 SDK 34
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+// application=plain Application：AppiaApplication.onCreate 会初始化 MMKV，native .so 在 JVM 下不可加载
+@Config(sdk = [34], application = Application::class)
 class DatabaseManagerTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()

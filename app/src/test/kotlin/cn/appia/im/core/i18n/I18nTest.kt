@@ -1,5 +1,6 @@
 package cn.appia.im.core.i18n
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
@@ -12,7 +13,8 @@ import org.robolectric.annotation.Config
 // Robolectric 官方仅支持 JUnit4 runner，经 vintage 引擎混跑在 JUnit Platform 上；
 // SDK 36 沙箱要 Java 21，工程是 Java 17，故钉在 SDK 34
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+// application=plain Application：AppiaApplication.onCreate 会初始化 MMKV，native .so 在 JVM 下不可加载
+@Config(sdk = [34], application = Application::class)
 class I18nTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
