@@ -178,6 +178,15 @@ class RocketSdk(
         session = null
     }
 
+    /**
+     * RN `sdk.current?.authToken`（sdk/index.ts currentLogin 读取）：
+     * waitSdkRestLogin 的判定信号（50ms 轮询直至 REST 会话 token 就绪）。
+     */
+    fun currentAuthToken(): String? = session?.token
+
+    /** RN `sdk.current?.userId`：换主体后缓存行回填时优先取连接层确认的 userId。 */
+    fun currentUserId(): String? = session?.userId
+
     /** RN disconnect sdk/index.ts:86-88：断开 DDP（disconnect 可重连，不销毁实例）。 */
     fun disconnect() {
         ddp?.disconnect()
