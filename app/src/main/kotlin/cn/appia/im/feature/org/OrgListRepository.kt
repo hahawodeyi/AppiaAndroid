@@ -9,6 +9,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
+import javax.inject.Inject
 
 /** waitSdkRestLogin 轮询间隔（RN SDK_REST_LOGIN_POLL_MS）。 */
 const val SDK_REST_LOGIN_POLL_MS = 50L
@@ -25,7 +26,7 @@ private val orgListJson = Json { ignoreUnknownKeys = true }
  *   Kotlin sdk.get 已做 `data ?? resp` 平铺，这里直接读平铺后形态（非数组 → 空列表，RN :13-14 同）。
  * - 缓存 key `login-switch-candidates-${username}`（不含 token），登录成功时写、登出时清。
  */
-class OrgListRepository(
+class OrgListRepository @Inject constructor(
     private val sdk: RocketSdk,
     kv: KvStore,
 ) {

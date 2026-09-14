@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,7 +22,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.LoginCredentials
+import cn.appia.im.core.network.LoginResult
+import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.core.theme.AppiaTheme
+import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.login.AuthApi
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.LoginAreaCodeOption
@@ -29,15 +33,19 @@ import cn.appia.im.feature.login.VerifyEnterpriseResponse
 import cn.appia.im.feature.login.ui.AuthWebScreen
 import cn.appia.im.feature.login.ui.EnterpriseCodeScreen
 import cn.appia.im.feature.login.ui.LoginScreen
+import cn.appia.im.feature.login.ui.LoginState
 import cn.appia.im.feature.login.ui.AreaCodeScreen
 import cn.appia.im.feature.login.ui.isLoginNetworkTimeoutError
+import cn.appia.im.feature.login.ui.rememberLoginState
 import cn.appia.im.feature.login.verifyEnterprise
+import cn.appia.im.feature.main.ui.MainScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import javax.inject.Inject
 
 /** Auth 图路由（T3 建立导航骨架）：Enterprise → Login → (AreaCode | AuthWeb) → Main。 */
 @Serializable
@@ -74,10 +82,21 @@ data class AuthWebRoute(
 @Serializable
 data object MainRoute
 
-/** 导航宿主：默认落 EnterpriseCode（RN AuthStack 首屏）；verify 参数化供 UI 测试注入 fake。 */
+/** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
+private typealias LoginStateFactory =
+    (servers: List<CompanyServer>, onLoginSuccess: (LoginResult, String) -> Unit) -> LoginState
+
+/**
+ * 导航宿主：默认落 EnterpriseCode（RN AuthStack 首屏）；verify 参数化供 UI 测试注入 fake。
+ * `session` 为会话编排（T11：登录持久化/bootstrap/登出/切组织的挂接点）；`startAuthenticated`
+ * 供 MainActivity 以同步恢复判定直落 Main（RN RootNavigator.tsx:66-95 首帧即定，无闪屏）。
+ */
 @Composable
 fun AppiaNavHost(
     verify: suspend (String, String) -> VerifyEnterpriseResponse = ::verifyEnterprise,
+    session: SessionBootstrapOrchestrator? = null,
+    startAuthenticated: Boolean = false,
+    loginState: LoginStateFactory? = null,
 ) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -89,13 +108,30 @@ fun AppiaNavHost(
     var areaCodeSelect by remember { mutableStateOf<((LoginAreaCodeOption) -> Unit)?>(null) }
 
     fun goMain() = nav.navigate(MainRoute) { popUpTo(0) { inclusive = true } }
+    fun goAuth() = nav.navigate(EnterpriseCodeRoute) { popUpTo(0) { inclusive = true } }
 
-    /** CAS 命中 → 与账密/SMS 同走 AuthApi.login 成功路径（RN handleCasSsoLogin → runLogin）。 */
+    /** 登录成功统一路径（账密/SMS onLoginSuccess 与 CAS runSsoLogin 汇入）：持久化 → Main。 */
+    fun onLoginSuccess(result: LoginResult, server: String) {
+        session?.persistLogin(result, server) // RN authStore.login authStore.ts:98-107（store+推送）
+        goMain()
+    }
+
+    // 会话失效总线（REST 401 / DDP resume 失效）→ 登出 + 回 Auth（RN toast+logout 的 M1 等价：
+    // 无 toast 基建直接回落；M5 补 auth_session_expired 提示，key 已备于 rest/ApiError.kt）。
+    // 注册先于 NavHost 子级 effect：Main 内 bootstrap 触发的失效事件不丢（总线无 replay）。
+    LaunchedEffect(session) {
+        SessionExpiredBus.events.collect {
+            session?.logout()
+            goAuth()
+        }
+    }
+
+    /** CAS 命中 → 与账密/SMS 同走登录成功路径（RN handleCasSsoLogin → runLogin）。 */
     fun runSsoLogin(server: String, ssoToken: String) {
         scope.launch {
             try {
-                AuthApi.login(server, LoginCredentials.Cas(ssoToken), AuthApi.LOGIN_TIMEOUT_MS)
-                goMain() // popUpTo(0) 清空 Auth 栈（含 AuthWeb），等价 RN goBack + 切 Main
+                val result = AuthApi.login(server, LoginCredentials.Cas(ssoToken), AuthApi.LOGIN_TIMEOUT_MS)
+                onLoginSuccess(result, server) // popUpTo(0) 清空 Auth 栈（含 AuthWeb），等价 RN goBack + 切 Main
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -110,7 +146,7 @@ fun AppiaNavHost(
         }
     }
 
-    NavHost(navController = nav, startDestination = EnterpriseCodeRoute) {
+    NavHost(navController = nav, startDestination = if (startAuthenticated) MainRoute else EnterpriseCodeRoute) {
         composable<EnterpriseCodeRoute> {
             EnterpriseCodeScreen(verify = verify, onVerified = { servers ->
                 // RN:75 navigation.replace：Login 顶掉 EnterpriseCode
@@ -121,12 +157,15 @@ fun AppiaNavHost(
         }
         composable<LoginRoute> { entry ->
             val route = entry.toRoute<LoginRoute>()
+            // 测试缝命中时 remember 固定（工厂携带预设输入/ fake deps）；生产走默认 rememberSaveable
+            val state = if (loginState != null) {
+                remember(route.serversJson) { loginState(route.servers(), ::onLoginSuccess) }
+            } else {
+                rememberLoginState(route.servers(), ::onLoginSuccess)
+            }
             LoginScreen(
                 servers = route.servers(),
-                onLoginSuccess = { _, _ ->
-                    // T7 接 AuthRepository.login(result, server) 持久化；M1 本阶段先进 Main 占位
-                    goMain()
-                },
+                onLoginSuccess = ::onLoginSuccess,
                 onMissingServers = {
                     nav.navigate(EnterpriseCodeRoute) { popUpTo(0) { inclusive = true } } // RN:147 replace
                 },
@@ -147,6 +186,7 @@ fun AppiaNavHost(
                 },
                 externalAlert = loginAlert,
                 onConsumeExternalAlert = { loginAlert = null },
+                state = state,
             )
         }
         composable<AreaCodeRoute> { entry ->
@@ -166,28 +206,41 @@ fun AppiaNavHost(
                 title = route.title,
                 authType = route.authType,
                 ssoToken = route.ssoToken,
-                // T5 接线点：CAS 回调判定命中 → AuthApi.login → Main（失败落回登录页告警）
+                // T6 接线点：CAS 回调判定命中 → AuthApi.login → 同一成功路径 → Main（失败落回登录页告警）
                 onSsoLogin = { runSsoLogin(route.server, it.credentialToken) },
                 onBack = { nav.popBackStack() },
             )
         }
         composable<MainRoute> {
-            // M2 将替换为会话列表；不放企业 servers 明文
-            // T11 接线点：MineMenu 企业列表入口 → OrgListRepository.fetchCandidates + OrgSwitchSheet
-            // （cn.appia.im.feature.org.ui.OrgSwitchSheet 已就绪）→ OrgSwitchCoordinator.switchTo
-            Text(LocalContext.current.t("feature_not_implemented"))
+            val gateway = session
+            if (gateway == null) {
+                // 无会话层注入（纯 Auth 栈 UI 测试）；不放企业 servers 明文
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                MainScreen(
+                    gateway = gateway,
+                    onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
+                )
+            }
         }
     }
 }
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var session: SessionBootstrapOrchestrator
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 首帧判定在 setContent 前完成（同步读 MMKV 持久化会话）：有会话直落 Main（RN
+        // RootNavigator.tsx:66-95 首帧即定 Auth/Main，无闪屏）；Main 内再异步 bootstrap（RN 同构）
+        val startAuthenticated = session.hasRestorableSession()
         setContent {
             AppiaTheme(isDark = isSystemInDarkTheme()) {
                 Surface(Modifier.fillMaxSize()) {
-                    AppiaNavHost()
+                    AppiaNavHost(session = session, startAuthenticated = startAuthenticated)
                 }
             }
         }

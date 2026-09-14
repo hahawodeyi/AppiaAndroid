@@ -1,0 +1,200 @@
+package cn.appia.im.feature.main.ui
+
+import android.app.Application
+import android.content.Context
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
+import cn.appia.im.AppiaNavHost
+import cn.appia.im.core.datastore.AuthSession
+import cn.appia.im.core.datastore.AuthSessionStore
+import cn.appia.im.core.datastore.InMemoryKvStore
+import cn.appia.im.core.datastore.OrgSessionCache
+import cn.appia.im.core.database.DatabaseManager
+import cn.appia.im.core.network.AuthUser
+import cn.appia.im.core.network.LoginMe
+import cn.appia.im.core.network.LoginResult
+import cn.appia.im.core.network.RocketSdk
+import cn.appia.im.core.i18n.t
+import cn.appia.im.core.network.rest.SessionExpiredBus
+import cn.appia.im.core.push.PushTokenRegistrar
+import cn.appia.im.domain.session.AuthRepository
+import cn.appia.im.domain.session.OrgSwitchCoordinator
+import cn.appia.im.domain.session.RealtimeSessionManager
+import cn.appia.im.domain.session.SessionBootstrapOrchestrator
+import cn.appia.im.feature.login.CompanyServer
+import cn.appia.im.feature.login.SendCodeResult
+import cn.appia.im.feature.login.VerifyEnterpriseResponse
+import cn.appia.im.feature.login.ui.LoginDeps
+import cn.appia.im.feature.login.ui.LoginState
+import cn.appia.im.feature.org.OrgListRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.OkHttpClient
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.util.concurrent.CopyOnWriteArrayList
+
+/**
+ * 导航流程串联（T11）：登录成功→Main（持久化+bootstrap）→登出→Auth；
+ * 恢复会话首帧即 Main；SessionExpired→登出→回 Auth。会话层为真 orchestrator +
+ * bootstrap 缝记录器（不触 DDP/MMKV），登录经 LoginState 注入缝免触网。
+ */
+// Robolectric 仅支持 JUnit4 runner；SDK 36 沙箱要 Java 21，钉在 SDK 34（同 I18nTest）
+@RunWith(RobolectricTestRunner::class)
+// plain Application：AppiaApplication.onCreate 会初始化 MMKV，JVM 下不可加载
+@Config(sdk = [34], application = Application::class)
+class MainNavigationFlowTest {
+    @get:Rule
+    val rule = createComposeRule()
+
+    private val context: Context = ApplicationProvider.getApplicationContext()
+    private lateinit var fixture: Fixture
+
+    @Before
+    fun setUp() {
+        fixture = Fixture(context)
+    }
+
+    @After
+    fun tearDown() {
+        fixture.dbManager.resetAll()
+    }
+
+    private fun waitUntilExists(matcher: () -> Boolean) {
+        rule.waitUntil(5_000, matcher)
+    }
+
+    private fun textExists(text: String) =
+        rule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+
+    private fun tagExists(tag: String) =
+        rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+
+    @Test
+    fun `login success persists lands on Main then logout returns to enterprise code`() {
+        rule.setContent {
+            AppiaNavHost(
+                verify = { _, _ ->
+                    VerifyEnterpriseResponse(success = true, servers = listOf(CompanyServer(url = "https://s1", name = "S1")))
+                },
+                session = fixture.orchestrator,
+                loginState = { servers, onLoginSuccess ->
+                    LoginState(
+                        servers,
+                        LoginDeps(
+                            strings = { context.t(it) },
+                            sendCode = { _, _, _, _ -> SendCodeResult(true) },
+                            login = { _, _ -> LoginResult("tok-1", "u-1", LoginMe(username = "bob", name = "Bob")) },
+                            fetchCasUrl = { null },
+                            generateSsoToken = { "abc123xyz09876zy" },
+                            onLoginSuccess = onLoginSuccess,
+                        ),
+                    ).apply {
+                        phone = "13800138000"
+                        smsCode = "1234"
+                        captchaIc = fixture.ic
+                    }
+                },
+            )
+        }
+
+        // 企业码 → 登录页
+        rule.onNodeWithTag("enterprise_code_input").performTextInput("demo")
+        rule.onNodeWithText(context.t("enterprise_next")).performClick()
+        waitUntilExists { tagExists("login_phone_input") }
+
+        // ic+验证码已预置 → 登录键可用；fake login 即回 → 持久化 → Main
+        rule.onNodeWithTag("login_submit").performScrollTo().performClick()
+        waitUntilExists { textExists("Bob") }
+
+        assertEquals("tok-1", fixture.store.load()?.token)
+        assertEquals(listOf(Triple("https://s1", "tok-1", "u-1")), fixture.bootstraps.toList()) // 进 Main 即 bootstrap
+
+        // 登出 → 回企业码页
+        rule.onNodeWithText(context.t("profile_logout")).performClick()
+        waitUntilExists { tagExists("enterprise_code_input") }
+        assertNull(fixture.store.load())
+    }
+
+    @Test
+    fun `restored session lands on Main on first frame and bootstraps`() {
+        fixture.saveSession()
+
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+        }
+
+        // 无需任何导航动作：首帧即 Main（RN RootNavigator:66-95）
+        waitUntilExists { textExists("Bob") }
+        assertEquals(listOf(Triple("https://s1", "tok-1", "u-1")), fixture.bootstraps.toList()) // 进 Main 即 bootstrap
+    }
+
+    @Test
+    fun `session expired event logs out and returns to enterprise code`() {
+        fixture.saveSession()
+
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+        }
+        waitUntilExists { textExists("Bob") }
+
+        rule.runOnIdle { SessionExpiredBus.emit() }
+
+        waitUntilExists { tagExists("enterprise_code_input") }
+        assertNull(fixture.store.load())
+    }
+}
+
+/** 真 orchestrator + 全 fakes：bootstrap 缝改记录器（不触 DDP）；推送无 deviceId（不出网）。 */
+private class Fixture(context: Context) {
+    val kv = InMemoryKvStore()
+    val store = AuthSessionStore(kv)
+    val dbManager = DatabaseManager(context)
+    val bootstraps = CopyOnWriteArrayList<Triple<String, String, String>>()
+    val ic = JsonObject(mapOf("ic" to JsonPrimitive("ticket")))
+
+    val orchestrator: SessionBootstrapOrchestrator = run {
+        val auth = AuthRepository(
+            store = store,
+            push = PushTokenRegistrar(kv, OkHttpClient(), deviceIdProvider = { null }),
+            kv = kv,
+            orgCache = OrgSessionCache(InMemoryKvStore()),
+            dbManager = dbManager,
+            backgroundScope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
+        val sdk = RocketSdk()
+        val coordinator = OrgSwitchCoordinator(sdk, manager, auth, store, OrgSessionCache(InMemoryKvStore()), dbManager)
+        val orgList = OrgListRepository(sdk, kv)
+        SessionBootstrapOrchestrator(
+            store = store,
+            auth = auth,
+            manager = manager,
+            coordinator = coordinator,
+            orgList = orgList,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+    }.apply {
+        bootstrapRealtime = { s, t, u -> bootstraps.add(Triple(s, t, u)) }
+    }
+
+    fun saveSession() {
+        store.save(AuthSession("tok-1", AuthUser(id = "u-1", username = "bob", name = "Bob"), "https://s1"))
+    }
+}

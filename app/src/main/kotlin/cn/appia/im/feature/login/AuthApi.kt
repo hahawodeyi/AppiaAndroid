@@ -52,8 +52,12 @@ object AuthApi {
     /** 登录类 REST 调用点超时（RN restClient 调用点 timeoutMs:30_000，T2 评审指针）。 */
     const val LOGIN_TIMEOUT_MS = 30_000L
 
-    /** 进程级 sdk 单例：login 编排复用（T2 预检裁定；session 层 wire 监听归 T8 收敛）。 */
-    private val sdk = RocketSdk()
+    /**
+     * 进程级 sdk 单例：login 编排复用（T2 预检裁定；session 层 wire 监听归 T8 收敛）。
+     * T11 DI 收口：SessionModule 复用本实例作为全 app 唯一 RocketSdk（RN 单 sdk 语义——
+     * 登录建连与 bootstrap 重连同实例，避免双 socket 残留；internal 仅供装配，业务仍走 AuthApi 门面）。
+     */
+    internal val sdk = RocketSdk()
 
     /** RN auth.ts:28 模块级缓存：key=`host|locale`；只存成功非空列表，回落不入缓存。 */
     private val areaCodeCache = ConcurrentHashMap<String, List<LoginAreaCodeOption>>()

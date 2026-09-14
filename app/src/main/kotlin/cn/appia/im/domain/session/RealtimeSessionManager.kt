@@ -19,6 +19,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
@@ -88,9 +90,15 @@ class RealtimeSessionManager(
     @Volatile
     private var needsPostReconnectResume = false
 
-    /** RN :63 全局 DDP 流是否已成功 subscribe；断线 / teardown 清零。 */
-    @Volatile
-    private var authenticatedStreamsSubscribed = false
+    /**
+     * RN :63 全局 DDP 流是否已成功 subscribe；断线 / teardown 清零。
+     * StateFlow 承载（写路径原子）：T11 连接状态占位文本 / M2 横幅经 [connectionUp] 同源订阅。
+     */
+    private val connectionState = MutableStateFlow(false)
+
+    private var authenticatedStreamsSubscribed: Boolean
+        get() = connectionState.value
+        set(value) { connectionState.value = value }
 
     /** bootstrap 时点参数（RN 从 authStore 现读的等价；teardown 清空防已拆会话被复活）。 */
     @Volatile
@@ -523,6 +531,9 @@ class RealtimeSessionManager(
     }
 
     // ---- 测试观测 ----
+
+    /** 连接状态（占位 UI/M2 横幅同源）：true = 全局流已订阅且未被断线/teardown 复位。 */
+    val connectionUp: StateFlow<Boolean> get() = connectionState
 
     internal val sessionKeyForTest: String? get() = sessionKey
 

@@ -9,9 +9,11 @@ import cn.appia.im.core.datastore.MmkvKvStore
 import cn.appia.im.core.datastore.OrgSessionCache
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.network.LoginResult
+import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.buildAuthUserFromLogin
 import cn.appia.im.core.network.rest.OrgSwitchState
 import cn.appia.im.core.push.PushTokenRegistrar
+import cn.appia.im.feature.login.AuthApi
 import com.tencent.mmkv.MMKV
 import dagger.Module
 import dagger.Provides
@@ -112,8 +114,50 @@ object SessionModule {
     @Singleton
     fun provideDatabaseManager(@ApplicationContext context: Context): DatabaseManager = DatabaseManager(context)
 
+    /** T11 装配修复：补 @BackgroundScope 限定（否则图校验 MissingBinding——此前未经 assembleDebug 验证）。 */
     @Provides
     @Singleton
+    @BackgroundScope
     fun provideBackgroundScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * T11 DI 收口：全 app 唯一 RocketSdk 实例 = AuthApi 的进程级 sdk（RN 单 sdk 语义——
+     * 登录建连与 bootstrap 重连同实例；换成新实例会在登录路径留下一条不设监听的僵尸 DDP 连接）。
+     */
+    @Provides
+    @Singleton
+    fun provideRocketSdk(): RocketSdk = AuthApi.sdk
+
+    /**
+     * T8↔T9 预检裁定：syncInitial 构造注入 RoomsSyncRepository.sync（bootstrap 内部调用）。
+     * repo 绑定的 server 在**调用时**现读会话（组织切换 applySession 已更新 store，
+     * 随后的 bootstrap 同步新主体；repo 持有 sdk/db 引用，构建廉价）。
+     */
+    @Provides
+    @Singleton
+    fun provideRealtimeSessionManager(
+        sdk: RocketSdk,
+        dbManager: DatabaseManager,
+        store: AuthSessionStore,
+        kv: KvStore,
+    ): RealtimeSessionManager {
+        val syncInitial: suspend () -> Unit = {
+            val serverUrl = store.load()?.serverUrl.orEmpty()
+            RoomsSyncRepository(sdk, dbManager, kv, serverUrl).sync(RoomsSyncRepository.Mode.BOOTSTRAP)
+        }
+        return RealtimeSessionManager(sdk, dbManager, syncInitial)
+    }
+
+    /** bootstrap 缝带默认 lambda，Dagger 不绑函数类型默认值 → 显式 @Provides（T10）。 */
+    @Provides
+    @Singleton
+    fun provideOrgSwitchCoordinator(
+        sdk: RocketSdk,
+        manager: RealtimeSessionManager,
+        auth: AuthRepository,
+        store: AuthSessionStore,
+        orgCache: OrgSessionCache,
+        dbManager: DatabaseManager,
+    ): OrgSwitchCoordinator = OrgSwitchCoordinator(sdk, manager, auth, store, orgCache, dbManager)
 }
 
