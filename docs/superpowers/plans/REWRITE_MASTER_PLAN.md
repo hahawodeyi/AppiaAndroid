@@ -97,6 +97,20 @@ cn.appia.im/
 
 **可带走的小项**（机会主义清理）：AppiaColors KDoc 错位；dark/light 字段集断言同义反复；pre-commit 脚本轮边（暂存区校验、启发式假阴性）；MmkvKvStore 委托补测；`1.json` 末尾换行；DdpClientTest 慢机 flake 加固；`File.delete()` 返回值检查（Windows 场景）。
 
+## 4.2 M1 遗留与 M2 前置任务（2026-09-14 M1 终审裁定，不得静默丢失）
+
+**写 M2 计划时必须列为显式任务行**：
+1. 主线程 `resetDatabase` 文件删除移到后台 dispatcher（M1 已知偏差，M0 终审即挂账）
+2. M2 起强制 stream handler 主线程 hop（`setStreamHandler` KDoc 线程契约已写明——第一个房间列表 handler 落地时执行）
+3. Maestro 断言从可见文案换 testID（开启 `testTagsAsResourceId`）
+4. orgCandidates 两段式（缓存先行即时显、REST 到后刷新——对照 RN MineMenu 行为）
+5. 组织切换中手动登出按钮的豁免语义（当前切换中手动登出仍导航，终审记为可留 M2）
+6. MainNavigationFlowTest 补 MockWebServer shutdown（线程卫生）
+
+**flake 监控延续**：RealtimeSessionManagerTest `resubscribed on new connection` 仅全量偶发 WS 时序超时（M1 期 0/3 未复现）；CI 接入前按预案复验。
+
+**可带走**（M1 终审 triage 全部核过）：trim NBSP/BOM 差异（触发面不存在）、POST 空 body "{}"、tSearch NULL vs 0（查询等价）、T7 verified 已修（终审顺车）、其余记录在案项。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
