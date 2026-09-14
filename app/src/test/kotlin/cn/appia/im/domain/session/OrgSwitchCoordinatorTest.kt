@@ -161,7 +161,20 @@ class OrgSwitchCoordinatorTest {
     @Volatile
     private var failBootstrap = false
 
-    private fun loginOld() = store.save(AuthSession("tok-old", AuthUser(id = "u-old", username = "oldu"), host))
+    private fun loginOld() = store.save(
+        AuthSession(
+            "tok-old",
+            AuthUser(
+                id = "u-old",
+                username = "oldu",
+                name = "Old Co",
+                statusText = "busy",
+                emails = listOf(cn.appia.im.core.network.AuthUserEmail(address = "old@a.cn", verified = true)),
+                roles = listOf("admin", "user"),
+            ),
+            host,
+        ),
+    )
 
     private fun ticketBodyOk() =
         """{"data":{"authToken":"t-new","userId":"u-new","me":{"username":"newu","name":"New Co"}}}"""
@@ -271,6 +284,14 @@ class OrgSwitchCoordinatorTest {
         assertEquals("tok-old", restored.token)
         assertEquals("u-old", restored.user.id)
         assertEquals("oldu", restored.user.username)
+        // 回滚恢复完整用户资料（RN 快照 ...user 全量展开，评审 Important：不丢 statusText/emails/roles）
+        assertEquals("Old Co", restored.user.name)
+        assertEquals("busy", restored.user.statusText)
+        assertEquals(
+            listOf(cn.appia.im.core.network.AuthUserEmail(address = "old@a.cn", verified = true)),
+            restored.user.emails,
+        )
+        assertEquals(listOf("admin", "user"), restored.user.roles)
         assertEquals(host, restored.serverUrl)
         assertEquals("tok-old", sdk.currentAuthToken()) // 旧 REST 会话恢复（绑定裁定#2 旧连接回拨）
         assertEquals("tok-cache", orgCache.get(host)!!.token) // RN 回滚不触碰 orgSessionByHost

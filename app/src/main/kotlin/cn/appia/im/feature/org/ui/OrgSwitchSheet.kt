@@ -57,7 +57,8 @@ fun OrgSwitchSheet(
         )
         Spacer(Modifier.height(8.dp))
         LazyColumn {
-            items(candidates, key = { it.appiaUrl }) { company ->
+            // 不设 key：服务端可能返回重复 appiaUrl（RN 容忍重复行），key 去重会抛 IllegalArgumentException
+            items(candidates) { company ->
                 val selected =
                     ServerUrl.normalizeServer(company.appiaUrl) == ServerUrl.normalizeServer(currentServerUrl)
                 Row(

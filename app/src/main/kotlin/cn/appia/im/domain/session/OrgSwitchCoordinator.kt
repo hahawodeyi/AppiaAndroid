@@ -5,7 +5,9 @@ import cn.appia.im.core.datastore.AuthSession
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.datastore.OrgSessionCache
 import cn.appia.im.core.datastore.OrgSessionCacheRow
+import cn.appia.im.core.network.AuthUser
 import cn.appia.im.core.network.LoginMe
+import cn.appia.im.core.network.LoginMeEmail
 import cn.appia.im.core.network.LoginMeSettings
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
@@ -15,7 +17,9 @@ import cn.appia.im.feature.login.AuthApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * RN services/auth/orgSwitchInProgress.ts 的终态载体：M0 的 OrgSwitchState（AtomicBoolean
@@ -24,8 +28,8 @@ import kotlinx.serialization.json.JsonObject
 typealias OrgSwitchFlag = OrgSwitchState
 
 /**
- * RN orgSwitchMutex.ts `withOrgSwitchMutex` 的等价：promise 链 → kotlinx Mutex（公平排队，
- * 串行执行语义一致）；操作包裹在 OrgSwitchFlag begin/end 中（RN :7-15 同），401 豁免随之生效。
+ * RN orgSwitchMutex.ts `withOrgSwitchMutex` 的等价：promise 链 → kotlinx Mutex（串行执行语义一致，
+ * 不承诺排队公平性）；操作包裹在 OrgSwitchFlag begin/end 中（RN :7-15 同），401 豁免随之生效。
  */
 object OrgSwitchMutex {
     private val mutex = Mutex()
@@ -166,7 +170,8 @@ class OrgSwitchCoordinator(
     }
 
     /**
-     * RN finishOrgSwitchAfterAuth:41-50 的回滚：恢复旧 store（applyOrgSwitchSession(previous)）
+     * RN finishOrgSwitchAfterAuth:41-50 的回滚：恢复旧 store（applyOrgSwitchSession(previous)，
+     * RN 快照 `...user` 全量展开——AuthUser 全字段经 LoginMe 回填，不丢 statusText/emails/roles）
      * 并恢复旧连接（hydrate + 断开目标 socket 回连旧主体——绑定裁定#2「恢复旧 store/旧连接」）。
      * 回滚是尽力而为：各步 runCatching，原始终因错误向上抛；绝不 logout（RN 同）。
      */
@@ -174,15 +179,7 @@ class OrgSwitchCoordinator(
         runCatching {
             applySession(
                 previous.serverUrl,
-                LoginResult(
-                    authToken = previous.token,
-                    userId = previous.user.id,
-                    me = LoginMe(
-                        username = previous.user.username,
-                        name = previous.user.name,
-                        settings = LoginMeSettings(previous.user.preferences ?: JsonObject(emptyMap())),
-                    ),
-                ),
+                LoginResult(authToken = previous.token, userId = previous.user.id, me = loginMeOf(previous.user)),
             )
         }
         runCatching {
@@ -193,6 +190,16 @@ class OrgSwitchCoordinator(
             )
         }
     }
+
+    /** AuthUser → LoginMe 逆映射（回滚用）：profile 字段全量透传，roles 由 List 重建为 JSON 数组。 */
+    private fun loginMeOf(user: AuthUser) = LoginMe(
+        username = user.username,
+        name = user.name,
+        statusText = user.statusText,
+        roles = user.roles?.map { JsonPrimitive(it) }?.let { JsonArray(it) },
+        emails = user.emails?.map { LoginMeEmail(address = it.address, verified = it.verified) },
+        settings = LoginMeSettings(user.preferences ?: JsonObject(emptyMap())),
+    )
 
     companion object {
         /** DdpClient 发送失败的既有错误文本（RN e.message.includes('socket not open')）。 */
