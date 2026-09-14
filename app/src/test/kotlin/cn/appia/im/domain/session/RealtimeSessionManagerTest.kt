@@ -215,6 +215,54 @@ class RealtimeSessionManagerTest {
         assertNotNull(manager.sessionKeyForTest)
     }
 
+    // ---- 评审 Important-1 回归：等待者被取消，body 继续且注册不被清 ----
+
+    @Test
+    fun `waiter cancellation leaves body running and same key bootstrap merges instead of double running`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        syncGate = CompletableDeferred()
+
+        val waiter = launch { manager.bootstrap(host, "tok-w") }
+        awaitCond("sync entered") { syncCalls.get() == 1 }
+        waiter.cancel() // 等待者死亡；body 必须继续在跑、inflight 注册必须保留
+        waiter.join()
+
+        // 同 key 后续 bootstrap：必须合并到在途 body，不得起第二个 body 双跑
+        val merger = launch { manager.bootstrap(host, "tok-w") }
+        delay(100) // 让出事件循环给 merger：若注册已被清，第二个 body 此间进入 sync → 计数变 2
+        assertEquals(1, syncCalls.get())
+
+        syncGate?.complete(Unit)
+        merger.join()
+        assertNotNull(manager.sessionKeyForTest)
+        awaitCond("subs done once") { ws.subCount() >= 6 }
+        assertEquals(1, syncCalls.get())
+    }
+
+    // ---- 评审盲区补充：不同 key 并发 bootstrap 串行完整跑 ----
+
+    @Test
+    fun `concurrent bootstraps of different keys run serially to completion`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+
+        val a = launch { manager.bootstrap(host, "tok-A", userId = "uid-1") }
+        val b = launch { manager.bootstrap(host, "tok-B", userId = "uid-1") }
+        a.join()
+        b.join()
+
+        // 两个不同 key 互不合并、互不短路：各自完整跑一遍 body（bootstrapMutex 串行）
+        assertEquals(2, syncCalls.get())
+        assertTrue(sdk.hasDdpUserId())
+        awaitCond("global subs") { ws.subCount() >= 6 }
+        // 同服共用 DdpClient：仅首个 key 触发 resume；B 的 hydrate 只刷新 REST 会话 token
+        assertEquals("tok-A", ws.resumeToken())
+        assertEquals(1, ws.frames.count { parse(it)?.s("method") == "login" })
+        assertNotNull(manager.sessionKeyForTest)
+        // 任一已落 key 短路
+        manager.bootstrap(host, "tok-B")
+        assertEquals(2, syncCalls.get())
+    }
+
     // ---- generation 竞态 ----
 
     @Test

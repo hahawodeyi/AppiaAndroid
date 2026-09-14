@@ -3,17 +3,21 @@ package cn.appia.im.domain.session
 import android.util.Log
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.network.RocketSdk
+import cn.appia.im.core.network.ddp.DdpClient
 import cn.appia.im.core.network.ddp.DdpException
 import cn.appia.im.core.network.ddp.DdpMethodError
 import cn.appia.im.core.network.ddp.Disposable
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -71,7 +75,7 @@ class RealtimeSessionManager(
     @Volatile
     private var inflightKey: String? = null
 
-    private var inflightJob: Job? = null
+    private var inflightJob: Deferred<Unit>? = null
 
     /** RN :47 换主体时递增，作废进行中的 bootstrap（避免过期 subscribe 失败触发回滚/登出）。 */
     private val bootstrapGeneration = AtomicLong(0)
@@ -114,6 +118,14 @@ class RealtimeSessionManager(
     /** RN :66 ensureStreamsInflight 去重的 Mutex 等价。 */
     private val streamsMutex = Mutex()
 
+    /** bootstrap extras fire-and-forget 句柄：teardown 取消（授权顺手项，防 M5 前幽灵同步）。 */
+    @Volatile
+    private var extrasJob: Job? = null
+
+    /** wire 时的 DdpClient 实例（评审 Important-3）：hydrate 换服会重建实例，不同则必须 re-wire。 */
+    @Volatile
+    private var wiredClient: DdpClient? = null
+
     // ---- 公共 API ----
 
     /**
@@ -127,26 +139,39 @@ class RealtimeSessionManager(
         val key = "$serverUrl\u0000$token"
         bootstrapMutex.withLock {
             if (sessionKey == key) return
+            // 同 key 在途 → 合并等待（RN :540-542 await inflightPromise）。注册表清理挂在 body
+            // 自身完成上（下方 invokeOnCompletion）：等待者被取消不清注册，故本分支可达且必须保留——
+            // 否则孤儿 body 与后续同 key bootstrap 双跑（评审 Important-1 回归钉）。
             val running = inflightJob
             if (inflightKey == key && running != null) {
-                running.join() // RN :540-542 await inflightPromise
+                try {
+                    running.await() // Deferred：body 失败重抛给所有等待者（评审 Important-4，RN 同）
+                } catch (e: CancellationException) {
+                    // body 被 teardown 取消而本协程仍活跃 → 等价 RN 的静默返回；本协程自身取消 → 上抛
+                    if (!currentCoroutineContext().isActive) throw e
+                }
                 return
             }
 
             val generationAtStart = bootstrapGeneration.get()
-            val job = scope.launch { runBootstrap(serverUrl, token, userId, key, generationAtStart) }
+            val deferred = scope.async { runBootstrap(serverUrl, token, userId, key, generationAtStart) }
             inflightKey = key
-            inflightJob = job
-            try {
-                job.join()
-            } finally {
-                // RN :632-637 finally 清 inflight；仅清仍属于本次的（teardown 抢先清过则跳过）
+            inflightJob = deferred
+            // 清理与 body 生命周期绑定（评审 Important-1）：body 完成（含失败/取消）即清注册，
+            // 等待者只是旁观者；仅清仍属于本次的（teardown 抢先清过则跳过）
+            deferred.invokeOnCompletion {
                 synchronized(stateLock) {
-                    if (inflightJob === job) {
+                    if (inflightJob === deferred) {
                         inflightKey = null
                         inflightJob = null
                     }
                 }
+            }
+            try {
+                deferred.await()
+            } catch (e: CancellationException) {
+                // body 被 teardown 取消而本协程仍活跃 → 静默返回；本协程自身取消 → 上抛
+                if (!currentCoroutineContext().isActive) throw e
             }
         }
     }
@@ -157,8 +182,9 @@ class RealtimeSessionManager(
      * 换服断连由 prepareSocketConnection 的 sdk.disconnect 负责，此处不重复 teardown（RN 同）。
      */
     fun resetForOrgSwitch() {
-        bootstrapGeneration.incrementAndGet()
         synchronized(stateLock) {
+            // 递增与清理同锁（评审 Important-2）：与 body 的「检查+赋值」原子段互斥，交错必有序
+            bootstrapGeneration.incrementAndGet()
             sessionKey = null
             inflightKey = null
             inflightJob = null // RN 置 null 不取消：在途 body 靠 generation 检查中止
@@ -194,6 +220,9 @@ class RealtimeSessionManager(
     fun teardown() {
         val inflight: Job?
         synchronized(stateLock) {
+            // generation 一并递增（评审 Important-2）：在途 body 的「检查+赋值」已原子化，
+            // teardown 靠递增使其后任何步骤 6 检查必不过，清理总能胜出不被写回
+            bootstrapGeneration.incrementAndGet()
             sessionKey = null
             inflightKey = null
             inflight = inflightJob
@@ -203,6 +232,8 @@ class RealtimeSessionManager(
         finalizeJobs.clear()
         inflight?.cancel()
         pendingFinalize.forEach { it.cancel() }
+        extrasJob?.cancel()
+        extrasJob = null
 
         suppressTransportCloseUi = true
         needsPostReconnectResume = false
@@ -275,7 +306,12 @@ class RealtimeSessionManager(
         // 步骤 7：presence 占位（RN :589-592 requestUserPresence(selfId)——M5 接入）
         Log.d(TAG, "requestUserPresence placeholder (M5)")
 
-        sessionKey = key // 步骤 8（RN :594）
+        // 步骤 8：sessionKey 落定（RN :594）。检查+赋值与 reset/teardown 的清理同锁原子化
+        // （评审 Important-2）：交错时必有一方整体先行，不会把已清的 sessionKey 写回
+        synchronized(stateLock) {
+            if (bootstrapGeneration.get() != generationAtStart) return
+            sessionKey = key
+        }
 
         // 步骤 9：后台 fire-and-forget 占位（RN :596-629，M5 补全）
         launchBootstrapExtras(generationAtStart)
@@ -284,9 +320,10 @@ class RealtimeSessionManager(
     /**
      * RN :596-629 后台 fire-and-forget（public settings / emojis / permissions / user roles）。
      * M1 占位：保留 per-step generation 检查骨架 + 日志，各 sync 实现归 M5。
+     * 句柄登记（授权顺手项）：teardown 取消，防 M5 前的幽灵同步残留。
      */
     private fun launchBootstrapExtras(generationAtStart: Long) {
-        scope.launch {
+        extrasJob = scope.launch {
             for (step in listOf("public settings", "custom emojis", "permissions", "user roles")) {
                 if (bootstrapGeneration.get() != generationAtStart) return@launch
                 Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
@@ -306,7 +343,9 @@ class RealtimeSessionManager(
         val token = currentToken
         if (server.isNullOrEmpty() || token.isNullOrEmpty()) return false // RN :318-322 auth 守卫
         return try {
-            if (!wiredBaseHandlers) {
+            // wired 判定带 DdpClient 实例同一性（评审 Important-3）：hydrate 换服重建实例后
+            // 旧监听全部失效，实例不同必须走 prepareSocketConnection 重新 wire
+            if (!wiredBaseHandlers || sdk.ddp !== wiredClient) {
                 prepareSocketConnection(server)
             } else {
                 sdk.connect()
@@ -415,9 +454,11 @@ class RealtimeSessionManager(
     // ---- 传输层监听（RN wireLegacyStreamHandlers :192-260）----
 
     private fun wireBaseHandlers() {
-        if (wiredBaseHandlers) return
+        // 实例同一性守卫（评审 Important-3）：同一 client 已挂过监听才是真 wired
+        if (wiredBaseHandlers && sdk.ddp === wiredClient) return
         val ddp = sdk.ddp ?: return
         wiredBaseHandlers = true
+        wiredClient = ddp
         synchronized(streamStops) {
             // RN :205-213：connected → 串行 finalize（resume + 重订阅）
             streamStops.add(ddp.onStreamData("connected") { scheduleFinalize() })
@@ -453,6 +494,7 @@ class RealtimeSessionManager(
             streamStops.clear()
         }
         wiredBaseHandlers = false
+        wiredClient = null
         authenticatedStreamsSubscribed = false
     }
 
