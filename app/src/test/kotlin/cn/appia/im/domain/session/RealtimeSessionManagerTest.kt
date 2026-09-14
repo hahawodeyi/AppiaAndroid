@@ -287,6 +287,30 @@ class RealtimeSessionManagerTest {
         assertNotNull(manager.sessionKeyForTest)
     }
 
+    // ---- 评审 Important-1 回归：reset 后迟到的订阅协程不清/不写会话订阅态 ----
+
+    @Test
+    fun `late subscription coroutine after org switch reset does not mark session subscribed`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        ws.withholdSubReady = true // 卡住步骤 4 的 fire-and-forget 订阅协程（6 条 sub 已发、等 ready）
+
+        val job = launch { manager.bootstrap(host, "tok-1", userId = "uid-1") }
+        awaitCond("six subs parked on ready") { ws.subCount() >= 6 }
+        job.join() // body 跑完（sessionKey 落定），订阅协程仍挂在 ready 上
+
+        // 组织切换：generation 递增使该 bootstrap 作废，但已发射的订阅协程不被取消
+        manager.resetForOrgSwitch()
+
+        // 此刻才放行 ready：迟到的订阅协程完成——不得把 true 写进已作废会话的订阅态
+        ws.frames.filter { parse(it)?.s("msg") == "sub" }.forEach { frame ->
+            ws.send("""{"msg":"ready","subs":["${parse(frame)!!.s("id")}"]}""")
+        }
+
+        delay(500) // 给迟到协程落地时间：修复前此处会把 streamsSubscribed 写回 true（幽灵在线）
+        assertFalse(manager.streamsSubscribedForTest)
+        assertEquals(1, manager.generationForTest)
+    }
+
     // ---- 会话失效识别：三态 + 行为 ----
 
     @Test
@@ -487,6 +511,10 @@ private class SessionWsServer : WebSocketListener() {
     @Volatile
     var loginReplyFactory: ((String?) -> String)? = null
 
+    /** 置 true 时 sub 帧不自动回 ready（测试用：卡住订阅协程，构造「迟到协程」竞态）。 */
+    @Volatile
+    var withholdSubReady = false
+
     override fun onOpen(webSocket: WebSocket, response: Response) {
         wsRef.set(webSocket)
     }
@@ -504,7 +532,7 @@ private class SessionWsServer : WebSocketListener() {
                             """"result":{"id":"uid-1","token":"ddp-token","createCipher":{"${'$'}date":1690000000000}}}""",
                 )
             }
-            "sub" -> webSocket.send("""{"msg":"ready","subs":["${obj.s("id")}"]}""")
+            "sub" -> if (!withholdSubReady) webSocket.send("""{"msg":"ready","subs":["${obj.s("id")}"]}""")
         }
     }
 

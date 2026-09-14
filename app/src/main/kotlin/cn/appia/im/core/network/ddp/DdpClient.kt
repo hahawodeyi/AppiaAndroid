@@ -3,6 +3,7 @@ package cn.appia.im.core.network.ddp
 import cn.appia.im.core.network.RocketHttp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,6 +37,12 @@ import kotlin.coroutines.coroutineContext
 
 private fun textOf(e: JsonElement?): String? = (e as? JsonPrimitive)?.contentOrNull
 
+/** 内部 scope 兜底（评审 Important-3）：fire-and-forget 协程（建队/ping/reopen/pong）抛非取消异常只落日志。 */
+private val ddpScopeHandler = CoroutineExceptionHandler { _, e ->
+    if (e is CancellationException) throw e
+    android.util.Log.w("ddp", "uncaught coroutine failure in DdpClient scope", e)
+}
+
 /**
  * Minimal DDP/WebSocket client for Rocket.Chat streams.
  * 逐行为移植 appiaMobile/src/services/realtime/ddpClient.ts（536 行），
@@ -56,7 +63,7 @@ class DdpClient(
     var userId: String? = null
         private set
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + ddpScopeHandler)
 
     // ---- 事件注册表（TS Emitter ddpClient.ts:3-32）----
     private val listeners = ConcurrentHashMap<String, CopyOnWriteArraySet<(JsonElement) -> Unit>>()

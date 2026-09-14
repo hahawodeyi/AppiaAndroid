@@ -59,8 +59,11 @@ class SessionBootstrapOrchestrator @Inject constructor(
     /** 登录成功持久化（T5 账密/SMS 与 T6 CAS 的 onLoginSuccess 汇入点，RN authStore.login :98-107）。 */
     fun persistLogin(result: LoginResult, serverUrl: String) = auth.login(result, serverUrl)
 
-    /** 登出（登出按钮与 SessionExpired 同路径）；teardown 注入缝传 manager::teardown（T10 指针）。 */
-    fun logout() = auth.logout(manager::teardown)
+    /**
+     * 登出（登出按钮与 SessionExpired 同路径）；teardown 注入缝传 manager::teardown（T10 指针）。
+     * 返回 false = 组织切换中豁免跳过（评审 Important-2）：总线收集器据此不导航。
+     */
+    fun logout(): Boolean = auth.logout(manager::teardown)
 
     /** 切组织（MineMenu 入口，T10 coordinator.switchTo）；失败上抛由 UI 告警。 */
     suspend fun switchOrg(targetServerUrl: String) = switchOrgImpl(targetServerUrl)

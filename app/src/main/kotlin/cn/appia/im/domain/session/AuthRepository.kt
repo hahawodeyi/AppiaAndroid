@@ -20,6 +20,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,6 +34,12 @@ import javax.inject.Singleton
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class BackgroundScope
+
+/** 应用级作用域兜底（评审 Important-3）：fire-and-forget 协程抛非取消异常只落日志，不崩进程。 */
+private val backgroundScopeHandler = CoroutineExceptionHandler { _, e ->
+    if (e is CancellationException) throw e
+    android.util.Log.w("session", "uncaught coroutine failure in background scope", e)
+}
 
 /**
  * 会话编排基座（RN stores/authStore.ts 会话动作的原生等价）。
@@ -77,9 +85,10 @@ class AuthRepository @Inject constructor(
      * presence/权限/tab/RUM 等归 M5+。
      *
      * @param teardownRealtime RN teardownRealtimeSession 的注入缝（T11 接线传 manager::teardown）。
+     * @return false = 组织切换中豁免跳过（RN :139-141），调用方（SessionExpired 收集器）据此不导航。
      */
-    fun logout(teardownRealtime: () -> Unit = {}) {
-        if (OrgSwitchState.isInProgress()) return // RN :139-141
+    fun logout(teardownRealtime: () -> Unit = {}): Boolean {
+        if (OrgSwitchState.isInProgress()) return false // RN :139-141
         val prev = store.load()
         val prevUsername = prev?.user?.username.orEmpty()
         val prevServer = prev?.serverUrl?.takeIf { it.isNotEmpty() }
@@ -98,6 +107,7 @@ class AuthRepository @Inject constructor(
         }
         // RN .finally(setActivePreloginDatabase)：无论是否删库都回落占位库
         dbManager.switchDatabase(DatabaseManager.PRELOGIN_NORMALIZED)
+        return true
     }
 }
 
@@ -118,7 +128,8 @@ object SessionModule {
     @Provides
     @Singleton
     @BackgroundScope
-    fun provideBackgroundScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    fun provideBackgroundScope(): CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler)
 
     /**
      * T11 DI 收口：全 app 唯一 RocketSdk 实例 = AuthApi 的进程级 sdk（RN 单 sdk 语义——

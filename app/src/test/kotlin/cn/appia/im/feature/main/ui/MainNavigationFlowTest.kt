@@ -22,6 +22,7 @@ import cn.appia.im.core.network.LoginMe
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.i18n.t
+import cn.appia.im.core.network.rest.OrgSwitchState
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.core.push.PushTokenRegistrar
 import cn.appia.im.domain.session.AuthRepository
@@ -44,7 +45,9 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -159,6 +162,35 @@ class MainNavigationFlowTest {
 
         rule.runOnIdle { SessionExpiredBus.emit() }
 
+        waitUntilExists { tagExists("enterprise_code_input") }
+        assertNull(fixture.store.load())
+    }
+
+    // ---- 评审 Important-2 回归：组织切换中总线事件被豁免，不登出不导航 ----
+
+    @Test
+    fun `session expired during org switch does not log out or navigate`() {
+        fixture.saveSession()
+
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+        }
+        waitUntilExists { textExists("Bob") }
+
+        rule.runOnIdle { OrgSwitchState.begin() }
+        try {
+            rule.runOnIdle { SessionExpiredBus.emit() }
+            rule.waitForIdle() // 若修复前：logout + goAuth 已把用户甩到企业码页
+
+            assertTrue(textExists("Bob")) // 仍在主屏
+            assertNotNull(fixture.store.load()) // 会话未被清（logout 豁免跳过）
+        } finally {
+            // 全局单例标志：断言失败也必须复位，不污染同类/同 JVM 的后续测试
+            rule.runOnIdle { OrgSwitchState.end() }
+        }
+
+        // 豁免期结束后的失效事件照常登出（豁免只挡切换窗口，不吞语义）
+        rule.runOnIdle { SessionExpiredBus.emit() }
         waitUntilExists { tagExists("enterprise_code_input") }
         assertNull(fixture.store.load())
     }

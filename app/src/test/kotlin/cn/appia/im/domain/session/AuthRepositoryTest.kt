@@ -126,7 +126,7 @@ class AuthRepositoryTest {
         server.takeRequest()
 
         server.enqueue(MockResponse().setBody("{}")) // unregister
-        repo.logout()
+        assertTrue(repo.logout()) // 真正执行 → true（非组织切换豁免）
 
         assertNull(store.load())
         assertFalse(store.isAuthenticated)
@@ -155,7 +155,8 @@ class AuthRepositoryTest {
 
         OrgSwitchState.begin()
         try {
-            repo.logout()
+            // 返回 false（评审 Important-2）：调用方（SessionExpired 收集器）据此不导航
+            assertFalse(repo.logout())
             assertEquals("tok-1", store.load()!!.token) // RN :139-141 直接 return
         } finally {
             OrgSwitchState.end()

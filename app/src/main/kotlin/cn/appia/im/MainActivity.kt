@@ -120,12 +120,12 @@ fun AppiaNavHost(
     // 无 toast 基建直接回落；M5 补 auth_session_expired 提示，key 已备于 rest/ApiError.kt）。
     // 注册先于 NavHost 子级 effect：Main 内 bootstrap 触发的失效事件不丢（总线无 replay）。
     // session == null（纯 Auth 栈 UI 测试路径）整体跳过——与 onLoginSuccess 的 persistLogin 同一保护。
+    // logout 仅在真正执行（非组织切换豁免，评审 Important-2）时才导航：切换中总线事件不甩回企业码页。
     LaunchedEffect(session) {
         SessionExpiredBus.events.collect {
             val gateway = session
-            if (gateway != null) {
+            if (gateway != null && gateway.logout()) {
                 // 与 MainScreen 手动登出双触发是有意的幂等操作（logout/teardown 均幂等）
-                gateway.logout()
                 goAuth()
             }
         }

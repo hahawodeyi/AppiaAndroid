@@ -9,6 +9,7 @@ import cn.appia.im.core.network.ddp.DdpMethodError
 import cn.appia.im.core.network.ddp.Disposable
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +55,12 @@ import java.util.concurrent.atomic.AtomicLong
  * 并发语义（JS 单线程 → Kotlin 映射）：generation 计数用 AtomicLong；bootstrap 注册/合并用 Mutex
  * （RN 的 inflight promise 去重等价）；finalize 串行用 Mutex；handler 注册表与监听句柄表并发安全。
  */
+/** 应用级作用域兜底（评审 Important-3）：fire-and-forget 协程抛非取消异常只落日志，不崩进程。 */
+private val realtimeScopeHandler = CoroutineExceptionHandler { _, e ->
+    if (e is CancellationException) throw e
+    Log.w("realtime", "uncaught coroutine failure in RealtimeSessionManager scope", e)
+}
+
 class RealtimeSessionManager(
     private val sdk: RocketSdk,
     private val dbManager: DatabaseManager,
@@ -62,7 +69,8 @@ class RealtimeSessionManager(
     /** DDP 会话失效识别后的登出路径回调（RN :340 authStore.logout 的注入等价；T11 接 AuthRepository）。 */
     private val onSessionExpired: () -> Unit = {},
     /** App 级单例作用域（绑定裁定：SupervisorJob + Dispatchers.IO；单例无需 close）。 */
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val scope: CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + realtimeScopeHandler),
 ) {
 
     // ---- 状态（RN session.ts:41-72 模块级字段的实例等价）----
@@ -257,6 +265,8 @@ class RealtimeSessionManager(
     /**
      * 注册/替换某全局流 topic 的事件处理器（M2/M5 业务接入点）；传 null 移除。
      * 未注册 topic 到达即丢弃（默认 no-op）。
+     *
+     * 线程契约：handler 在 DDP IO 线程被调，业务方自行 hop 主线程（M2 起强制）。
      */
     fun setStreamHandler(topic: String, handler: ((JsonElement) -> Unit)?) {
         if (handler == null) streamHandlers.remove(topic) else streamHandlers[topic] = handler
@@ -293,10 +303,10 @@ class RealtimeSessionManager(
         if (bootstrapGeneration.get() != generationAtStart) return
 
         if (ddpReady) {
-            // 订阅全局流：RN :300-307 fire-and-forget，失败标记 disconnected（房间页 focus 可重试）
-            scope.launch {
-                if (!ensureAuthenticatedStreamSubscriptions()) markDisconnected()
-            }
+            // 订阅全局流：RN :300-307 fire-and-forget，失败标记 disconnected（房间页 focus 可重试）。
+            // 传入 body 的 generation 快照（评审 Important-1）：reset/teardown 不取消已发射协程，
+            // 迟到的订阅协程在 ensure 内按 generation 中止，不 resume 旧 token、不清新会话订阅态
+            scope.launch { ensureAuthenticatedStreamSubscriptions(generationAtStart) }
         }
 
         // 步骤 5：初始 REST 会话同步——失败仅 warn 不阻断（RN :579-583）
@@ -377,28 +387,35 @@ class RealtimeSessionManager(
     /**
      * RN ensureAuthenticatedStreamSubscriptions session.ts:349-384：已成功订阅且 DDP 活着 → 短路；
      * 否则保证 resume 后重订阅。并发经 streamsMutex 串行（RN inflight promise 去重等价）。
+     *
+     * [generationAtStart]（评审 Important-1）：调用方快照的 bootstrap generation。进入锁后与每次
+     * 落态前复查——reset/teardown 递增后，迟到的协程不订阅、不 resume 旧 token、不写订阅态
+     * （与 bootstrap body 步骤 4/6 的中止检查同模式）。
      */
-    private suspend fun ensureAuthenticatedStreamSubscriptions(): Boolean = streamsMutex.withLock {
-        if (authenticatedStreamsSubscribed) {
-            if (sdk.hasDdpUserId() && sdk.ddp?.isTransportOpen() == true) return@withLock true
-            authenticatedStreamsSubscribed = false
+    private suspend fun ensureAuthenticatedStreamSubscriptions(generationAtStart: Long): Boolean =
+        streamsMutex.withLock {
+            if (bootstrapGeneration.get() != generationAtStart) return@withLock false
+            if (authenticatedStreamsSubscribed) {
+                if (sdk.hasDdpUserId() && sdk.ddp?.isTransportOpen() == true) return@withLock true
+                authenticatedStreamsSubscribed = false
+            }
+            if (!ensureDdpResumeForStreams()) {
+                if (bootstrapGeneration.get() == generationAtStart) markDisconnected()
+                return@withLock false
+            }
+            try {
+                subscribeAuthenticatedStreams()
+                if (bootstrapGeneration.get() != generationAtStart) return@withLock false
+                authenticatedStreamsSubscribed = true
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "subscribe streams failed", e)
+                if (bootstrapGeneration.get() == generationAtStart) markDisconnected()
+                false
+            }
         }
-        if (!ensureDdpResumeForStreams()) {
-            markDisconnected()
-            return@withLock false
-        }
-        try {
-            subscribeAuthenticatedStreams()
-            authenticatedStreamsSubscribed = true
-            true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "subscribe streams failed", e)
-            markDisconnected()
-            false
-        }
-    }
 
     /**
      * RN subscribeAuthenticatedStreams session.ts:389-417：全局流最小集，并发订阅
@@ -447,7 +464,7 @@ class RealtimeSessionManager(
         try {
             if (runResume) {
                 authenticatedStreamsSubscribed = false // RN resumeStreamsAfterSocketUp :156-163
-                if (!ensureAuthenticatedStreamSubscriptions()) {
+                if (!ensureAuthenticatedStreamSubscriptions(bootstrapGeneration.get())) {
                     throw DdpException("[realtime] DDP session not ready after reconnect")
                 }
             }
@@ -489,7 +506,12 @@ class RealtimeSessionManager(
                 StreamNames.NOTIFY_ALL,
             )) {
                 streamStops.add(
-                    ddp.onStreamData(topic) { msg -> streamHandlers[topic]?.invoke(msg) },
+                    ddp.onStreamData(topic) { msg ->
+                        // handler 分发兜底（评审 Important-3）：handler 在 DDP IO 线程裸调，
+                        // 抛异常不能崩进程；DdpClient.emit 的 runCatching 静默吞，这里带 topic 落日志
+                        runCatching { streamHandlers[topic]?.invoke(msg) }
+                            .onFailure { Log.w(TAG, "stream handler failed (topic=$topic)", it) }
+                    },
                 )
             }
         }
