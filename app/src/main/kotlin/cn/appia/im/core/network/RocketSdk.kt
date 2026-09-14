@@ -183,6 +183,11 @@ class RocketSdk(
         ddp?.disconnect()
     }
 
+    /** RN checkAndReopenTransport sdk/index.ts:89-91：未连接时立即建连（重连风暴防护在 DdpClient 内）。 */
+    fun checkAndReopenTransport() {
+        ddp?.checkAndReopen()
+    }
+
     // ---- 内部 ----
 
     private fun ddp(): DdpClient = ddp ?: throw IllegalStateException("RocketSdk not initialized")
