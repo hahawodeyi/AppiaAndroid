@@ -7,6 +7,7 @@ import cn.appia.im.core.datastore.InMemoryKvStore
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.network.RocketSdk
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -249,6 +250,38 @@ class RoomsSyncRepositoryTest {
         manager.switchDatabase(host) // 恢复 active 后同数据可落库
         assertTrue(repo.sync(RoomsSyncRepository.Mode.PULL))
         assertNotNull(dao().getById("r1"))
+    }
+
+    @Test
+    fun `blank bound server url never matches active db`() = runBlocking {
+        // active 恰为空白串映射的占位库：无 blank 检查时守卫会误判 true（RN 对空白显式 false）
+        manager.switchDatabase("")
+        val blankRepo = RoomsSyncRepository(sdk, manager, kv, "   ")
+        subsBody = envelope(subJson("r1"))
+        roomsBody = envelope(roomJson("r1"))
+
+        assertFalse(blankRepo.sync(RoomsSyncRepository.Mode.PULL))
+        assertTrue(manager.databaseFor(DatabaseManager.PRELOGIN_NORMALIZED).chatDao().getAll().isEmpty())
+    }
+
+    @Test
+    fun `persist writes land in captured db even when active switched`() = runBlocking {
+        // TOCTOU 等价用例：persistInto 直呼（db 由守卫通过后一次捕获），
+        // active 在写库前已被切走 → 数据仍全落绑定库，不写新 active 库
+        val boundDb = manager.active
+        manager.switchDatabase("https://other.example.com")
+
+        val persisted = repo.persistInto(
+            boundDb,
+            ids = listOf("r1"),
+            subscriptionsPayload = Json.parseToJsonElement(envelope(subJson("r1"))),
+            roomsPayload = Json.parseToJsonElement(envelope(roomJson("r1"))),
+            isFullFetch = true,
+        )
+
+        assertTrue(persisted)
+        assertNotNull(boundDb.chatDao().getById("r1"))
+        assertTrue(manager.databaseFor(manager.normalizeServer("https://other.example.com")).chatDao().getAll().isEmpty())
     }
 
     // ---- 游标 ----

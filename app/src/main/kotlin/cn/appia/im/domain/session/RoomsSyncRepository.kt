@@ -1,8 +1,8 @@
 package cn.appia.im.domain.session
 
 import androidx.room.withTransaction
+import cn.appia.im.core.database.AppiaDatabase
 import cn.appia.im.core.database.DatabaseManager
-import cn.appia.im.core.database.dao.ChatDao
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.datastore.KvStore
 import cn.appia.im.core.network.RocketSdk
@@ -43,11 +43,11 @@ class RoomsSyncRepository(
 
     private val cursor = RoomsSyncCursor(kv)
 
-    private fun dao(): ChatDao = dbManager.active.chatDao()
-
-    /** RN activeDbMatchesAuth 守卫等价：active 库必须就是本 repo 绑定 server 的库。 */
-    private fun activeDbMatchesAuth(): Boolean =
-        dbManager.active === dbManager.databaseFor(dbManager.normalizeServer(serverUrl))
+    /** RN activeDbMatchesAuth 守卫等价：active 库必须就是本 repo 绑定 server 的库；空白 server 恒不匹配（RN 同）。 */
+    private fun activeDbMatchesAuth(): Boolean {
+        if (serverUrl.isBlank()) return false
+        return dbManager.active === dbManager.databaseFor(dbManager.normalizeServer(serverUrl))
+    }
 
     /** RN getRooms chat.ts:14-29：两端点并发（Promise.all 等价），updatedSince 为 ISO 串。 */
     private suspend fun getRooms(updatedSince: String?): Pair<JsonElement, JsonElement> =
@@ -114,6 +114,22 @@ class RoomsSyncRepository(
             return false
         }
 
+        // 守卫通过后立刻捕获目标库：query/prune/write 全走同一实例，
+        // 中途换服（active 变更）不会让事务写错库、也不会退化为逐 chunk 自动提交
+        val db = dbManager.active
+        return persistInto(db, ids, subscriptionsPayload, roomsPayload, isFullFetch)
+    }
+
+    /** persist 的写半程：db 由调用方捕获后固定，全程单一实例（供 TOCTOU 等价测试直呼）。 */
+    internal suspend fun persistInto(
+        db: AppiaDatabase,
+        ids: List<String>,
+        subscriptionsPayload: JsonElement?,
+        roomsPayload: JsonElement?,
+        isFullFetch: Boolean,
+    ): Boolean {
+        val dao = db.chatDao()
+
         val subs = extractUpdateList(subscriptionsPayload)
         val roomById = HashMap<String, JsonObject>()
         for (r in extractUpdateList(roomsPayload)) roomById[r.str("_id")?.takeIf { it.isNotEmpty() } ?: continue] = r
@@ -128,7 +144,6 @@ class RoomsSyncRepository(
         val deduped = dedupeMergedChatsById(merged)
         val removedRids = removeChatIds(extractRemoveList(subscriptionsPayload))
 
-        val dao = dao()
         // SQLite 变量上限 999：IN 查询按批分块（RN Watermelon Q.oneOf 自行分块）
         val existing = ids.chunked(BATCH_SIZE).flatMap { dao.getByIds(it) }
         val existingById = existing.associateBy { it._id }
@@ -157,7 +172,6 @@ class RoomsSyncRepository(
             return false
         }
 
-        val db = dbManager.active
         db.withTransaction {
             toCreate.chunked(BATCH_SIZE).forEach { dao.insertAll(it) }
             toUpdate.chunked(BATCH_SIZE).forEach { dao.updateAll(it) }
