@@ -173,6 +173,8 @@ fun AppiaNavHost(
         }
         composable<MainRoute> {
             // M2 将替换为会话列表；不放企业 servers 明文
+            // T11 接线点：MineMenu 企业列表入口 → OrgListRepository.fetchCandidates + OrgSwitchSheet
+            // （cn.appia.im.feature.org.ui.OrgSwitchSheet 已就绪）→ OrgSwitchCoordinator.switchTo
             Text(LocalContext.current.t("feature_not_implemented"))
         }
     }
