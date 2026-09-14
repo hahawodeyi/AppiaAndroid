@@ -7,10 +7,11 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import java.time.Instant
-import java.time.LocalDateTime
-import java.time.OffsetDateTime
-import java.time.ZoneOffset
+import java.text.ParseException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * 逐行移植 appiaMobile `src/database/mergeSubscriptionAndRoom.ts`（对照旧版 ios
@@ -143,14 +144,38 @@ object ChatMerger {
         return null
     }
 
-    /** JS Date.parse 的务实子集：ISO-Z → 带偏移 → date-only/无偏移按 UTC（RC 服务端恒为 ISO-Z）。 */
-    internal fun parseIsoMillis(s: String): Double? = runCatching {
-        Instant.parse(s).toEpochMilli().toDouble()
-    }.recoverCatching {
-        OffsetDateTime.parse(s).toInstant().toEpochMilli().toDouble()
-    }.recoverCatching {
-        LocalDateTime.parse(s).toInstant(ZoneOffset.UTC).toEpochMilli().toDouble()
-    }.getOrNull()
+    /**
+     * JS Date.parse 的务实子集（RC 服务端恒为 ISO-Z）：优先带偏移（XXX 兼容 `Z`/`+08:00`），
+     * 再无偏移/date-only 按 UTC。SimpleDateFormat 每次 new（非线程安全）；minSdk 24 无 java.time 可用。
+     */
+    private val ISO_PATTERNS = listOf(
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+        "yyyy-MM-dd'T'HH:mm:ssXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd",
+    )
+
+    internal fun parseIsoMillis(s: String): Double? {
+        for (pattern in ISO_PATTERNS) {
+            val fmt = SimpleDateFormat(pattern, Locale.ROOT).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+                isLenient = false
+            }
+            try {
+                return fmt.parse(s)!!.time.toDouble()
+            } catch (_: ParseException) {
+                // 换下一形态
+            }
+        }
+        return null
+    }
+
+    /** toISOString 等价：UTC ISO-8601 毫秒（游标存储格式，RN roomsSyncCursor 同为 ISO 串）。 */
+    internal fun formatIsoMillis(millis: Long): String =
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date(millis))
 
     private fun JsonElement?.asStringValue(): String? =
         (this as? JsonPrimitive)?.let { if (it is JsonNull) null else it.content }
@@ -409,11 +434,8 @@ object ChatMerger {
 
         val m = subscriptionBase(sub, id, str(sub, listOf("_id")).ifEmpty { null })
         if (room != null) applyRoomToMerged(m, room, sub)
-
-        m.autoTranslate = m.autoTranslate || false // 已在 base 归一；RN `if (!m.autoTranslate) = false` 等价
-        m.blocker = m.blocker
-        m.blocked = m.blocked
-        m.hideMentionStatus = m.hideMentionStatus
+        // RN 末尾 `autoTranslate ?? false`、`blocker/blocked/hideMentionStatus !!` 的归一
+        // 已由 subscriptionBase 的非空默认值完成（autoTranslate=false、blocked/blocker/hideMentionStatus=false）。
 
         val subLm = toMillis(read(sub, listOf("lm")))
         val roomLm = room?.let { toMillis(read(it, listOf("lm"))) }
