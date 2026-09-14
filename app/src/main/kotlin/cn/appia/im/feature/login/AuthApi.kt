@@ -1,10 +1,13 @@
 package cn.appia.im.feature.login
 
 import cn.appia.im.core.network.LoginCredentials
+import cn.appia.im.core.network.LoginRequestFactory
+import cn.appia.im.core.network.LoginMe
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketHttp
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.ServerUrl
+import cn.appia.im.core.network.rest.ApiException
 import cn.appia.im.core.network.rest.AuthInterceptor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -20,12 +23,14 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /** RN auth.ts:25 `LoginAreaCodeOption`；响应条目多余字段忽略（ignoreUnknownKeys）。 */
 @Serializable
@@ -123,6 +128,37 @@ object AuthApi {
         return sdk.login(credentials, timeoutMs)
     }
 
+    /**
+     * RN switchOrgLoginViaRest auth.ts:131-146：向目标 host 发三字段换票 REST
+     * （`POST login` `{userId, userToken, url: 旧主体}`，30s 超时），**不依赖 sdk.server 已指向目标**；
+     * 预登录通道（AuthInterceptor{null}）→ 不携带任何旧组织鉴权头。
+     * 响应按 parseSwitchOrgLoginResponse（auth.ts:124-129）`raw?.data ?? raw` 取会话字段，
+     * 缺 authToken/userId 抛 ApiException（RN 'Switch response missing authToken/userId'）。
+     */
+    suspend fun switchOrgLoginViaRest(
+        targetHost: String,
+        userId: String,
+        userToken: String,
+        url: String,
+    ): LoginResult {
+        val call = LoginRequestFactory.create(LoginCredentials.SwitchOrg(userId, userToken, url))
+        val raw = restCall(targetHost, call.endpoint, body = call.body, timeoutMs = LOGIN_TIMEOUT_MS)
+        val data = when (val wrapper = (raw as? JsonObject)?.get("data")) {
+            null, is JsonNull -> raw
+            else -> wrapper
+        }
+        val obj = data as? JsonObject
+        val authToken = obj.textField("authToken")
+        val newUserId = obj.textField("userId")
+        if (authToken.isNullOrEmpty() || newUserId.isNullOrEmpty()) {
+            throw ApiException("[rocket] switch org login: missing authToken/userId")
+        }
+        val me = obj?.get("me")?.let { value ->
+            runCatching { json.decodeFromJsonElement<LoginMe>(value.jsonObject) }.getOrNull()
+        }
+        return LoginResult(authToken = authToken, userId = newUserId, me = me)
+    }
+
     // ---- 内部 ----
 
     /** RN rocketRestRequest restClient.ts:35-99 的预登录子集：URL 组装 + JSON 编解码 + `json ?? {}`。 */
@@ -132,6 +168,7 @@ object AuthApi {
         method: String = "POST",
         body: JsonElement? = null,
         params: Map<String, String>? = null,
+        timeoutMs: Long? = null,
     ): JsonElement = withContext(Dispatchers.IO) {
         val url = buildString {
             append(ServerUrl.normalizeServer(host))
@@ -150,7 +187,10 @@ object AuthApi {
                 post((body?.toString() ?: "").toRequestBody("application/json".toMediaType()))
             }
         }.build()
-        rest.newCall(request).execute().use { resp ->
+        val call = rest.newCall(request)
+        // RN restClient.ts:44-50 AbortController：per-call 超时（换票 30s 同款通道）
+        timeoutMs?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
+        call.execute().use { resp ->
             val text = resp.body.string()
             // RN `json ?? {}`：空体/解析失败都当空对象（sendCode 缺省 success → true；getAreaCode → 空 → 回落）
             if (text.isEmpty()) {

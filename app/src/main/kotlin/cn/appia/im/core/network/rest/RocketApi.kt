@@ -47,10 +47,6 @@ interface RocketApi {
     @POST("login")
     suspend fun login(@Body body: LoginRequest): LoginResponse
 
-    /** LDAP 登录端点（loginCredentialsRest.ts 的 verify-ic 分支）；与 login 同为登录类端点，不带鉴权头。 */
-    @POST("verify-ic")
-    suspend fun verifyIc(@Body body: LoginRequest): LoginResponse
-
     @GET("info")
     suspend fun serverInfo(): ServerInfoResponse
 }
