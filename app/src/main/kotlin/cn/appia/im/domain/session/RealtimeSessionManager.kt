@@ -1,0 +1,498 @@
+package cn.appia.im.domain.session
+
+import android.util.Log
+import cn.appia.im.core.database.DatabaseManager
+import cn.appia.im.core.network.RocketSdk
+import cn.appia.im.core.network.ddp.DdpException
+import cn.appia.im.core.network.ddp.DdpMethodError
+import cn.appia.im.core.network.ddp.Disposable
+import cn.appia.im.core.network.rest.SessionExpiredBus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * 登录态实时会话编排（逐行为移植 appiaMobile/src/services/realtime/session.ts 的 M1 子集）：
+ * bootstrap generation 引导 / DDP 重连恢复 / 会话失效识别 / teardown。
+ *
+ * 状态机（步骤编号 = RN session.ts 行号锚点）：
+ * ```
+ * bootstrap(server,token[,userId])                 close ──┐（未被 suppress 时）
+ *   ├─ sessionKey 短路 / inflight 合并（:538-543）          ├─ needsPostReconnectResume = true
+ *   ├─ generation 快照（:549）                             ├─ streamsSubscribed = false
+ *   ├─ 1 hydrateRestSession（:556-566，userId 已知才做）    └─ sdk.checkAndReopen()——重连风暴防护在
+ *   ├─ 2 switchDatabase（:568-569，REST 落库前）               DdpClient（tryReopen 去重），本层不重复排
+ *   ├─ 3 ensureDdpResume（:315-344，!hasDdpUserId 才 resume） connected ──┐
+ *   ├─ 4 generation 检查 → 中止（:575-577）                    ├─ scheduleFinalize（Mutex 串行，
+ *   ├─ 5 syncInitial（:579-583，失败仅 warn 不阻断）           ▼  等价 finalizeTail promise 链）
+ *   ├─ 6 generation 检查 → 中止（:585-587）              runFinalizeOnce（:173-186）:
+ *   ├─ 7 presence 占位（:589-592，M5）                     needsResume → resume + 重订阅 6 条全局流；
+ *   ├─ 8 sessionKey = key（:594）                          resume 失败且失效文本匹配（:96-105）→
+ *   └─ 9 extras fire-and-forget 占位（:596-629，M5）        SessionExpiredBus + 登出回调；失败回滚标记
+ * teardown（:672-694 全清单）：取消在途 → 清态 → 停监听 → clearRestSession → disconnect；幂等可重入
+ * ```
+ * 并发语义（JS 单线程 → Kotlin 映射）：generation 计数用 AtomicLong；bootstrap 注册/合并用 Mutex
+ * （RN 的 inflight promise 去重等价）；finalize 串行用 Mutex；handler 注册表与监听句柄表并发安全。
+ */
+class RealtimeSessionManager(
+    private val sdk: RocketSdk,
+    private val dbManager: DatabaseManager,
+    /** 初始 REST 会话同步（T9 RoomsSyncRepository.sync；T11 串联注入）。失败仅 warn 不阻断（RN :579-583）。 */
+    private val syncInitial: suspend () -> Unit,
+    /** DDP 会话失效识别后的登出路径回调（RN :340 authStore.logout 的注入等价；T11 接 AuthRepository）。 */
+    private val onSessionExpired: () -> Unit = {},
+    /** App 级单例作用域（绑定裁定：SupervisorJob + Dispatchers.IO；单例无需 close）。 */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+) {
+
+    // ---- 状态（RN session.ts:41-72 模块级字段的实例等价）----
+
+    private val stateLock = Any()
+    private val bootstrapMutex = Mutex()
+
+    /** RN :43 bootstrap 短路 key：`serverUrl\0token`。 */
+    @Volatile
+    private var sessionKey: String? = null
+
+    @Volatile
+    private var inflightKey: String? = null
+
+    private var inflightJob: Job? = null
+
+    /** RN :47 换主体时递增，作废进行中的 bootstrap（避免过期 subscribe 失败触发回滚/登出）。 */
+    private val bootstrapGeneration = AtomicLong(0)
+
+    /** RN :55 换服 / teardown 时忽略 close，避免误标「断线」。 */
+    @Volatile
+    private var suppressTransportCloseUi = false
+
+    /** RN :60 重连后需重新 resume + 全局订阅（DdpClient.tryReopen 只重建传输层）。 */
+    @Volatile
+    private var needsPostReconnectResume = false
+
+    /** RN :63 全局 DDP 流是否已成功 subscribe；断线 / teardown 清零。 */
+    @Volatile
+    private var authenticatedStreamsSubscribed = false
+
+    /** bootstrap 时点参数（RN 从 authStore 现读的等价；teardown 清空防已拆会话被复活）。 */
+    @Volatile
+    private var currentServerUrl: String? = null
+
+    @Volatile
+    private var currentToken: String? = null
+
+    @Volatile
+    private var lastUserId: String? = null
+
+    /** 事件分发注册表（绑定裁定：本任务只分发记录，业务处理 M2/M5 接）；未注册 topic 默认 no-op。 */
+    private val streamHandlers = ConcurrentHashMap<String, (JsonElement) -> Unit>()
+
+    /** RN :42 streamStops：全部 Disposable 登记，stop 时统一摘除（防泄漏）。 */
+    private val streamStops = ArrayList<Disposable>()
+
+    @Volatile
+    private var wiredBaseHandlers = false
+
+    /** RN :165-171 finalizeTail promise 链的 Mutex 等价（重连恢复串行执行）。 */
+    private val finalizeMutex = Mutex()
+    private val finalizeJobs = CopyOnWriteArrayList<Job>()
+
+    /** RN :66 ensureStreamsInflight 去重的 Mutex 等价。 */
+    private val streamsMutex = Mutex()
+
+    // ---- 公共 API ----
+
+    /**
+     * 登录态就绪后引导实时会话（RN bootstrapAuthenticatedRealtime session.ts:533-638，逐步骤对齐）。
+     * 同 key 已完成 → 短路；同 key 在途 → 合并等待（:538-543）。DDP 未就绪不阻断（REST 仍可同步，
+     * RN 走 disconnected 标记由房间页 focus 重试）；REST 同步失败仅 warn（:579-583）。
+     * userId 等价 RN authStore.user?.id 守卫（:559）：非空才 hydrate REST 会话（server 变化会重建
+     * DdpClient，由随后 resume 重连）。
+     */
+    suspend fun bootstrap(serverUrl: String, token: String, userId: String? = null) {
+        val key = "$serverUrl\u0000$token"
+        bootstrapMutex.withLock {
+            if (sessionKey == key) return
+            val running = inflightJob
+            if (inflightKey == key && running != null) {
+                running.join() // RN :540-542 await inflightPromise
+                return
+            }
+
+            val generationAtStart = bootstrapGeneration.get()
+            val job = scope.launch { runBootstrap(serverUrl, token, userId, key, generationAtStart) }
+            inflightKey = key
+            inflightJob = job
+            try {
+                job.join()
+            } finally {
+                // RN :632-637 finally 清 inflight；仅清仍属于本次的（teardown 抢先清过则跳过）
+                synchronized(stateLock) {
+                    if (inflightJob === job) {
+                        inflightKey = null
+                        inflightJob = null
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 多主体切换前清空 bootstrap 短路状态（RN resetBootstrapSessionStateForOrgSwitch :644-651）：
+     * generation 递增使在途 body 在步骤 4/6 检查处自行中止，随后对新主体的 bootstrap 必跑。
+     * 换服断连由 prepareSocketConnection 的 sdk.disconnect 负责，此处不重复 teardown（RN 同）。
+     */
+    fun resetForOrgSwitch() {
+        bootstrapGeneration.incrementAndGet()
+        synchronized(stateLock) {
+            sessionKey = null
+            inflightKey = null
+            inflightJob = null // RN 置 null 不取消：在途 body 靠 generation 检查中止
+        }
+        authenticatedStreamsSubscribed = false
+    }
+
+    /**
+     * RN prepareSocketConnection session.ts:262-276：停监听 → disconnect → initialize → 挂监听 → connect。
+     * **收敛点（T4 预检裁定）**：AuthApi.login 未来复用此编排替换裸 initialize+connect（当前行为等价不必改）。
+     * 不切库（RN :267-271 登录页 remount 语义）——换库由 bootstrap 步骤 2 负责。
+     */
+    suspend fun prepareSocketConnection(serverUrl: String) {
+        suppressTransportCloseUi = true
+        needsPostReconnectResume = false
+        stopAllStreamListeners()
+        sdk.disconnect()
+        sdk.initialize(serverUrl)
+        currentServerUrl = serverUrl
+        suppressTransportCloseUi = false
+        wireBaseHandlers()
+        sdk.connect()
+    }
+
+    /**
+     * RN teardownRealtimeSession session.ts:672-694 全清单等价：清 sessionKey/inflight、停 finalize、
+     * 复位重连/订阅标记、停监听、clearRestSession、disconnect。幂等；teardown 后可重新 bootstrap。
+     * - 在途 bootstrap 取消（原生加固，RN 的 JS promise 做不到）：防其后的 sdk.resume 复活已断开的会话
+     * - 全局流不做显式 unsub（RN 同）：disconnect 即服务端退订，且 unsub 会隐式重连
+     * - 房间流退订（unsubscribeAllRoomStreams）与 notify 持久化队列清空归 M2
+     * - 不删库不登出（那是 T10）
+     */
+    fun teardown() {
+        val inflight: Job?
+        synchronized(stateLock) {
+            sessionKey = null
+            inflightKey = null
+            inflight = inflightJob
+            inflightJob = null
+        }
+        val pendingFinalize = finalizeJobs.toList()
+        finalizeJobs.clear()
+        inflight?.cancel()
+        pendingFinalize.forEach { it.cancel() }
+
+        suppressTransportCloseUi = true
+        needsPostReconnectResume = false
+        currentToken = null
+        lastUserId = null
+        // M2：clearNotifyUserPersistenceQueue() / unsubscribeAllRoomStreams()
+        stopAllStreamListeners()
+        sdk.clearRestSession()
+        sdk.disconnect()
+        suppressTransportCloseUi = false
+    }
+
+    /**
+     * 注册/替换某全局流 topic 的事件处理器（M2/M5 业务接入点）；传 null 移除。
+     * 未注册 topic 到达即丢弃（默认 no-op）。
+     */
+    fun setStreamHandler(topic: String, handler: ((JsonElement) -> Unit)?) {
+        if (handler == null) streamHandlers.remove(topic) else streamHandlers[topic] = handler
+    }
+
+    // ---- bootstrap 主体 ----
+
+    /** RN :551-629 的 inflight body；generationAtStart 快照下的每步中止检查见各锚点。 */
+    private suspend fun runBootstrap(
+        serverUrl: String,
+        token: String,
+        userId: String?,
+        key: String,
+        generationAtStart: Long,
+    ) {
+        if (bootstrapGeneration.get() != generationAtStart) return // RN :552-554
+
+        currentServerUrl = serverUrl
+        currentToken = token
+        lastUserId = userId
+
+        // 步骤 1：hydrate REST 会话（RN :556-566）
+        if (userId != null) {
+            sdk.hydrateRestSession(serverUrl, token, userId)
+        }
+
+        // 步骤 2：切库（RN :568-569 setActiveServerDatabase：幂等，且必须在 REST 落库前）
+        dbManager.switchDatabase(serverUrl)
+
+        // 步骤 3：DDP resume（RN startColdStartRealtimeConnect :282-313 → ensureDdpResumeForStreams）
+        val ddpReady = ensureDdpResumeForStreams()
+
+        // 步骤 4：generation 检查（RN :575-577）
+        if (bootstrapGeneration.get() != generationAtStart) return
+
+        if (ddpReady) {
+            // 订阅全局流：RN :300-307 fire-and-forget，失败标记 disconnected（房间页 focus 可重试）
+            scope.launch {
+                if (!ensureAuthenticatedStreamSubscriptions()) markDisconnected()
+            }
+        }
+
+        // 步骤 5：初始 REST 会话同步——失败仅 warn 不阻断（RN :579-583）
+        try {
+            syncInitial()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "initial room sync skipped or failed", e)
+        }
+
+        // 步骤 6：generation 检查（RN :585-587）
+        if (bootstrapGeneration.get() != generationAtStart) return
+
+        // 步骤 7：presence 占位（RN :589-592 requestUserPresence(selfId)——M5 接入）
+        Log.d(TAG, "requestUserPresence placeholder (M5)")
+
+        sessionKey = key // 步骤 8（RN :594）
+
+        // 步骤 9：后台 fire-and-forget 占位（RN :596-629，M5 补全）
+        launchBootstrapExtras(generationAtStart)
+    }
+
+    /**
+     * RN :596-629 后台 fire-and-forget（public settings / emojis / permissions / user roles）。
+     * M1 占位：保留 per-step generation 检查骨架 + 日志，各 sync 实现归 M5。
+     */
+    private fun launchBootstrapExtras(generationAtStart: Long) {
+        scope.launch {
+            for (step in listOf("public settings", "custom emojis", "permissions", "user roles")) {
+                if (bootstrapGeneration.get() != generationAtStart) return@launch
+                Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
+            }
+        }
+    }
+
+    // ---- DDP resume 与订阅 ----
+
+    /**
+     * RN ensureDdpResumeForStreams session.ts:315-344：监听未挂先 prepareSocketConnection，否则
+     * connect；!hasDdpUserId 才 resume。失败 warn；失效文本匹配 → SessionExpiredBus + 登出回调
+     * （RN :338-341 的 toast + logout：toast 归 UI 层，经 SessionExpiredBus）。
+     */
+    private suspend fun ensureDdpResumeForStreams(): Boolean {
+        val server = currentServerUrl
+        val token = currentToken
+        if (server.isNullOrEmpty() || token.isNullOrEmpty()) return false // RN :318-322 auth 守卫
+        return try {
+            if (!wiredBaseHandlers) {
+                prepareSocketConnection(server)
+            } else {
+                sdk.connect()
+            }
+            if (!sdk.hasDdpUserId()) {
+                sdk.resume(token)
+            }
+            sdk.hasDdpUserId()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "ensure DDP resume for streams failed", e)
+            if (isSessionInvalidatedResumeError(e)) {
+                SessionExpiredBus.emit()
+                onSessionExpired()
+            }
+            false
+        }
+    }
+
+    /**
+     * RN ensureAuthenticatedStreamSubscriptions session.ts:349-384：已成功订阅且 DDP 活着 → 短路；
+     * 否则保证 resume 后重订阅。并发经 streamsMutex 串行（RN inflight promise 去重等价）。
+     */
+    private suspend fun ensureAuthenticatedStreamSubscriptions(): Boolean = streamsMutex.withLock {
+        if (authenticatedStreamsSubscribed) {
+            if (sdk.hasDdpUserId() && sdk.ddp?.isTransportOpen() == true) return@withLock true
+            authenticatedStreamsSubscribed = false
+        }
+        if (!ensureDdpResumeForStreams()) {
+            markDisconnected()
+            return@withLock false
+        }
+        try {
+            subscribeAuthenticatedStreams()
+            authenticatedStreamsSubscribed = true
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "subscribe streams failed", e)
+            markDisconnected()
+            false
+        }
+    }
+
+    /**
+     * RN subscribeAuthenticatedStreams session.ts:389-417：全局流最小集，并发订阅
+     * （Promise.all 等价）。uid 缺失时跳过 notify-user 三条（RN :402-404 warn）。
+     */
+    private suspend fun subscribeAuthenticatedStreams() {
+        val ddp = sdk.ddp ?: throw DdpException("[realtime] ddp not initialized")
+        val uid = ddp.userId ?: lastUserId
+        coroutineScope {
+            if (uid != null) {
+                async { ddp.subscribe(StreamNames.NOTIFY_USER, StreamNames.userEvent(uid, StreamNames.SUBSCRIPTIONS_CHANGED)) }
+                async { ddp.subscribe(StreamNames.NOTIFY_USER, StreamNames.userEvent(uid, StreamNames.ROOMS_CHANGED)) }
+                async { ddp.subscribe(StreamNames.NOTIFY_USER, StreamNames.userEvent(uid, StreamNames.USER_DATA)) }
+            } else {
+                Log.w(TAG, "missing userId; skip stream-notify-user subscriptions")
+            }
+            async { ddp.subscribe(StreamNames.NOTIFY_LOGGED, StreamNames.PERMISSIONS_CHANGED) }
+            async { ddp.subscribe(StreamNames.ROLES, StreamNames.ROLES_EVENT) }
+            async { ddp.subscribe(StreamNames.NOTIFY_ALL, StreamNames.PUBLIC_SETTINGS_CHANGED) }
+        }
+    }
+
+    /** RN markRealtimeServerDisconnected :79-85 的 M1 子集：订阅状态清零（phase UI 归后续任务）。 */
+    private fun markDisconnected() {
+        authenticatedStreamsSubscribed = false
+    }
+
+    // ---- 重连恢复 ----
+
+    /** RN scheduleFinalize :167-171：finalizeTail promise 链的等价——串行执行每轮收尾。 */
+    private fun scheduleFinalize() {
+        val job = scope.launch {
+            finalizeMutex.withLock { runFinalizeOnce() }
+        }
+        finalizeJobs.add(job)
+        job.invokeOnCompletion { finalizeJobs.remove(job) }
+    }
+
+    /**
+     * RN runFinalizeOnce session.ts:173-186：needsPostReconnectResume 时 resumeStreamsAfterSocketUp
+     * （强制重订阅；不 ready 视为失败）；失败回滚标记等下一轮 connected。
+     */
+    private suspend fun runFinalizeOnce() {
+        val runResume = needsPostReconnectResume
+        needsPostReconnectResume = false
+        try {
+            if (runResume) {
+                authenticatedStreamsSubscribed = false // RN resumeStreamsAfterSocketUp :156-163
+                if (!ensureAuthenticatedStreamSubscriptions()) {
+                    throw DdpException("[realtime] DDP session not ready after reconnect")
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "post-reconnect resume failed", e)
+            needsPostReconnectResume = true
+        }
+    }
+
+    // ---- 传输层监听（RN wireLegacyStreamHandlers :192-260）----
+
+    private fun wireBaseHandlers() {
+        if (wiredBaseHandlers) return
+        val ddp = sdk.ddp ?: return
+        wiredBaseHandlers = true
+        synchronized(streamStops) {
+            // RN :205-213：connected → 串行 finalize（resume + 重订阅）
+            streamStops.add(ddp.onStreamData("connected") { scheduleFinalize() })
+            // RN :214-226：close → 标记待恢复 + 立即建连以区分断线与会话失效；
+            // 重连风暴防护在 DdpClient（connectInflight 合并 + tryReopen 去重），本层不重复排
+            streamStops.add(
+                ddp.onStreamData("close") {
+                    if (!suppressTransportCloseUi) {
+                        needsPostReconnectResume = true
+                        authenticatedStreamsSubscribed = false
+                        sdk.checkAndReopenTransport()
+                    }
+                },
+            )
+            // RN :197 'connecting'（phase UI）与 :228 'users'（devLog）不影响语义，M1 不挂
+            for (topic in listOf(
+                StreamNames.NOTIFY_USER,
+                StreamNames.NOTIFY_LOGGED,
+                StreamNames.ROLES,
+                StreamNames.NOTIFY_ALL,
+            )) {
+                streamStops.add(
+                    ddp.onStreamData(topic) { msg -> streamHandlers[topic]?.invoke(msg) },
+                )
+            }
+        }
+    }
+
+    /** RN stopAllStreamListeners :134-145：全量摘除 Disposable，复位 wired/订阅状态（幂等）。 */
+    private fun stopAllStreamListeners() {
+        synchronized(streamStops) {
+            streamStops.forEach { runCatching { it.stop() } }
+            streamStops.clear()
+        }
+        wiredBaseHandlers = false
+        authenticatedStreamsSubscribed = false
+    }
+
+    // ---- 会话失效识别（RN :96-105）----
+
+    /**
+     * RN isSessionInvalidatedResumeError：取错误文本首个字符串型候选（DdpMethodError 的
+     * reason → message → 异常 message），匹配英文原文（大小写不敏感）。
+     */
+    internal fun isSessionInvalidatedResumeError(error: Throwable): Boolean {
+        val text = when (error) {
+            is DdpMethodError -> {
+                val obj = error.error as? JsonObject
+                obj.textField("reason") ?: obj.textField("message") ?: error.message
+            }
+            else -> error.message
+        }
+        return text != null &&
+            (LOGGED_OUT_BY_SERVER.containsMatchIn(text) || SESSION_HAS_EXPIRED.containsMatchIn(text))
+    }
+
+    private fun JsonObject?.textField(key: String): String? = when (val value = this?.get(key)) {
+        null, is JsonNull -> null
+        is JsonPrimitive -> value.content
+        else -> null
+    }
+
+    // ---- 测试观测 ----
+
+    internal val sessionKeyForTest: String? get() = sessionKey
+
+    internal val generationForTest: Long get() = bootstrapGeneration.get()
+
+    internal val streamsSubscribedForTest: Boolean get() = authenticatedStreamsSubscribed
+
+    companion object {
+        private const val TAG = "realtime"
+
+        // RN session.ts:103 原文（直引号撇号），大小写不敏感
+        private val LOGGED_OUT_BY_SERVER = Regex("you've been logged out by the server", RegexOption.IGNORE_CASE)
+        private val SESSION_HAS_EXPIRED = Regex("your session has expired", RegexOption.IGNORE_CASE)
+    }
+}
