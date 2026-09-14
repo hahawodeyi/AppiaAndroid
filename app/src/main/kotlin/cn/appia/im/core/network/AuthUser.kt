@@ -28,9 +28,11 @@ data class LoginMeEmail(val address: String? = null, val verified: Boolean? = nu
 data class LoginMeSettings(val preferences: JsonObject? = null)
 
 /** RN stores/authStore 的 AuthUser（userFromLoginMe.ts:26-42 组装的字段全集）。 */
+@Serializable
 data class AuthUser(
     val id: String,
-    val username: String,
+    /** RN `username?`：持久化历史数据可能缺省，反序列化兜底空串。 */
+    val username: String = "",
     val name: String? = null,
     val statusText: String? = null,
     val emails: List<AuthUserEmail>? = null,
@@ -38,6 +40,7 @@ data class AuthUser(
     val preferences: JsonObject? = null,
 )
 
+@Serializable
 data class AuthUserEmail(val address: String, val verified: Boolean?)
 
 /**
