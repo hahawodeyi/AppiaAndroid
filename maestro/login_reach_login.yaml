@@ -1,0 +1,13 @@
+# M1 冒烟：无凭证可验证的 UI 链路——企业码页输入任意字符 → 下一步（真网 verify）→
+# 失败 Alert（「企业验证失败」/「Enterprise verification failed」）可见。
+# 覆盖 EnterpriseCodeScreen：输入 → submit → verifyEnterprise → 失败分支 Alert。
+appId: cn.appia.im.debug
+---
+- launchApp:
+    clearState: true
+- assertVisible: "(Welcome to Appia|欢迎使用Appia)"
+- tapOn: "(Enter your enterprise code|请输入企业识别码)"
+- inputText: "zz-maestro-smoke"
+- hideKeyboard
+- tapOn: "(Verify & activate|验证激活)"
+- assertVisible: "(Enterprise verification failed|企业验证失败)"

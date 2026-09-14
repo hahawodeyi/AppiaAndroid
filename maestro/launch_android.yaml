@@ -1,7 +1,8 @@
-# M0 冒烟：壳应用仅占位 Text("Appia")（MainActivity，RootNavHost 自 M2 起），
-# 无 testID 可断言，故以「启动成功 + 占位文本可见」为目标；
-# M2 接入导航后换回 testID 断言（参考 appiaMobile/maestro/launch_android.yaml）。
+# M1 冒烟：未登录启动直达企业码页（MainActivity startDestination=EnterpriseCode）。
+# Compose 未开 testTagsAsResourceId（Maestro/UiAutomator 拿不到 testID），
+# 故断言企业码页标题；M2 接入 RoomList 后换 testID 断言（参考 appiaMobile/maestro/launch_android.yaml）。
+# 文案断言用中英正则交替：模拟器语言可能是 en 或 zh。
 appId: cn.appia.im.debug
 ---
 - launchApp
-- assertVisible: "Appia"
+- assertVisible: "(Welcome to Appia|欢迎使用Appia)"
