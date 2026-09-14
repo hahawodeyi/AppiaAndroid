@@ -40,8 +40,9 @@ data class AuthUser(
     val preferences: JsonObject? = null,
 )
 
+/** verified 可空且缺字段兜底 null（评审授权顺手项）：外部/历史数据缺该字段时不至于整会话解码失败。 */
 @Serializable
-data class AuthUserEmail(val address: String, val verified: Boolean?)
+data class AuthUserEmail(val address: String, val verified: Boolean? = null)
 
 /**
  * RN lib/permissions/parseUserRoles.ts：`me.roles` 兼容数组与 JSON 字符串两形态。
