@@ -34,6 +34,10 @@ class SessionBootstrapOrchestrator @Inject constructor(
     internal var bootstrapRealtime: suspend (serverUrl: String, token: String, userId: String) -> Unit =
         { serverUrl, token, userId -> manager.bootstrap(serverUrl, token, userId) }
 
+    /** switchOrg 缝（bootstrapRealtime 同款）：导航流测试注入记录器；生产默认 coordinator.switchTo。 */
+    internal var switchOrgImpl: suspend (targetServerUrl: String) -> Unit =
+        { targetServerUrl -> coordinator.switchTo(targetServerUrl) }
+
     /**
      * 可恢复会话（RN isAuthenticated authStore.ts:187 语义）：token+serverUrl 任一缺失即视为
      * 未登录（半残持久化不入 Main），不 ping 服务器。
@@ -59,7 +63,7 @@ class SessionBootstrapOrchestrator @Inject constructor(
     fun logout() = auth.logout(manager::teardown)
 
     /** 切组织（MineMenu 入口，T10 coordinator.switchTo）；失败上抛由 UI 告警。 */
-    suspend fun switchOrg(targetServerUrl: String) = coordinator.switchTo(targetServerUrl)
+    suspend fun switchOrg(targetServerUrl: String) = switchOrgImpl(targetServerUrl)
 
     /**
      * 切组织候选（RN useLoginSwitchCandidates 数据面）：缓存即时兜底，REST 就绪后网络刷新

@@ -119,10 +119,15 @@ fun AppiaNavHost(
     // 会话失效总线（REST 401 / DDP resume 失效）→ 登出 + 回 Auth（RN toast+logout 的 M1 等价：
     // 无 toast 基建直接回落；M5 补 auth_session_expired 提示，key 已备于 rest/ApiError.kt）。
     // 注册先于 NavHost 子级 effect：Main 内 bootstrap 触发的失效事件不丢（总线无 replay）。
+    // session == null（纯 Auth 栈 UI 测试路径）整体跳过——与 onLoginSuccess 的 persistLogin 同一保护。
     LaunchedEffect(session) {
         SessionExpiredBus.events.collect {
-            session?.logout()
-            goAuth()
+            val gateway = session
+            if (gateway != null) {
+                // 与 MainScreen 手动登出双触发是有意的幂等操作（logout/teardown 均幂等）
+                gateway.logout()
+                goAuth()
+            }
         }
     }
 

@@ -36,9 +36,12 @@ import cn.appia.im.feature.login.ui.LoginState
 import cn.appia.im.feature.org.OrgListRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -159,15 +162,52 @@ class MainNavigationFlowTest {
         waitUntilExists { tagExists("enterprise_code_input") }
         assertNull(fixture.store.load())
     }
+
+    @Test
+    fun `org switch click survives sheet dismissal and refreshes main screen`() {
+        // 候选请求落 MockWebServer：REST 就绪门即刻命中（bootstrap 已 hydrate 的等价时序）
+        fixture.saveSession(serverUrl = fixture.server.url("/").toString())
+        fixture.makeRestReady()
+        fixture.server.enqueue(
+            MockResponse().setBody("{\"data\":[{\"appiaUrl\":\"https://b.cn/\",\"companyName\":\"B\"}]}"),
+        )
+        // switchOrg 缝：模拟 coordinator.applySession（更新 store）+ 记录，使完成路径可观测；
+        // delay 等价真实换票 REST 挂起点——弹层关闭若取消承载 scope（修复前缺陷）则在此死掉
+        fixture.orchestrator.switchOrgImpl = { target ->
+            delay(50)
+            fixture.switchCalls.add(target)
+            fixture.store.save(AuthSession("tok-2", AuthUser(id = "u-1", username = "bob", name = "Bob"), target))
+        }
+
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+        }
+        waitUntilExists { textExists("Bob") }
+
+        rule.onNodeWithText(context.t("drawer_myenterprise")).performClick()
+        waitUntilExists { textExists("B") } // 候选行（REST 刷新）
+
+        rule.onNodeWithText("B").performClick()
+        // 修复前：onSwitch 先关弹层（host 离组合）→ host 自有 scope 被取消 → 切换静默无操作；
+        // 修复后：切组织在 MainScreen 级 scope 跑完 → onSwitched 刷新主体信息
+        waitUntilExists { textExists("https://b.cn/") }
+        assertEquals(listOf("https://b.cn/"), fixture.switchCalls.toList())
+    }
 }
 
-/** 真 orchestrator + 全 fakes：bootstrap 缝改记录器（不触 DDP）；推送无 deviceId（不出网）。 */
+/** 真 orchestrator + 全 fakes：bootstrap/switchOrg 缝改记录器（不触 DDP）；推送无 deviceId（不出网）。 */
 private class Fixture(context: Context) {
     val kv = InMemoryKvStore()
     val store = AuthSessionStore(kv)
     val dbManager = DatabaseManager(context)
     val bootstraps = CopyOnWriteArrayList<Triple<String, String, String>>()
+    val switchCalls = CopyOnWriteArrayList<String>()
+    val server = MockWebServer()
     val ic = JsonObject(mapOf("ic" to JsonPrimitive("ticket")))
+
+    /** orgList/coordinator 持有的 sdk（REST 就绪门前置用，见 makeRestReady）。 */
+    lateinit var orgSdk: RocketSdk
+        private set
 
     val orchestrator: SessionBootstrapOrchestrator = run {
         val auth = AuthRepository(
@@ -179,7 +219,7 @@ private class Fixture(context: Context) {
             backgroundScope = CoroutineScope(Dispatchers.Unconfined),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
-        val sdk = RocketSdk()
+        val sdk = RocketSdk().also { orgSdk = it }
         val coordinator = OrgSwitchCoordinator(sdk, manager, auth, store, OrgSessionCache(InMemoryKvStore()), dbManager)
         val orgList = OrgListRepository(sdk, kv)
         SessionBootstrapOrchestrator(
@@ -194,7 +234,17 @@ private class Fixture(context: Context) {
         bootstrapRealtime = { s, t, u -> bootstraps.add(Triple(s, t, u)) }
     }
 
-    fun saveSession() {
-        store.save(AuthSession("tok-1", AuthUser(id = "u-1", username = "bob", name = "Bob"), "https://s1"))
+    fun saveSession(serverUrl: String = "https://s1") {
+        store.save(AuthSession("tok-1", AuthUser(id = "u-1", username = "bob", name = "Bob"), serverUrl))
+    }
+
+    /** REST 就绪前置：sdk 会话 hydrate（等价 MainScreen 开弹层时 bootstrap 步骤 1 已跑的时序）。 */
+    fun makeRestReady() {
+        val session = store.load()!!
+        orgSdk.hydrateRestSession(session.serverUrl, session.token, session.user.id)
+    }
+
+    init {
+        server.start()
     }
 }

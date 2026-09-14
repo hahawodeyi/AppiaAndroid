@@ -12,11 +12,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +42,8 @@ fun MainScreen(
     onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
+    // 全屏级作用域：切组织点击路径必须挂这里——弹层关闭即离组合，局部 scope 会随组合销毁
+    // 把进行中的 switchTo 自我取消（评审 Critical 修复；登出/失效总线同为全屏级生命周期）
     val scope = rememberCoroutineScope()
 
     // RN MainNavigator:44-51 进 Main 即 bootstrap（恢复会话/登录成功共用此入口）
@@ -77,6 +79,8 @@ fun MainScreen(
         }
         Spacer(Modifier.height(12.dp))
         Button(onClick = {
+            // 与总线登出（SessionExpired 收集器）双触发是有意的幂等操作：
+            // AuthRepository.logout 切换中直接 return、二次调用无副作用（RN :139-141 同）
             gateway.logout()
             onLogout()
         }, modifier = Modifier.fillMaxWidth()) {
@@ -85,16 +89,28 @@ fun MainScreen(
     }
 
     if (showOrgSheet) {
-        // 候选即取即显：缓存即时兜底 + REST 就绪后刷新（RN useLoginSwitchCandidates）
+        // 候选加载：等 waitSdkRestLogin（≤15s）后 REST 刷新、失败/超时回缓存——**非** RN 的
+        // 「缓存即时显示+异步刷新」两段式；离线时弹层最长 15s 空列表（ponytail：占位屏接受，
+        // 开弹层时 bootstrap 通常已完成 hydrate 即刻命中；M2 换 MineMenu 改缓存先行、刷新后到更新）
         LaunchedEffect(Unit) { candidates = gateway.orgCandidates() }
-        OrgSwitchSheetHost(
-            gateway = gateway,
+        OrgSwitchSheet(
             candidates = candidates,
             currentServerUrl = session?.serverUrl.orEmpty(),
-            onSwitched = { session = gateway.restorableSession() },
-            onFailed = { message ->
-                // RN MineMenuScreen 切换失败 Alert；M1 复用验证失败 key，M2 换 MineMenu 专用文案
-                alert = context.t("enterprise_verifyFailedTitle") to message
+            onSwitch = { candidate ->
+                showOrgSheet = false
+                // launch 挂 MainScreen 的 scope（见上）：跨弹层关闭继续执行到 onSwitched/Alert
+                scope.launch {
+                    try {
+                        gateway.switchOrg(candidate.appiaUrl)
+                        session = gateway.restorableSession() // 切换成功刷新主体信息
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // RN MineMenuScreen 切换失败 Alert；M1 复用验证失败 key，M2 换 MineMenu 专用文案
+                        alert = context.t("enterprise_verifyFailedTitle") to
+                            (e.message ?: context.t("enterprise_verifyFailedUnknown"))
+                    }
+                }
             },
             onDismiss = { showOrgSheet = false },
         )
@@ -108,36 +124,4 @@ fun MainScreen(
             confirmButton = { TextButton(onClick = { alert = null }) { Text(context.t("common_close")) } },
         )
     }
-}
-
-/** OrgSwitchSheet 挂载与 switchTo 编排（T10 接线点落地；失败告警、成功刷新主体信息）。 */
-@Composable
-private fun OrgSwitchSheetHost(
-    gateway: SessionBootstrapOrchestrator,
-    candidates: List<LoginSwitchCandidate>,
-    currentServerUrl: String,
-    onSwitched: () -> Unit,
-    onFailed: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    OrgSwitchSheet(
-        candidates = candidates,
-        currentServerUrl = currentServerUrl,
-        onSwitch = { candidate ->
-            onDismiss()
-            scope.launch {
-                try {
-                    gateway.switchOrg(candidate.appiaUrl)
-                    onSwitched()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    onFailed(e.message ?: context.t("enterprise_verifyFailedUnknown"))
-                }
-            }
-        },
-        onDismiss = onDismiss,
-    )
 }
