@@ -1,0 +1,219 @@
+package cn.appia.im.feature.chatlist
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
+
+/**
+ * 移植 RN `resolveLastMessagePreview.ts:92-124` 全规则：
+ * 草稿优先 → 无 `lastMessage.u` 显 roomItem_noMessage → formatSpecialMsg（带/不带前缀逐条）
+ * → 普通消息 senderPrefix（自己/rollback 无前缀，他人 `名字：`）→ 正文 md AST 首个可见 block，无 md 回退纯文本。
+ */
+class LastMessagePreviewTest {
+
+    private fun resolve(lastMessage: String?, currentUserId: String? = "me") =
+        resolveLastMessagePreview(chatRow("r1", last_message = lastMessage), currentUserId)
+
+    private fun text(result: PreviewResult): String = (result as PreviewResult.Text).text
+
+    private fun template(result: PreviewResult): PreviewResult.Template = result as PreviewResult.Template
+
+    // ---------- 草稿优先 ----------
+
+    @Test
+    fun `draft plain wins over lastMessage`() {
+        val result = resolveLastMessagePreview(
+            chatRow("r1", draft_message_plain = "my draft", last_message = """{"msg":"hi"}"""),
+            "me",
+        )
+        assertEquals("my draft", (result as PreviewResult.Text).text)
+    }
+
+    @Test
+    fun `draft message fallback when plain is empty`() {
+        val result = resolveLastMessagePreview(
+            chatRow("r1", draft_message_plain = "", draft_message = "plain draft"),
+            "me",
+        )
+        assertEquals("plain draft", (result as PreviewResult.Text).text)
+    }
+
+    // ---------- 无消息 ----------
+
+    @Test
+    fun `null lastMessage yields noMessage template`() {
+        val t = template(resolve(null))
+        assertEquals("roomItem_noMessage", t.key)
+        assertEquals("", t.prefix)
+    }
+
+    @Test
+    fun `lastMessage without u yields noMessage`() {
+        assertEquals("roomItem_noMessage", template(resolve("""{"msg":"hi"}""")).key)
+    }
+
+    @Test
+    fun `invalid lastMessage json yields noMessage`() {
+        assertEquals("roomItem_noMessage", template(resolve("not-json")).key)
+    }
+
+    // ---------- 特殊消息 ----------
+
+    @Test
+    fun `pinned yields noMessage without prefix`() {
+        val t = template(resolve("""{"pinned":true,"u":{"name":"Bob","username":"bob"}}"""))
+        assertEquals("roomItem_noMessage", t.key)
+        assertEquals("", t.prefix)
+    }
+
+    @Test
+    fun `jitsi call started uses username arg without prefix`() {
+        val t = template(resolve("""{"t":"jitsi_call_started","u":{"username":"bob"}}"""))
+        assertEquals("roomItem_startedCall", t.key)
+        assertEquals(mapOf("user" to "bob"), t.args)
+        assertEquals("", t.prefix)
+    }
+
+    @Test
+    fun `image attachment from other gets sender prefix`() {
+        val t = template(
+            resolve(
+                """{"msg":"","u":{"name":"Bob","username":"bob"},"attachments":[{"image_url":"http://x/a.png"}]}""",
+            ),
+        )
+        assertEquals("roomItem_sentAttachment", t.key)
+        assertEquals(mapOf("kind" to "roomItem_attachmentImage"), t.args)
+        assertEquals("Bob：", t.prefix)
+    }
+
+    @Test
+    fun `file attachment as object gets prefix with username fallback`() {
+        val t = template(
+            resolve("""{"u":{"username":"carol"},"attachments":{"file":{"name":"a.pdf"}}}"""),
+        )
+        assertEquals("roomItem_sentAttachment", t.key)
+        assertEquals(mapOf("kind" to "roomItem_attachmentFile"), t.args)
+        assertEquals("carol：", t.prefix)
+    }
+
+    @Test
+    fun `attachment from self has no prefix`() {
+        val t = template(
+            resolve(
+                """{"u":{"username":"me"},"attachments":[{"file":{"name":"a.pdf"}}]}""",
+            ),
+        )
+        assertEquals("", t.prefix)
+    }
+
+    @Test
+    fun `docCloud keeps msg as kind with prefix`() {
+        val t = template(resolve("""{"msgType":"docCloud","msg":"contract.pdf","u":{"username":"bob"}}"""))
+        assertEquals("roomItem_sentAttachment", t.key)
+        assertEquals(mapOf("kind" to "contract.pdf"), t.args)
+        assertEquals("bob：", t.prefix)
+    }
+
+    @Test
+    fun `oncall yields bracketed voiceCall without prefix`() {
+        val t = template(resolve("""{"msgType":"oncall","u":{"username":"bob"}}"""))
+        assertEquals("roomItem_voiceCall", t.key)
+        assertEquals(true, t.brackets)
+        assertEquals("", t.prefix)
+    }
+
+    @Test
+    fun `meeting_room shows raw msg without prefix`() {
+        assertEquals(
+            "Meeting Room A",
+            text(resolve("""{"msgType":"meeting_room","msg":"Meeting Room A","u":{"username":"bob"}}""")),
+        )
+        // 无 u 在 formatSpecialMsg 之前就落 noMessage（RN :102 顺序）
+        assertEquals("roomItem_noMessage", template(resolve("""{"msgType":"meeting_room","msg":"x"}""")).key)
+    }
+
+    @Test
+    fun `forwardMergeMessage gets prefix`() {
+        val t = template(resolve("""{"msgType":"forwardMergeMessage","u":{"name":"Bob"}}"""))
+        assertEquals("roomItem_forwardRecord", t.key)
+        assertEquals("Bob：", t.prefix)
+    }
+
+    // ---------- 普通消息前缀 ----------
+
+    @Test
+    fun `normal message from other uses name then username`() {
+        assertEquals("Bob：hello", text(resolve("""{"msg":"hello","u":{"name":"Bob","username":"bob"}}""")))
+        assertEquals("bob：hello", text(resolve("""{"msg":"hello","u":{"username":"bob"}}""")))
+    }
+
+    @Test
+    fun `normal message from self has no prefix`() {
+        assertEquals("hello", text(resolve("""{"msg":"hello","u":{"username":"me"}}""")))
+    }
+
+    @Test
+    fun `rollback message has no prefix`() {
+        assertEquals("gone", text(resolve("""{"t":"rollback-message","msg":"gone","u":{"username":"bob"}}""")))
+    }
+
+    @Test
+    fun `empty msg keeps bare sender prefix like RN`() {
+        assertEquals("bob：", text(resolve("""{"u":{"username":"bob"}}""")))
+    }
+
+    @Test
+    fun `empty body and empty prefix falls back to noMessage`() {
+        // 自己的消息且无正文：RN `${prefix}${body}`.trim() || noMessage
+        assertEquals("roomItem_noMessage", template(resolve("""{"u":{"username":"me"}}""")).key)
+    }
+
+    // ---------- md AST 预览（M2 关键分支） ----------
+
+    @Test
+    fun `md paragraph takes first visible block only`() {
+        val lm = """{"msg":"ignored","u":{"username":"bob"},"md":[
+            {"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"first"}]},
+            {"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"second"}]}]}"""
+        assertEquals("bob：first", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `md blank paragraph is skipped`() {
+        val lm = """{"msg":"ignored","u":{"username":"bob"},"md":[
+            {"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"  "}]},
+            {"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"real"}]}]}"""
+        assertEquals("bob：real", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `md unordered list uses bullet prefix`() {
+        val lm = """{"u":{"username":"bob"},"md":[
+            {"type":"UNORDERED_LIST","value":[{"value":[{"type":"PLAIN_TEXT","value":"item1"}]}]}]}"""
+        assertEquals("bob：• item1", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `md ordered list uses number prefix`() {
+        val lm = """{"u":{"username":"bob"},"md":[
+            {"type":"ORDERED_LIST","value":[{"number":3,"value":[{"type":"PLAIN_TEXT","value":"third"}]}]}]}"""
+        assertEquals("bob：3) third", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `md with unknown block only falls back to plain text`() {
+        val lm = """{"msg":"plain\nfallback","u":{"username":"bob"},"md":[
+            {"type":"CODE","value":[{"type":"PLAIN_TEXT","value":"code"}]}]}"""
+        assertEquals("bob：plain fallback", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `no md replaces newlines with spaces`() {
+        assertEquals("bob：a b", text(resolve("""{"msg":"a\nb","u":{"username":"bob"}}""")))
+    }
+
+    @Test
+    fun `md stored as escaped json string is parsed`() {
+        val lm = """{"u":{"username":"bob"},"md":"[{\"type\":\"PARAGRAPH\",\"value\":[{\"type\":\"PLAIN_TEXT\",\"value\":\"str\"}]}]"}"""
+        assertEquals("bob：str", text(resolve(lm)))
+    }
+}
