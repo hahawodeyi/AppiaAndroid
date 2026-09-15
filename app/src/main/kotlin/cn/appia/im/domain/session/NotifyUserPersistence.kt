@@ -86,7 +86,8 @@ class NotifyUserPersistence(
         if (dbManager.active !== target) return // RN :72-74 activeDbMatchesAuth
         target.chatDao().deleteById(rid)
         // T6: unsubscribeRoomStreams(rid) —— RN :85
-        // T11: notifyRoomAccessLost(rid) —— RN :86
+        // T11: notifyRoomAccessLost —— RN :86；其提示文案需 payload 的 `t`，届时改签名为
+        //      removeChatByRid(rid, data) 透传整包（本类已收 data，只为守卫/删行暂未用）
     }
 
     companion object {

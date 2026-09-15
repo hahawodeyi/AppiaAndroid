@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import cn.appia.im.core.database.DatabaseManager
+import cn.appia.im.core.database.dao.ChatDao
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.datastore.AuthSession
 import cn.appia.im.core.datastore.AuthSessionStore
@@ -104,9 +105,8 @@ class NotifyUserPersistenceTest {
         manager.switchDatabase("https://chat-b.example.com")
 
         handler.handleStreamNotifyUser(parse(removedFrame("rid-1")))
-        Thread.sleep(300)
-
-        // A 库（auth 主体对应的库）不该被误删
+        // A 库（auth 主体对应的库）不该被误删：反向轮询限时确认未被删（防 sleep 定时竞态）
+        expectStillPresent(manager.databaseFor(manager.normalizeServer("https://chat-a.example.com")).chatDao(), "rid-1")
         assertNotNull(
             manager.databaseFor(manager.normalizeServer("https://chat-a.example.com")).chatDao().getById("rid-1"),
         )
@@ -120,7 +120,7 @@ class NotifyUserPersistenceTest {
         handler.handleStreamNotifyUser(parse(frame("uid-1/rooms-changed", """["updated",{"_id":"rid-1"}]""")))
         handler.handleStreamNotifyUser(parse(frame("uid-1/userData", """["changed",{"diff":{}}]""")))
         handler.handleStreamNotifyUser(parse("{\"msg\":\"added\"}"))
-        Thread.sleep(300)
+        expectStillPresent(manager.active.chatDao(), "rid-1")
 
         assertEquals(1, manager.active.chatDao().getAll().size)
     }
@@ -131,7 +131,7 @@ class NotifyUserPersistenceTest {
         handler.handleStreamNotifyUser(
             parse(frame("uid-1/subscriptions-changed", """["removed",{"t":"c"}]""")),
         )
-        Thread.sleep(300)
+        expectStillPresent(manager.active.chatDao(), "rid-1")
         assertEquals(1, manager.active.chatDao().getAll().size)
     }
 
@@ -141,6 +141,18 @@ class NotifyUserPersistenceTest {
         val deadline = System.currentTimeMillis() + 5_000
         while (System.currentTimeMillis() < deadline) {
             dao.getById(id) ?: return
+            Thread.sleep(20)
+        }
+    }
+
+    /**
+     * 负向用例的反向断言（复用 waitUntilDeleted 轮询思路）：限时内发现行被删立即失败，
+     * 时限耗尽仍存在才通过——比固定 sleep 更抗满载（慢 CI 多等，快失败早退）。
+     */
+    private suspend fun expectStillPresent(dao: ChatDao, id: String, timeoutMs: Long = 1_000) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (dao.getById(id) == null) throw AssertionError("row $id unexpectedly deleted")
             Thread.sleep(20)
         }
     }

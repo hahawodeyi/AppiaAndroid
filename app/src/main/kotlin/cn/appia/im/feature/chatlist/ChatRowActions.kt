@@ -112,6 +112,10 @@ private val ACTION_WIDTH = 80.dp
  * - 未读态左滑方向无可露按钮：拖拽被钳制在 0，等效 RN 的空占位 + onSwipeableOpen 自动回弹（:281-286/:303-305）。
  * - Foundation `draggable` 而非 `anchoredDraggable`：单值偏移 + 两向独立宽度钳制，
  *   免 ExperimentalFoundationApi 且无需锚点表（回弹/展开用一次性 animate，RN friction 手感简化为阈值判定）。
+ *
+ * T11 装配锚点：LazyColumn `items(...)` **必须 keyed（key = chat._id）**——本组件的滑出偏移
+ * 与 actionsReady 按行身份 remember(chat._id) 重建，只兜行复用换数据；不 key 的装配在行回收
+ * 时仍可能让新 chat 继承上一行的滑出偏移（露着别人的按钮）。
  */
 @Composable
 fun SwipeableChatRow(
@@ -136,8 +140,9 @@ fun SwipeableChatRow(
     val leftWidthPx = with(density) { (ACTION_WIDTH * (if (showMarkUnread) 2 else 1)).toPx() }
     val rightWidthPx = with(density) { (if (showMarkRead) ACTION_WIDTH else 0.dp).toPx() }
 
-    var offset by remember { mutableFloatStateOf(0f) }
-    var settleJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // 滑出状态全部按行身份 remember（评审 Important：防 LazyColumn 行回收时新 chat 继承旧偏移）
+    var offset by remember(chat._id) { mutableFloatStateOf(0f) }
+    var settleJob by remember(chat._id) { mutableStateOf<Job?>(null) }
     // RN :55-56/:70-72：壳常驻、内容延迟挂载，行身份变更复位
     var actionsReady by remember(chat._id) { mutableStateOf(false) }
 
