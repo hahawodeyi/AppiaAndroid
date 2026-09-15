@@ -36,6 +36,10 @@ interface ChatDao {
     @Delete
     suspend fun delete(entity: ChatEntity)
 
+    /** 物理删单行（RN destroyPermanently 语义；notify-user removed 事件用），行不存在时 no-op。 */
+    @Query("DELETE FROM chats WHERE _id = :id")
+    suspend fun deleteById(id: String)
+
     @Delete
     suspend fun deleteAll(entities: List<ChatEntity>)
 

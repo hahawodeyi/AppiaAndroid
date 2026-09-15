@@ -149,6 +149,9 @@ object SessionModule {
      * T8↔T9 预检裁定：syncInitial 构造注入 RoomsSyncRepository.sync（bootstrap 内部调用）。
      * repo 绑定的 server 在**调用时**现读会话（组织切换 applySession 已更新 store，
      * 随后的 bootstrap 同步新主体；repo 持有 sdk/db 引用，构建廉价）。
+     *
+     * T4：notify-user 分发链接入首个真实 handler——`subscriptions-changed` removed 物理删
+     * chats 行（serverUrl 同样调用时现读，守卫在 handler 内）。
      */
     @Provides
     @Singleton
@@ -162,7 +165,14 @@ object SessionModule {
             val serverUrl = store.load()?.serverUrl.orEmpty()
             RoomsSyncRepository(sdk, dbManager, kv, serverUrl).sync(RoomsSyncRepository.Mode.BOOTSTRAP)
         }
-        return RealtimeSessionManager(sdk, dbManager, syncInitial)
+        val manager = RealtimeSessionManager(sdk, dbManager, syncInitial)
+        val notifyUser = NotifyUserPersistence(
+            dbManager = dbManager,
+            serverUrlProvider = { store.load()?.serverUrl.orEmpty() },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler),
+        )
+        manager.setStreamHandler(StreamNames.NOTIFY_USER, notifyUser::handleStreamNotifyUser)
+        return manager
     }
 
     /** bootstrap 缝带默认 lambda，Dagger 不绑函数类型默认值 → 显式 @Provides（T10）。 */
