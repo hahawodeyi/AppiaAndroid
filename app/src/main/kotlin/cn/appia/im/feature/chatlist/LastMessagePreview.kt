@@ -75,7 +75,10 @@ fun parseLastMessageField(raw: String?): LastMessageShape? {
  * 预览渲染结果（RN LastMessagePreviewResult 的 M2 落法）：
  * - [Text]：纯文本已定（草稿/普通消息/md 拼接/特殊原文），发送人前缀已拼入。
  * - [Template]：待 UI 经 t() 渲染；key 对照 RN i18n 原名（t() 大小写不敏感），
- *   args 为 `{{x}}` 占位替换表；[brackets] 对应 RN oncall 的 `[语音通话]` 包裹。
+ *   args 为 `{{x}}` 占位替换表，其中属 i18n key 的占位值列在 [translateArgs]
+ *   （RN 在构造处 `t('roomItem_attachmentImage')` 解析，UI 侧等价翻译），
+ *   其余占位值（jitsi 用户名、docCloud 文件名等原文）一律原样，杜绝误译；
+ *   [brackets] 对应 RN oncall 的 `[语音通话]` 包裹。
  * M3 完整 markdown 渲染将扩展 inlines 形态；M2 一律展平为纯文本。
  */
 sealed interface PreviewResult {
@@ -85,6 +88,7 @@ sealed interface PreviewResult {
         val prefix: String,
         val key: String,
         val args: Map<String, String> = emptyMap(),
+        val translateArgs: Set<String> = emptySet(),
         val brackets: Boolean = false,
     ) : PreviewResult
 }
@@ -96,6 +100,7 @@ private sealed interface Special {
     data class Templated(
         val key: String,
         val args: Map<String, String> = emptyMap(),
+        val translateArgs: Set<String> = emptySet(),
         val brackets: Boolean = false,
         val withPrefix: Boolean,
     ) : Special
@@ -132,6 +137,8 @@ private fun formatSpecialMsg(m: LastMessageShape): Special? {
             args = mapOf(
                 "kind" to if (m.firstAttachmentIsImage) "roomItem_attachmentImage" else "roomItem_attachmentFile",
             ),
+            // RN 构造处即 t(kind)；docCloud 的 kind 是文件名原文不译，故此处标记可译占位
+            translateArgs = setOf("kind"),
             withPrefix = true,
         )
     }
@@ -180,7 +187,8 @@ private fun inlineToText(node: JsonElement): String {
 
 /**
  * RN lastMessagePreviewInlines.ts 关键分支的 M2 移植（不解析 msg，仅读存量 md AST）。
- * 支持块型：PARAGRAPH（subType=TABLE 跳过）、BIG_EMOJI、UNORDERED_LIST（`• ` 首项）、
+ * 支持块型：PARAGRAPH（含 subType=TABLE：RN 无 previewTableLabel 时落穿到 PARAGRAPH 分支，
+ * 预览取表格 block.value 内联文本）、BIG_EMOJI、UNORDERED_LIST（`• ` 首项）、
  * ORDERED_LIST（`N) ` 首项）；其余块型跳过；全部块不可见/无 md → null，调用方回退纯文本。
  */
 private fun previewInlineText(md: JsonElement?): String? {
@@ -188,12 +196,7 @@ private fun previewInlineText(md: JsonElement?): String? {
     for (block in root) {
         val o = block as? JsonObject ?: continue
         val text = when (o["type"]?.let { (it as? JsonPrimitive)?.contentOrNull }) {
-            "PARAGRAPH" -> if (o["subType"]?.let { (it as? JsonPrimitive)?.contentOrNull } == "TABLE") {
-                null // RN 无 previewTableLabel 时返回 null 跳过
-            } else {
-                inlineListToText(o["value"])
-            }
-            "BIG_EMOJI" -> inlineListToText(o["value"])
+            "PARAGRAPH", "BIG_EMOJI" -> inlineListToText(o["value"])
             "UNORDERED_LIST" -> (o["value"] as? JsonArray)?.firstOrNull()?.let {
                 "• " + inlineListToText((it as? JsonObject)?.get("value"))
             }
@@ -233,6 +236,7 @@ fun resolveLastMessagePreview(chat: ChatEntity, currentUserId: String?): Preview
             prefix = if (special.withPrefix) senderPrefixFor(lastMessage, currentUserId) else "",
             key = special.key,
             args = special.args,
+            translateArgs = special.translateArgs,
             brackets = special.brackets,
         )
         null -> Unit

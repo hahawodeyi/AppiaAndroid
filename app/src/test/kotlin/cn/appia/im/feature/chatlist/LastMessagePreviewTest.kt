@@ -200,6 +200,14 @@ class LastMessagePreviewTest {
     }
 
     @Test
+    fun `md table paragraph falls through to its inlines like RN`() {
+        // RN inlinesFromBlock：无 previewTableLabel 时 TABLE 段落落穿 PARAGRAPH 分支取 block.value
+        val lm = """{"u":{"username":"bob"},"md":[
+            {"type":"PARAGRAPH","subType":"TABLE","value":[{"type":"PLAIN_TEXT","value":"cell"}]}]}"""
+        assertEquals("bob：cell", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
     fun `md with unknown block only falls back to plain text`() {
         val lm = """{"msg":"plain\nfallback","u":{"username":"bob"},"md":[
             {"type":"CODE","value":[{"type":"PLAIN_TEXT","value":"code"}]}]}"""

@@ -91,9 +91,11 @@ fun ChatRow(
         is PreviewResult.Text -> p.text
         is PreviewResult.Template -> {
             var s = context.t(p.key)
-            // args 值可能是 i18n key（attachmentImage/attachmentFile）也可能是纯文本（docCloud 的 msg）；
-            // t() 对缺失 key 回退显示原值，纯文本不受影响
-            for ((k, v) in p.args) s = s.replace("{{$k}}", context.t(v))
+            // 仅 translateArgs 列出的占位是 i18n key（RN 构造处 t(kind) 的等价）；
+            // jitsi 用户名、docCloud 文件名等原文原样，正文撞资源名（如 "agent"）也不会被误译
+            for ((k, v) in p.args) {
+                s = s.replace("{{$k}}", if (k in p.translateArgs) context.t(v) else v)
+            }
             if (p.brackets) s = "[$s]"
             p.prefix + s
         }

@@ -91,6 +91,21 @@ class ChatRowSmokeTest {
     }
 
     @Test
+    fun `docCloud raw msg colliding with a key is not translated`() {
+        setContent(
+            chatRow(
+                _id = "r1",
+                last_message = """{"msgType":"docCloud","msg":"agent","u":{"username":"me"}}""",
+            ),
+        )
+        val expected = context.t("roomItem_sentAttachment").replace("{{kind}}", "agent")
+        rule.onNodeWithText(expected).assertExists()
+        // 若被误译会显示 t("agent") 文案而非原文
+        rule.onNodeWithText(context.t("roomItem_sentAttachment").replace("{{kind}}", context.t("agent")))
+            .assertDoesNotExist()
+    }
+
+    @Test
     fun `over 99 unread shows 99+ badge`() {
         setContent(chatRow(_id = "r1", unread = 120.0, last_message = """{"msg":"hi","u":{"username":"me"}}"""))
         rule.onNodeWithText("99+").assertExists()
