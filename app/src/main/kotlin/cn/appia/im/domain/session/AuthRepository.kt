@@ -8,9 +8,11 @@ import cn.appia.im.core.datastore.LoginSwitchCandidatesCache
 import cn.appia.im.core.datastore.MmkvKvStore
 import cn.appia.im.core.datastore.OrgSessionCache
 import cn.appia.im.core.database.DatabaseManager
+import cn.appia.im.core.messaging.MessageUpsert
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.buildAuthUserFromLogin
+import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.network.rest.OrgSwitchState
 import cn.appia.im.core.push.PushTokenRegistrar
 import cn.appia.im.feature.login.AuthApi
@@ -166,12 +168,26 @@ object SessionModule {
             RoomsSyncRepository(sdk, dbManager, kv, serverUrl).sync(RoomsSyncRepository.Mode.BOOTSTRAP)
         }
         val manager = RealtimeSessionManager(sdk, dbManager, syncInitial)
+        val notifyScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler)
+        val roomStreams = RoomStreamManager(
+            sdk = sdk,
+            persistMessage = { raw, rid -> MessageUpsert.persist(dbManager.active, listOf(raw), rid) },
+            scope = notifyScope,
+        )
         val notifyUser = NotifyUserPersistence(
             dbManager = dbManager,
             serverUrlProvider = { store.load()?.serverUrl.orEmpty() },
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler),
+            scope = notifyScope,
+            unsubscribeRoom = { rid -> roomStreams.unsubscribeRoom(rid) },
         )
         manager.setStreamHandler(StreamNames.NOTIFY_USER, notifyUser::handleStreamNotifyUser)
+        // T6 重连收尾：全局流恢复后重订全部活跃房间流（RN session.ts:162）
+        manager.addReconnectTail { roomStreams.resubscribeAllActiveRoomStreams() }
+        // T6 teardown：清活跃房间流表 + notify-user 待 flush 队列（RN :676-677；网络退订随 disconnect）
+        manager.addTeardownHook {
+            roomStreams.onSessionTornDown()
+            notifyUser.clearQueue()
+        }
         return manager
     }
 

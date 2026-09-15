@@ -109,12 +109,16 @@ class RoomStreamManager(
     }
 
     /**
-     * 会话 teardown 挂点（RealtimeSessionManager.addTeardownHook）：清活跃表。
-     * 只清本地状态不做网络退订——紧随其后的 disconnect 即服务端全量退订（RN :684-687 的
+     * 会话 teardown 挂点（RealtimeSessionManager.addTeardownHook）：摘除本管理器的
+     * onStreamData 监听并清活跃表（RN :683 unsubscribeAllRoomStreams 的监听摘除半程）。
+     * 网络退订不做——紧随其后的 disconnect 即服务端全量退订（RN :684-687 的
      * unsubscribeAllRoomStreams 在 async run 里与 disconnect 赛跑，终态一致）；活跃表清空后
-     * 重连收尾不再重订已拆会话的房间流。
+     * 重连收尾不再重订已拆会话的房间流，旧监听不摘除会在同服复连后误收消息帧。
      */
     fun onSessionTornDown() {
+        for (entry in activeByRid.values) {
+            entry.streamStops.forEach { runCatching { it.stop() } }
+        }
         activeByRid.clear()
     }
 
