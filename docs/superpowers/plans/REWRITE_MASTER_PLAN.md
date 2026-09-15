@@ -69,7 +69,7 @@ cn.appia.im/
 |---|---|---|---|
 | M0 | 基础设施 | Gradle 骨架、依赖、主题 tokens、i18n 搬迁脚本、DDP/REST 协议层、Room schema、git/GitHub | 可构建安装启动（空白壳）+ 协议层单测通过 + Maestro launch YAML 通过 |
 | M1 | 认证与多组织 | 企业码→登录（密码/SMS/SSO WebView）→Verification；token 持久化；组织切换+独立 db | 双账号真实登录/登出/切换，side-by-side 对照 RN |
-| M2 | 会话列表+单聊 | RoomList（置顶/未读/左滑：置顶/标未读/删除）、连接状态横幅、RoomScreen 文本消息收发、历史分页 | 文本消息双端收发一致，列表状态一致 |
+| M2 | 会话列表+单聊 | RoomList（三段分组/排序/左滑：标未读+置顶、右滑：标已读——✍️ 修订 2026-09-15：原写「左滑含删除」与 RN 不符，RN 无删除会话操作，会话移除仅由服务端 removed 事件驱动；连接状态横幅、RoomScreen 文本消息收发、历史分页 | 文本消息双端收发一致，列表状态一致 |
 | M3 | 消息完整功能 | 图片/视频/文档/附件上传下载、富文本渲染、WebView 编辑器（ProseMirror）、转发、表情回应、已读回执、@提及 | 各消息类型 side-by-side |
 | M4 | 群组+联系人 | RoomInfo/成员管理/公告、联系人+组织架构+团队、名片 | 群操作双端一致 |
 | M5 | 搜索+presence+设置 | 全局搜索（spotlightv2）、房间内搜索、presence 流、设置/资料编辑 | 搜索结果与在线状态一致 |
