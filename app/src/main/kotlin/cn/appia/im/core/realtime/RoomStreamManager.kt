@@ -141,7 +141,7 @@ class RoomStreamManager(
     companion object {
         private const val TAG = "roomStreams"
 
-        /** RN parseNotifyRoomRid :32-38：`{rid}/{event}` 取首段。 */
+        /** RN parseNotifyRoomRid :32-38：`{rid}/{event}` 取首段（此滤波路径 RN 有非数组回退，:43-45）。 */
         internal fun parseNotifyRoomRid(ddpMessage: JsonElement): String? {
             val eventName = (ddpMessage as? JsonObject)?.let { o ->
                 (o["fields"] as? JsonObject)?.get("eventName")
@@ -150,11 +150,11 @@ class RoomStreamManager(
             return eventName.content.split('/').firstOrNull()?.takeIf { it.isNotEmpty() }
         }
 
-        /** RN parseStreamRoomMessageRid + :80-82：args 非数组容错取 args[0]（或 args 本身）。 */
+        /** RN :80-82 持久化提取：仅取数组 args 首元素；非数组**无回退即丢弃**（`Array.isArray ? args[0] : undefined`）。 */
         internal fun parseStreamRoomMessageRaw(ddpMessage: JsonElement): JsonElement? {
             val fields = (ddpMessage as? JsonObject)?.get("fields") as? JsonObject ?: return null
-            val args = fields["args"] ?: return null
-            return if (args is JsonArray) args.firstOrNull() else args
+            val args = fields["args"] as? JsonArray ?: return null
+            return args.firstOrNull()
         }
 
         /** RN :44-45：`typeof msg?.rid === 'string'`。 */

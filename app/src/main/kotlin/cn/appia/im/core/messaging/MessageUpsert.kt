@@ -62,10 +62,10 @@ object MessageUpsert {
         status = prev?.status, // 不在字段表：仅 SendOrchestrator（T8）可写
         pinned = data.optBool("pinned"),
         starred = data.optBool("starred"),
-        edited_by = when (val v = data["editedBy"]) { // RN :92-97 串原样 / 对象 JSON / 其余 ''
-            is JsonPrimitive -> if (v.isString) v.content else ""
-            is JsonObject -> v.toString()
-            else -> ""
+        edited_by = when (val v = data["editedBy"]) { // RN :92-97 串原样 / isRecord（含数组）JSON / 其余 ''
+            is JsonPrimitive -> if (v.isString) v.content else "" // 含 JsonNull
+            is JsonObject, is JsonArray -> v.toString()
+            else -> "" // 键缺失（undefined）
         }.ifEmptyToNull(),
         reactions = data.jsonField("reactions").ifEmptyToNull(),
         role = data.str("role").orEmpty().ifEmptyToNull(),

@@ -244,6 +244,11 @@ class MessageUpsertTest {
         assertEquals("u9", asString.edited_by)
         val asNumber = MessageUpsert.applyApiFields(null, obj("""{"_id":"b","editedBy":5}"""), "rid", now)
         assertNull(asNumber.edited_by)
+        // RN isRecord 匹配数组：数组同样 JSON 化（评审 Minor-2 对齐）
+        val asArray = MessageUpsert.applyApiFields(null, obj("""{"_id":"c","editedBy":["u1"]}"""), "rid", now)
+        assertEquals("""["u1"]""", asArray.edited_by)
+        val missing = MessageUpsert.applyApiFields(null, obj("""{"_id":"d"}"""), "rid", now)
+        assertNull(missing.edited_by)
     }
 
     @Test

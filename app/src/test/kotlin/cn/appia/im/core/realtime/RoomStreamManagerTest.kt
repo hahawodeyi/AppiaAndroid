@@ -290,12 +290,12 @@ class RoomStreamManagerTest {
                 testJson.parseToJsonElement("""{"fields":{"eventName":"rid-1/user-activity"}}"""),
             ),
         )
-        // RN :44-45 args 非数组容错：args 本身作为消息对象
-        val raw = RoomStreamManager.parseStreamRoomMessageRaw(
+        // RN :80-82 持久化提取无非数组回退：裸 args 对象即丢弃（评审 Important 修复回归钉）
+        val nonArray = RoomStreamManager.parseStreamRoomMessageRaw(
             testJson.parseToJsonElement("""{"fields":{"args":{"_id":"m","rid":"r"}}}"""),
         )
-        assertEquals("r", raw?.let { RoomStreamManager.roomRidOf(it) })
-        // rid 缺失 → null（被过滤）
+        assertNull(nonArray)
+        // 数组 args：取首元素；rid 缺失 → null（被过滤）
         val noRid = RoomStreamManager.parseStreamRoomMessageRaw(
             testJson.parseToJsonElement("""{"fields":{"args":[{"_id":"m"}]}}"""),
         )
