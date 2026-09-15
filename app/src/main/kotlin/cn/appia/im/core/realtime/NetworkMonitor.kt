@@ -64,13 +64,27 @@ class NetworkMonitor @Inject constructor(@ApplicationContext context: Context) {
         runCatching { connectivity?.unregisterNetworkCallback(callback) }
     }
 
-    /** activeNetwork 为 null（飞行模式）→ false；能力未知 → 保持 null（RN mapNetInfoConnected 的 null 透传）。 */
     private fun refresh() {
-        val capabilities = connectivity?.activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
-        _online.value = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        // 系统服务不可得 → 保持 null（未知，RN networkStore 初始同口径）
+        val cm = connectivity ?: return
+        _online.value = mapNetworkOnline(cm.activeNetwork, cm.getNetworkCapabilities(cm.activeNetwork))
     }
 
-    private companion object {
-        const val TAG = "network"
+    internal companion object {
+        private const val TAG = "network"
+
+        /**
+         * RN mapNetInfoConnected（netInfoReachability.ts:1-8）的 Android 侧判定：
+         * - 无默认网络（飞行模式）→ **false 明确离线**（横幅立即显示；评审 Critical 修正：此前误写 null
+         *   「未知」，策略透传到 phase 使飞行模式主场景横幅静默失效）
+         * - 有网络但能力不可得 → false（不可达按离线）
+         * - 否则取 VALIDATED 能力（NetInfo isInternetReachable 同源）
+         */
+        internal fun mapNetworkOnline(activeNetwork: Network?, capabilities: NetworkCapabilities?): Boolean =
+            when {
+                activeNetwork == null -> false
+                capabilities == null -> false
+                else -> capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }
     }
 }

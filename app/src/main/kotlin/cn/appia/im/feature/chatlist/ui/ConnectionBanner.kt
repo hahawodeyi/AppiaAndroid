@@ -67,7 +67,9 @@ fun ConnectionBanner(
     val suppressConnecting = ColdStartReconnectGrace.shouldSuppressColdStartConnectingBanner(localHasRooms)
 
     var connectingElapsedMs by remember { mutableStateOf(0L) }
-    LaunchedEffect(phase) {
+    // 键含 networkOnline/suppressConnecting（presentation.mode 的全部入参）：网络抖动
+    // （offline→恢复）或宽限翻转时重置 2s 计时——RN :46-53 以 presentation.mode 为键的同款重启语义
+    LaunchedEffect(phase, networkOnline, suppressConnecting) {
         if (phase == RealtimeTransportPhase.CONNECTING) {
             val startedAt = System.currentTimeMillis()
             connectingElapsedMs = 0L // RN connectingVisible=false 起步：首帧不展示
@@ -76,6 +78,13 @@ fun ConnectionBanner(
         } else {
             connectingElapsedMs = 0L
         }
+    }
+
+    // RN :36/:90-96 busy+disabled 等价：点击即停用防双发；重连落定（phase 离开 connecting——
+    // 成功 CONNECTED / 失败 DISCONNECTED）即恢复，对应 RN finally { setBusy(false) } 不卡死按钮
+    var reconnectBusy by remember { mutableStateOf(false) }
+    LaunchedEffect(phase) {
+        if (phase != RealtimeTransportPhase.CONNECTING) reconnectBusy = false
     }
 
     val presentation = resolveConnectionBannerPresentation(
@@ -120,7 +129,16 @@ fun ConnectionBanner(
                 )
                 !networkOffline -> Text(
                     text = context.t("roomList_offlineBanner_reconnect"),
-                    modifier = Modifier.clickable(onClick = onManualReconnect, role = Role.Button),
+                    modifier = Modifier.clickable(
+                        enabled = !reconnectBusy, // RN :110 disabled={busy}
+                        onClick = {
+                            if (!reconnectBusy) {
+                                reconnectBusy = true
+                                onManualReconnect()
+                            }
+                        },
+                        role = Role.Button,
+                    ),
                     color = ActionColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold, // RN action fontWeight '600'

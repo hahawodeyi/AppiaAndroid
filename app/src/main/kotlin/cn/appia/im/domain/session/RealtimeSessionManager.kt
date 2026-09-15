@@ -453,9 +453,7 @@ class RealtimeSessionManager(
     /** RN markRealtimeServerDisconnected :79-85：订阅状态清零 + phase 落 disconnected（横幅立现）。 */
     private fun markDisconnected() {
         authenticatedStreamsSubscribed = false
-        if (phaseState.value != RealtimeTransportPhase.DISCONNECTED) {
-            phaseState.value = RealtimeTransportPhase.DISCONNECTED
-        }
+        phaseState.value = RealtimeTransportPhase.DISCONNECTED
     }
 
     // ---- 重连恢复 ----
