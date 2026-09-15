@@ -8,6 +8,7 @@ import cn.appia.im.core.network.ddp.DdpException
 import cn.appia.im.core.network.ddp.DdpMethodError
 import cn.appia.im.core.network.ddp.Disposable
 import cn.appia.im.core.network.rest.SessionExpiredBus
+import cn.appia.im.core.realtime.RealtimeTransportPhase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -107,6 +108,15 @@ class RealtimeSessionManager(
     private var authenticatedStreamsSubscribed: Boolean
         get() = connectionState.value
         set(value) { connectionState.value = value }
+
+    /**
+     * 传输层三态（M2 T5 横幅数据源，RN useRealtimeConnectionStore(s => s.phase) 等价；
+     * realtimeConnectionStore 初始 'connected' 同口径）。变迁点全部对齐 RN session.ts：
+     * 'connecting' 事件 :199-205（仅非 connected 才降级）、close :221（用 connecting 避免误报
+     * 未连接）、finalize 成功 :180 / 失败 :184、markRealtimeServerDisconnected :79-85、
+     * 手动重连 :661/:668、teardown :680。
+     */
+    private val phaseState = MutableStateFlow(RealtimeTransportPhase.CONNECTED)
 
     /** bootstrap 时点参数（RN 从 authStore 现读的等价；teardown 清空防已拆会话被复活）。 */
     @Volatile
@@ -260,6 +270,8 @@ class RealtimeSessionManager(
         sdk.clearRestSession()
         sdk.disconnect()
         suppressTransportCloseUi = false
+        // RN :680：teardown 落 connected（登出后不显示横幅；RN 同款口径）
+        phaseState.value = RealtimeTransportPhase.CONNECTED
     }
 
     /**
@@ -438,9 +450,12 @@ class RealtimeSessionManager(
         }
     }
 
-    /** RN markRealtimeServerDisconnected :79-85 的 M1 子集：订阅状态清零（phase UI 归后续任务）。 */
+    /** RN markRealtimeServerDisconnected :79-85：订阅状态清零 + phase 落 disconnected（横幅立现）。 */
     private fun markDisconnected() {
         authenticatedStreamsSubscribed = false
+        if (phaseState.value != RealtimeTransportPhase.DISCONNECTED) {
+            phaseState.value = RealtimeTransportPhase.DISCONNECTED
+        }
     }
 
     // ---- 重连恢复 ----
@@ -468,11 +483,13 @@ class RealtimeSessionManager(
                     throw DdpException("[realtime] DDP session not ready after reconnect")
                 }
             }
+            phaseState.value = RealtimeTransportPhase.CONNECTED // RN :180
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "post-reconnect resume failed", e)
             needsPostReconnectResume = true
+            phaseState.value = RealtimeTransportPhase.DISCONNECTED // RN :184
         }
     }
 
@@ -485,7 +502,15 @@ class RealtimeSessionManager(
         wiredBaseHandlers = true
         wiredClient = ddp
         synchronized(streamStops) {
-            // RN :205-213：connected → 串行 finalize（resume + 重订阅）
+            // RN :199-205：connecting 只在非 connected 时降级（首连不打断「已连」初值）
+            streamStops.add(
+                ddp.onStreamData("connecting") {
+                    if (phaseState.value != RealtimeTransportPhase.CONNECTED) {
+                        phaseState.value = RealtimeTransportPhase.CONNECTING
+                    }
+                },
+            )
+            // RN :206-213：connected → 串行 finalize（resume + 重订阅；phase 在 finalize 内落定）
             streamStops.add(ddp.onStreamData("connected") { scheduleFinalize() })
             // RN :214-226：close → 标记待恢复 + 立即建连以区分断线与会话失效；
             // 重连风暴防护在 DdpClient（connectInflight 合并 + tryReopen 去重），本层不重复排
@@ -494,6 +519,8 @@ class RealtimeSessionManager(
                     if (!suppressTransportCloseUi) {
                         needsPostReconnectResume = true
                         authenticatedStreamsSubscribed = false
+                        // RN :221：用 connecting 避免自动重连期间误报「未连接服务器」
+                        phaseState.value = RealtimeTransportPhase.CONNECTING
                         sdk.checkAndReopenTransport()
                     }
                 },
@@ -556,6 +583,35 @@ class RealtimeSessionManager(
 
     /** 连接状态（占位 UI/M2 横幅同源）：true = 全局流已订阅且未被断线/teardown 复位。 */
     val connectionUp: StateFlow<Boolean> get() = connectionState
+
+    /** 传输层三态（M2 T5 连接横幅数据源；RN realtimeConnectionStore.phase 等价）。 */
+    val phase: StateFlow<RealtimeTransportPhase> get() = phaseState
+
+    /**
+     * 会话列表横幅「重试」的手动重连入口（RN requestManualRealtimeReconnect session.ts:656-670）：
+     * token 缺失（未 bootstrap/已 teardown）直接 no-op（:659 守卫）；否则标记待恢复 + 同步置
+     * connecting + 清订阅态，立即 `sdk.connect()`（RN `await sdk.connect()` 同帧；DdpClient.connect
+     * 自带 isTransportOpen 短路与 connectInflight 合并，并取消未触发的 reopen 定时器——与既有重连
+     * 风暴防护互不叠加）。connect 后显式 scheduleFinalize（RN :663 await scheduleFinalize；传输
+     * 已开时没有 'connected' 事件可依赖 finalize），失败落 disconnected（RN :668）。
+     */
+    fun requestManualReconnect() {
+        if (currentToken == null) return
+        needsPostReconnectResume = true
+        phaseState.value = RealtimeTransportPhase.CONNECTING
+        authenticatedStreamsSubscribed = false
+        scope.launch {
+            try {
+                sdk.connect()
+                scheduleFinalize()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "manual reconnect failed", e)
+                phaseState.value = RealtimeTransportPhase.DISCONNECTED
+            }
+        }
+    }
 
     internal val sessionKeyForTest: String? get() = sessionKey
 

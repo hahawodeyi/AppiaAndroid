@@ -4,6 +4,8 @@ import cn.appia.im.core.datastore.AuthSession
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.datastore.LoginSwitchCandidate
 import cn.appia.im.core.network.LoginResult
+import cn.appia.im.core.realtime.ColdStartReconnectGrace
+import cn.appia.im.core.realtime.RealtimeTransportPhase
 import cn.appia.im.feature.org.OrgListRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +55,9 @@ class SessionBootstrapOrchestrator @Inject constructor(
     /** Main 进入即引导（RN MainNavigator:44-51）；异步不阻塞首帧渲染，重复进入由 manager 短路。 */
     fun bootstrapOnMainEntered() {
         val session = restorableSession() ?: return
+        // RN authStore.ts:82 applyPersistedAuthSession：恢复会话即开冷启动 4s 横幅宽限
+        //（markBegin 进程内一次；登录后进入 Main 的误开窗口内通常无本地房间，行为等价）
+        ColdStartReconnectGrace.markColdStartReconnectBegin()
         scope.launch {
             bootstrapRealtime(session.serverUrl, session.token, session.user.id)
         }
@@ -103,4 +108,7 @@ class SessionBootstrapOrchestrator @Inject constructor(
 
     /** 实时连接状态（占位 MainScreen 状态文本；M2 会话列表横幅同源，manager 订阅态直通）。 */
     val connectionUp: StateFlow<Boolean> get() = manager.connectionUp
+
+    /** 传输层三态（M2 T5 连接横幅数据源；T11 ChatListScreen 挂 ConnectionBanner 时收集）。 */
+    val phase: StateFlow<RealtimeTransportPhase> get() = manager.phase
 }

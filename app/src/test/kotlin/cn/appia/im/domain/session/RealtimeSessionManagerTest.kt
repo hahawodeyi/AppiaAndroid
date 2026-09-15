@@ -9,6 +9,7 @@ import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.ddp.DdpException
 import cn.appia.im.core.network.ddp.DdpMethodError
 import cn.appia.im.core.network.rest.SessionExpiredBus
+import cn.appia.im.core.realtime.RealtimeTransportPhase
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -365,10 +366,36 @@ class RealtimeSessionManagerTest {
         // MockWebServer 5.3 无法从服务端发 close 帧（DdpClientTest 同口径）：客户端强杀触发 close 事件
         sdk.ddp!!.cancelTransport()
 
+        // close → phase 落 connecting（RN :221）是瞬态：localhost 全链路重连可在一个轮询窗口内
+        // 完成，对中间态轮询必然 flaky，故不断言；phase 终态与手动重连见下方 T5 专项用例
         awaitCond("resume on new connection") { s2.hasLoginFrame() }
         awaitCond("six subs on new connection") { s2.subCount() >= 6 }
         assertEquals("tok-r", s2.resumeToken())
         assertEquals(s1.subEventNames(), s2.subEventNames())
+    }
+
+    // ---- M2 T5：横幅 phase 与手动重连（RN requestManualRealtimeReconnect :656-670） ----
+
+    @Test
+    fun `manual reconnect sets connecting synchronously then finalizes back to connected`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+
+        manager.bootstrap(host, "tok-mr", userId = "uid-1")
+        awaitCond("first six subs") { ws.subCount() >= 6 }
+        assertEquals(RealtimeTransportPhase.CONNECTED, manager.phase.value) // RN :180 finalize 成功落 connected
+
+        manager.requestManualReconnect()
+        // RN :661：入口同步置 connecting（本协程内立即可见），随后 connect（已开短路返回）+ finalize 重订阅
+        assertEquals(RealtimeTransportPhase.CONNECTING, manager.phase.value)
+        awaitCond("resume + resubscribe via finalize tail") { ws.subCount() >= 12 }
+        awaitCond("phase back to connected") { manager.phase.value == RealtimeTransportPhase.CONNECTED }
+    }
+
+    @Test
+    fun `manual reconnect without bootstrap is a guarded no-op`() {
+        // RN :659 token 守卫：未 bootstrap（无会话 token）→ 不触网、不改 phase
+        manager.requestManualReconnect()
+        assertEquals(RealtimeTransportPhase.CONNECTED, manager.phase.value)
     }
 
     // ---- teardown ----

@@ -3,6 +3,8 @@
 
     <!-- T1 deferred：DDP WebSocket 网络代码进场的前置 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- M2 T5：NetworkMonitor 读 ConnectivityManager（registerNetworkCallback/activeNetwork） -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".AppiaApplication"
