@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 
 private const val TAG_CODE_INPUT = "enterprise_code_input"
 private const val TAG_ENV_HOST_INPUT = "enterprise_env_host_input"
+private const val TAG_NEXT = "enterprise_next"
 
 /**
  * 企业码验证页（对照 RN EnterpriseCodeScreen）。
@@ -127,7 +128,7 @@ fun EnterpriseCodeScreen(
         )
 
         Spacer(Modifier.height(24.dp))
-        Button(onClick = { submit() }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { submit() }, enabled = !loading, modifier = Modifier.fillMaxWidth().testTag(TAG_NEXT)) {
             if (loading) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             } else {

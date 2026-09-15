@@ -21,10 +21,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cn.appia.im.core.datastore.LoginSwitchCandidate
 import cn.appia.im.core.i18n.t
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.org.ui.OrgSwitchSheet
@@ -51,12 +51,12 @@ fun MainScreen(
 
     var session by remember { mutableStateOf(gateway.restorableSession()) }
     val connectionUp by gateway.connectionUp.collectAsState()
+    val candidates by gateway.orgCandidates.collectAsState()
     var showOrgSheet by remember { mutableStateOf(false) }
-    var candidates by remember { mutableStateOf<List<LoginSwitchCandidate>>(emptyList()) }
     var alert by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().padding(24.dp).testTag("main_root"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(32.dp))
@@ -79,22 +79,22 @@ fun MainScreen(
         }
         Spacer(Modifier.height(12.dp))
         Button(onClick = {
-            // 与总线登出（SessionExpired 收集器）双触发是有意的幂等操作：
-            // AuthRepository.logout 切换中直接 return、二次调用无副作用（RN :139-141 同）
-            gateway.logout()
-            onLogout()
+            // 组织切换中手动登出豁免（M2 前置收尾，总纲 §4.2-2；与 SessionExpired 收集器同款裁定）：
+            // logout() 返回 false = 切换中豁免跳过（RN :139-141），此时不登出也不导航；切换窗口外
+            // 真正执行 → onLogout()。两处触发（手动/总线）本就是有意的幂等操作。
+            if (gateway.logout()) onLogout()
         }, modifier = Modifier.fillMaxWidth()) {
             Text(context.t("profile_logout"))
         }
     }
 
     if (showOrgSheet) {
-        // 候选加载：等 waitSdkRestLogin（≤15s）后 REST 刷新、失败/超时回缓存——**非** RN 的
-        // 「缓存即时显示+异步刷新」两段式；离线时弹层最长 15s 空列表（ponytail：占位屏接受，
-        // 开弹层时 bootstrap 通常已完成 hydrate 即刻命中；M2 换 MineMenu 改缓存先行、刷新后到更新）
-        LaunchedEffect(Unit) { candidates = gateway.orgCandidates() }
+        // 候选两段式（M2 前置收尾，总纲 §4.2-3；RN MineMenu/useLoginSwitchCandidates：缓存即时显 +
+        // REST 到后刷新）：开弹层触发刷新，UI collect orgCandidates Flow——段1 缓存值即刻上屏
+        // （可 null → 空列表），段2 后台 REST 完成后自动刷新；不再有 ≤15s 的挂起等待。
+        LaunchedEffect(Unit) { gateway.refreshOrgCandidates() }
         OrgSwitchSheet(
-            candidates = candidates,
+            candidates = candidates.orEmpty(),
             currentServerUrl = session?.serverUrl.orEmpty(),
             onSwitch = { candidate ->
                 showOrgSheet = false

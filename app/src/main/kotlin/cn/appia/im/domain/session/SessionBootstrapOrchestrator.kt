@@ -7,7 +7,9 @@ import cn.appia.im.core.network.LoginResult
 import cn.appia.im.feature.org.OrgListRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -69,23 +71,34 @@ class SessionBootstrapOrchestrator @Inject constructor(
     suspend fun switchOrg(targetServerUrl: String) = switchOrgImpl(targetServerUrl)
 
     /**
-     * 切组织候选（RN useLoginSwitchCandidates 数据面）：缓存即时兜底，REST 就绪后网络刷新
-     * （冷启动候选请求早于 REST 会话会抛 Not logged in，waitSdkRestLogin 门挡住）；刷新成功回写缓存。
+     * 切组织候选两段式状态（RN useLoginSwitchCandidates/MineMenu 数据面）：null = 本次刷新尚未给出值。
+     * 段1（同步）：refreshOrgCandidates 触发即发缓存值（可 null，等价 RN useState 初始即读缓存）；
+     * 段2（后台）：REST 会话就绪后拉取，成功回写缓存并发新值，失败/超时静默保持段1（RN catch{} 同）。
      */
-    suspend fun orgCandidates(): List<LoginSwitchCandidate> {
-        val session = restorableSession() ?: return emptyList()
-        val cached = orgList.readCache(session.user.username, session.serverUrl).orEmpty()
-        if (!orgList.waitSdkRestLogin(session.token)) return cached
-        val fetched = try {
-            orgList.fetchCandidates()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            emptyList()
+    private val _orgCandidates = MutableStateFlow<List<LoginSwitchCandidate>?>(null)
+    val orgCandidates: StateFlow<List<LoginSwitchCandidate>?> = _orgCandidates.asStateFlow()
+
+    /**
+     * 开「我的企业」弹层时触发（RN useLoginSwitchCandidates effect）。**不阻塞 UI**：M1 的
+     * 「等 waitSdkRestLogin（≤15s）才显示列表」阻塞语义废除——UI collect orgCandidates 即时拿到
+     * 段1 缓存值；就绪门保留在后台协程（RN 同：冷启动候选请求早于 REST 会话会抛 Not logged in）。
+     */
+    fun refreshOrgCandidates() {
+        val session = restorableSession() ?: return
+        _orgCandidates.value = orgList.readCache(session.user.username, session.serverUrl) // 段1：缓存即时
+        scope.launch {
+            if (!orgList.waitSdkRestLogin(session.token)) return@launch // 后台等待，超时放弃（RN :41-43 同）
+            val fetched = try {
+                orgList.fetchCandidates()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch // 失败保持段1 缓存值（RN catch{} 吞掉）
+            }
+            if (fetched.isEmpty()) return@launch
+            orgList.writeCache(session.user.username, fetched)
+            _orgCandidates.value = fetched // 段2：REST 到后刷新
         }
-        if (fetched.isEmpty()) return cached
-        orgList.writeCache(session.user.username, fetched)
-        return fetched
     }
 
     /** 实时连接状态（占位 MainScreen 状态文本；M2 会话列表横幅同源，manager 订阅态直通）。 */

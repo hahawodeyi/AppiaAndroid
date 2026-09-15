@@ -1,8 +1,8 @@
 # M1 冒烟：未登录启动直达企业码页（MainActivity startDestination=EnterpriseCode）。
-# Compose 未开 testTagsAsResourceId（Maestro/UiAutomator 拿不到 testID），
-# 故断言企业码页标题；M2 接入 RoomList 后换 testID 断言（参考 appiaMobile/maestro/launch_android.yaml）。
-# 文案断言用中英正则交替：模拟器语言可能是 en 或 zh。
+# M2 前置收尾：debug 包开 testTagsAsResourceId（MainActivity），断言换 resource-id 匹配
+# （testTag 原串即 resource-id，不带包名前缀；.debug 包完整形态为 cn.appia.im.debug:id/<tag>）。
 appId: cn.appia.im.debug
 ---
 - launchApp
-- assertVisible: "(Welcome to Appia|欢迎使用Appia)"
+- assertVisible:
+    id: "enterprise_code_input"

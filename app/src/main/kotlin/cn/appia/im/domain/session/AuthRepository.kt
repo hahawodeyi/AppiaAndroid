@@ -82,6 +82,7 @@ class AuthRepository @Inject constructor(
      * 组织切换中直接 return（:139-141）→ orgSessionByHost.clearAll（:143）→ 候选缓存清（:144-146）→
      * roomsUpdatedAt 游标清（:148-150）→ realtime teardown（:152）→ store 清（:157）→
      * 注销推送（:159-160，失败吞）→ resetDatabase(prevServer)（:161-165）→ 回落 prelogin 库（finally）。
+     * 删库两步在 backgroundScope（IO）执行，不阻塞触发 logout 的主线程。
      * presence/权限/tab/RUM 等归 M5+。
      *
      * @param teardownRealtime RN teardownRealtimeSession 的注入缝（T11 接线传 manager::teardown）。
@@ -102,11 +103,16 @@ class AuthRepository @Inject constructor(
             // RN :159-160 doUnregisterPushToken().catch(() => {})：Registrar 自吞网络失败，这里再兜一层
             backgroundScope.launch { runCatching { push.unregister(server) } }
         }
-        prevServer?.let { server ->
-            runCatching { dbManager.resetDatabase(dbManager.normalizeServer(server)) } // RN :161-165
+        // RN :161-165 删库 + .finally 回落占位库：整体下沉 backgroundScope（Dispatchers.IO）——
+        // logout 由主线程触发（手动登出按钮 / SessionExpired 收集器），文件删除不落主线程（M2 前置收尾，
+        // 总纲 §4.2-1）。删库期间 UI 已回 Auth 栈不触库；两步保持 RN 顺序（删库→回落，finally 语义）。
+        backgroundScope.launch {
+            prevServer?.let { server ->
+                runCatching { dbManager.resetDatabase(dbManager.normalizeServer(server)) } // RN :161-165
+            }
+            // RN .finally(setActivePreloginDatabase)：无论是否删库都回落占位库
+            dbManager.switchDatabase(DatabaseManager.PRELOGIN_NORMALIZED)
         }
-        // RN .finally(setActivePreloginDatabase)：无论是否删库都回落占位库
-        dbManager.switchDatabase(DatabaseManager.PRELOGIN_NORMALIZED)
         return true
     }
 }

@@ -16,7 +16,10 @@ import cn.appia.im.core.push.PushTokenRegistrar
 import cn.appia.im.feature.org.OrgListRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -149,26 +152,32 @@ class SessionBootstrapOrchestratorTest {
     }
 
     @Test
-    fun `orgCandidates refreshes from rest and writes cache when rest session ready`() = runBlocking {
+    fun `orgCandidates emits cache first then refreshes from rest and writes cache`() = runBlocking {
         val orchestrator = orchestrator()
         saveFullSession(serverUrl = server.url("/").toString()) // 候选请求落 MockWebServer
         // REST 就绪前置：sdk 会话已 hydrate（等价 MainScreen 开弹层时 bootstrap 步骤 1 已跑的时序），
         // waitSdkRestLogin 判定信号 sdk.currentAuthToken == token 即刻命中
         val session = orchestrator.restorableSession()!!
         orgSdk!!.hydrateRestSession(session.serverUrl, session.token, session.user.id)
+        // 段1 数据源：缓存有旧值（RN useState 初始即读缓存）
+        val stale = LoginSwitchCandidate(appiaUrl = server.url("/").toString(), companyName = "Stale")
+        LoginSwitchCandidatesCache(kv).write("bob", listOf(stale))
         server.enqueue(MockResponse().setBody("""{"data":[{"appiaUrl":"https://b.cn/","companyName":"B"}]}"""))
 
-        val candidates = orchestrator.orgCandidates()
+        orchestrator.refreshOrgCandidates()
 
-        assertEquals(1, candidates.size)
-        assertEquals("https://b.cn/", candidates[0].appiaUrl)
+        // 段1：缓存值同步发射（两段式，不等待 REST——M1 的 ≤15s 阻塞语义已删）
+        assertEquals(listOf(stale), orchestrator.orgCandidates.value)
+        // 段2：REST 到后发射新值并回写缓存（RN useLoginSwitchCandidates.ts:46-49）
+        withTimeout(5_000) { orchestrator.orgCandidates.first { it != listOf(stale) } }
+        assertEquals(1, orchestrator.orgCandidates.value!!.size)
+        assertEquals("https://b.cn/", orchestrator.orgCandidates.value!![0].appiaUrl)
         assertEquals("/api/v1/login.getSwitchCandidate", server.takeRequest().path)
-        // 刷新成功回写缓存（RN useLoginSwitchCandidates.ts:46-49）
         assertEquals("B", LoginSwitchCandidatesCache(kv).read("bob")?.firstOrNull()?.companyName)
     }
 
     @Test
-    fun `orgCandidates falls back to cache when rest fetch fails`() = runBlocking {
+    fun `orgCandidates emits cache immediately and keeps it when rest fetch fails`() = runBlocking {
         val orchestrator = orchestrator()
         saveFullSession(serverUrl = server.url("/").toString())
         // 缓存读校验含当前主体（RN readLoginSwitchCandidatesCache serverUrl 门）：行 appiaUrl = 当前 server
@@ -178,6 +187,27 @@ class SessionBootstrapOrchestratorTest {
         orgSdk!!.hydrateRestSession(session.serverUrl, session.token, session.user.id)
         server.enqueue(MockResponse().setResponseCode(500).setBody("{}"))
 
-        assertEquals(listOf(row), orchestrator.orgCandidates())
+        orchestrator.refreshOrgCandidates()
+
+        // 段1：缓存值同步发射（此前 M1 版本要等 waitSdkRestLogin/失败才回缓存）
+        assertEquals(listOf(row), orchestrator.orgCandidates.value)
+        server.takeRequest() // 刷新请求照发（RN effect 同），500 失败
+        delay(500) // 让失败响应回流、后台协程走完 catch
+        assertEquals(listOf(row), orchestrator.orgCandidates.value) // 失败静默保持缓存（RN catch{} 同）
+    }
+
+    @Test
+    fun `orgCandidates refresh without cache emits null first then rest value`() = runBlocking {
+        val orchestrator = orchestrator()
+        saveFullSession(serverUrl = server.url("/").toString())
+        val session = orchestrator.restorableSession()!!
+        orgSdk!!.hydrateRestSession(session.serverUrl, session.token, session.user.id)
+        server.enqueue(MockResponse().setBody("""{"data":[{"appiaUrl":"https://b.cn/","companyName":"B"}]}"""))
+
+        orchestrator.refreshOrgCandidates()
+
+        assertNull(orchestrator.orgCandidates.value) // 段1：无缓存 → null（UI 即时空列表，不再挂起）
+        withTimeout(5_000) { orchestrator.orgCandidates.first { it != null } }
+        assertEquals("B", orchestrator.orgCandidates.value!![0].companyName)
     }
 }

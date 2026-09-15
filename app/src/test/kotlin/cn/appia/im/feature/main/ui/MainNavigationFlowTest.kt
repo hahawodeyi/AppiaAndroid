@@ -79,6 +79,7 @@ class MainNavigationFlowTest {
 
     @After
     fun tearDown() {
+        runCatching { fixture.server.shutdown() } // M2 前置收尾（总纲 §4.2-5）：MockWebServer 不跨用例泄漏
         fixture.dbManager.resetAll()
     }
 
@@ -191,6 +192,34 @@ class MainNavigationFlowTest {
 
         // 豁免期结束后的失效事件照常登出（豁免只挡切换窗口，不吞语义）
         rule.runOnIdle { SessionExpiredBus.emit() }
+        waitUntilExists { tagExists("enterprise_code_input") }
+        assertNull(fixture.store.load())
+    }
+
+    // ---- M2 前置收尾（总纲 §4.2-2）：组织切换中手动登出豁免，不登出不导航 ----
+
+    @Test
+    fun `manual logout during org switch is exempted and stays on main`() {
+        fixture.saveSession()
+
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+        }
+        waitUntilExists { textExists("Bob") }
+
+        rule.runOnIdle { OrgSwitchState.begin() }
+        try {
+            rule.onNodeWithText(context.t("profile_logout")).performClick()
+            rule.waitForIdle()
+
+            assertTrue(textExists("Bob")) // 仍在主屏（未导航回企业码页）
+            assertNotNull(fixture.store.load()) // 会话未被清（logout 豁免跳过）
+        } finally {
+            rule.runOnIdle { OrgSwitchState.end() }
+        }
+
+        // 豁免窗口外的手动登出照常执行
+        rule.onNodeWithText(context.t("profile_logout")).performClick()
         waitUntilExists { tagExists("enterprise_code_input") }
         assertNull(fixture.store.load())
     }

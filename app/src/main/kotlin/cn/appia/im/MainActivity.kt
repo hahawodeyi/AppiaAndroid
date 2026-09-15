@@ -16,6 +16,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -24,6 +26,7 @@ import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.LoginCredentials
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.rest.SessionExpiredBus
+import cn.appia.im.BuildConfig
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.login.AuthApi
@@ -244,7 +247,14 @@ class MainActivity : ComponentActivity() {
         val startAuthenticated = session.hasRestorableSession()
         setContent {
             AppiaTheme(isDark = isSystemInDarkTheme()) {
-                Surface(Modifier.fillMaxSize()) {
+                // M2 前置收尾（总纲 §4.2-4）：testTag 以 resource-id 暴露给 UiAutomator/Maestro，
+                // 仅 debug 包启用（Maestro appId cn.appia.im.debug）；release 语义树不携带该配置。
+                val rootModifier = if (BuildConfig.DEBUG) {
+                    Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
+                } else {
+                    Modifier.fillMaxSize()
+                }
+                Surface(rootModifier) {
                     AppiaNavHost(session = session, startAuthenticated = startAuthenticated)
                 }
             }
