@@ -41,4 +41,17 @@ interface ChatDao {
 
     @Query("SELECT * FROM chats")
     fun observe(): Flow<List<ChatEntity>>
+
+    /**
+     * 会话列表观察（RN useRoomListChats.ts:38-43）：
+     * `archived = false AND open = true AND bot != true`，按 room_updated_at 倒序兜底
+     * （分段排序由 buildRoomListSections 负责，此处仅同步 RN 的查询排序）。
+     * bot 为可空列：Watermelon `Q.notEq(true)` 编码为 `is not`（NULL 行保留），故用 IS NOT 而非 !=。
+     * Room invalidation 为表级触发，WHERE 列变化天然驱动重发射（无需 RN 的列订阅对齐）。
+     */
+    @Query(
+        "SELECT * FROM chats WHERE archived = 0 AND open = 1 AND bot IS NOT 1 " +
+            "ORDER BY room_updated_at DESC",
+    )
+    fun observeList(): Flow<List<ChatEntity>>
 }
