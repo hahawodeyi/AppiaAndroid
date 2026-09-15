@@ -144,6 +144,16 @@ class RealtimeSessionManager(
     /** RN :66 ensureStreamsInflight 去重的 Mutex 等价。 */
     private val streamsMutex = Mutex()
 
+    /**
+     * 重连收尾挂点（M2 T6）：全局流重订成功后依次执行（RN resumeStreamsAfterSocketUp :156-163 尾部的
+     * resubscribeAllActiveRoomStreams）。任一 tail 抛异常按 finalize 失败处理（phase 落 disconnected、
+     * needsPostReconnectResume 置回，等下一轮 connected 重试）。
+     */
+    private val reconnectTails = CopyOnWriteArrayList<suspend () -> Unit>()
+
+    /** teardown 挂点（M2 T6）：清房间流活跃表 / notify-user 待 flush 队列（RN :676-677 teardown 清单）。 */
+    private val teardownHooks = CopyOnWriteArrayList<() -> Unit>()
+
     /** bootstrap extras fire-and-forget 句柄：teardown 取消（授权顺手项，防 M5 前幽灵同步）。 */
     @Volatile
     private var extrasJob: Job? = null
@@ -240,7 +250,7 @@ class RealtimeSessionManager(
      * 复位重连/订阅标记、停监听、clearRestSession、disconnect。幂等；teardown 后可重新 bootstrap。
      * - 在途 bootstrap 取消（原生加固，RN 的 JS promise 做不到）：防其后的 sdk.resume 复活已断开的会话
      * - 全局流不做显式 unsub（RN 同）：disconnect 即服务端退订，且 unsub 会隐式重连
-     * - 房间流退订（unsubscribeAllRoomStreams）与 notify 持久化队列清空归 M2
+     * - 房间流活跃表与 notify 持久化队列经 [teardownHooks] 清空（M2 T6 接线，RN :676-677）
      * - 不删库不登出（那是 T10）
      */
     fun teardown() {
@@ -265,7 +275,9 @@ class RealtimeSessionManager(
         needsPostReconnectResume = false
         currentToken = null
         lastUserId = null
-        // M2：clearNotifyUserPersistenceQueue() / unsubscribeAllRoomStreams()
+        // M2 T6 挂点：清活跃房间流表 / notify-user 待 flush 队列（RN :676-677 clearNotifyUserPersistenceQueue
+        // + :683 unsubscribeAllRoomStreams 的本地态等价；网络退订不阻塞 teardown，disconnect 即服务端退订）
+        teardownHooks.forEach { runCatching { it() } }
         stopAllStreamListeners()
         sdk.clearRestSession()
         sdk.disconnect()
@@ -282,6 +294,16 @@ class RealtimeSessionManager(
      */
     fun setStreamHandler(topic: String, handler: ((JsonElement) -> Unit)?) {
         if (handler == null) streamHandlers.remove(topic) else streamHandlers[topic] = handler
+    }
+
+    /** 注册重连收尾 tail（M2 T6 房间流重订）：见 [reconnectTails]。 */
+    fun addReconnectTail(tail: suspend () -> Unit) {
+        reconnectTails.add(tail)
+    }
+
+    /** 注册 teardown 挂点（M2 T6）：teardown 内、停监听/断连之前同步执行（RN :676-677 同位）。 */
+    fun addTeardownHook(hook: () -> Unit) {
+        teardownHooks.add(hook)
     }
 
     // ---- bootstrap 主体 ----
@@ -480,6 +502,9 @@ class RealtimeSessionManager(
                 if (!ensureAuthenticatedStreamSubscriptions(bootstrapGeneration.get())) {
                     throw DdpException("[realtime] DDP session not ready after reconnect")
                 }
+                // 重连收尾 tail（T6）：房间流重订（RN :162 await resubscribeAllActiveRoomStreams）；
+                // 抛错 → 下方 catch 置回 needsPostReconnectResume，等下一轮 connected 重试
+                reconnectTails.forEach { tail -> tail() }
             }
             phaseState.value = RealtimeTransportPhase.CONNECTED // RN :180
         } catch (e: CancellationException) {

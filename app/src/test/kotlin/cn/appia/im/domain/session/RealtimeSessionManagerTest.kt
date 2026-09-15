@@ -374,6 +374,42 @@ class RealtimeSessionManagerTest {
         assertEquals(s1.subEventNames(), s2.subEventNames())
     }
 
+    // ---- M2 T6：重连收尾 tail 与 teardown 挂点 ----
+
+    @Test
+    fun `reconnect tail runs after global streams are restored`() = runBlocking {
+        val s1 = SessionWsServer().also { wsListeners.add(it) }
+        val s2 = SessionWsServer().also { wsListeners.add(it) }
+        val tailCalls = AtomicInteger(0)
+        var sawDdpUserAtTail: Boolean? = null
+        manager.addReconnectTail {
+            tailCalls.incrementAndGet()
+            sawDdpUserAtTail = sdk.hasDdpUserId() // tail 必须在 resume 之后跑（RN :156-162 序）
+        }
+
+        manager.bootstrap(host, "tok-tail", userId = "uid-1")
+        awaitCond("first six subs") { s1.subCount() >= 6 }
+        assertEquals(0, tailCalls.get()) // 首次 bootstrap 不触发 finalize 的 runResume 分支
+
+        sdk.ddp!!.cancelTransport()
+        awaitCond("tail on reconnect") { tailCalls.get() >= 1 }
+        assertEquals(true, sawDdpUserAtTail)
+        awaitCond("subs restored") { s2.subCount() >= 6 }
+    }
+
+    @Test
+    fun `teardown hooks run before listeners are stopped`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        val order = CopyOnWriteArrayList<String>()
+        manager.addTeardownHook { order.add("hook") }
+
+        manager.bootstrap(host, "tok-hook", userId = "uid-1")
+        awaitCond("subs") { ws.subCount() >= 6 }
+
+        manager.teardown()
+        assertEquals(listOf("hook"), order) // hook 被调（RN :676-677 清队列在断连之前）
+    }
+
     // ---- M2 T5：横幅 phase 与手动重连（RN requestManualRealtimeReconnect :656-670） ----
 
     @Test

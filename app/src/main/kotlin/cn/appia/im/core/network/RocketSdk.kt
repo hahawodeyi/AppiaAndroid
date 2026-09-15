@@ -4,10 +4,13 @@ import cn.appia.im.BuildConfig
 import cn.appia.im.core.network.ddp.DdpClient
 import cn.appia.im.core.network.ddp.DdpLoginResult
 import cn.appia.im.core.network.ddp.DdpOptions
+import cn.appia.im.core.network.ddp.DdpSubscription
 import cn.appia.im.core.network.rest.ApiException
 import cn.appia.im.core.network.rest.AuthInterceptor
 import cn.appia.im.core.network.rest.AuthSession
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -140,6 +143,22 @@ class RocketSdk(
     }
 
     /**
+     * RN subscribeRoom sdk/index.ts:244-253（旧版 ios sdk.subscribeRoom 同构）：
+     * 同一 `rid` 三条订阅——`stream-room-messages`、`stream-notify-room {rid}/user-activity`（typing）、
+     * `stream-notify-room {rid}/deleteMessage`；并发订阅（Promise.all 等价，一败皆败）。
+     */
+    suspend fun subscribeRoom(rid: String): List<DdpSubscription> {
+        val ddp = ddp()
+        return coroutineScope {
+            listOf(
+                async { ddp.subscribe(ROOM_STREAM_MESSAGES, rid, JsonPrimitive(rid)) },
+                async { ddp.subscribe(ROOM_NOTIFY_ROOM, "$rid/user-activity", JsonPrimitive(rid)) },
+                async { ddp.subscribe(ROOM_NOTIFY_ROOM, "$rid/deleteMessage", JsonPrimitive(rid)) },
+            ).map { it.await() }
+        }
+    }
+
+    /**
      * RN callMethodRest sdk/index.ts:270-291：REST 执行 Meteor 方法——
      * `POST method.call/{encodeURIComponent(method)}`，body `{message: <DDP method 帧 JSON 串>}`，
      * 响应按 method.call 信封解析（parseMethodCallRestResponse）。
@@ -254,6 +273,10 @@ class RocketSdk(
     private fun encodeURIComponent(s: String): String =
         URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 }
+
+/** 房间流 topic（RN sdk/index.ts:246 字面量；与全局流 StreamNames 分开——它们是 sdk 层常量）。 */
+internal const val ROOM_STREAM_MESSAGES = "stream-room-messages"
+internal const val ROOM_NOTIFY_ROOM = "stream-notify-room"
 
 /**
  * RN methodCallRest.ts parseMethodCallRestResponse：method.call 响应的 `message` 信封解析。
