@@ -1,8 +1,10 @@
 # M1 冒烟：未登录启动直达企业码页（MainActivity startDestination=EnterpriseCode）。
 # M2 前置收尾：debug 包开 testTagsAsResourceId（MainActivity），断言换 resource-id 匹配
 # （testTag 原串即 resource-id，不带包名前缀；.debug 包完整形态为 cn.appia.im.debug:id/<tag>）。
+# M2 收尾：页脚版本行断言 versionName（0.3.0），随版本升级同步改。
 appId: cn.appia.im.debug
 ---
 - launchApp
 - assertVisible:
     id: "enterprise_code_input"
+- assertVisible: "(Version: 0\\.3\\.0|版本: 0\\.3\\.0)"
