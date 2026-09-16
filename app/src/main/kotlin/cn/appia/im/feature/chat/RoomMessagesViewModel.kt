@@ -4,6 +4,7 @@ import cn.appia.im.core.database.AppiaDatabase
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.messaging.RoomHistoryRepository
 import cn.appia.im.domain.chat.ChatMerger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -151,18 +152,24 @@ class RoomMessagesViewModel(
 
     /** RN settleInitialLoad :97-123：两端并发（Promise.all），远程有货时本地旧快照作废重查一次。 */
     private suspend fun settleInitialLoad(gen: Int, rid: String, roomType: String) {
-        coroutineScope {
-            val local = async { db.messageDao().getByRid(rid, COUNT) }
-            val remote = async { repo.loadRoomHistory(rid, roomType) } // 失败 null（RN .catch(() => 0)）
-            val localFirst = local.await()
-            val historyCount = remote.await() ?: 0
-            var list = localFirst
-            if (list.isEmpty() || historyCount > 0) { // RN :106-110 重查一次
-                list = db.messageDao().getByRid(rid, COUNT)
+        try {
+            coroutineScope {
+                val local = async { db.messageDao().getByRid(rid, COUNT) }
+                val remote = async { repo.loadRoomHistory(rid, roomType) } // 失败 null（RN .catch(() => 0)）
+                val localFirst = local.await()
+                val historyCount = remote.await() ?: 0
+                var list = localFirst
+                if (list.isEmpty() || historyCount > 0) { // RN :106-110 重查一次
+                    list = db.messageDao().getByRid(rid, COUNT)
+                }
+                applyWindow(gen, list)
+                if (list.isEmpty() && historyCount == 0) finishInitialLoading(gen)
+                // historyCount>0 但本地仍空：等窗口流推送后再落下加载位（applyWindow 顺带落，RN :119）
             }
-            applyWindow(gen, list)
-            if (list.isEmpty() && historyCount == 0) finishInitialLoading(gen)
-            // historyCount>0 但本地仍空：等窗口流推送后再落下加载位（applyWindow 顺带落，RN :119）
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            finishInitialLoading(gen) // RN :124-126 catch { finishInitialLoad() }
         }
     }
 
