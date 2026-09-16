@@ -30,6 +30,10 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE rid = :rid ORDER BY ts DESC LIMIT :limit")
     suspend fun getByRid(rid: String, limit: Int): List<MessageEntity>
 
+    /** 房间历史窗口流：同查询的响应式形态，落库即重发射（RoomMessagesViewModel 窗口订阅）。 */
+    @Query("SELECT * FROM messages WHERE rid = :rid ORDER BY ts DESC LIMIT :limit")
+    fun observeByRid(rid: String, limit: Int): Flow<List<MessageEntity>>
+
     @Query("SELECT * FROM messages")
     suspend fun getAll(): List<MessageEntity>
 

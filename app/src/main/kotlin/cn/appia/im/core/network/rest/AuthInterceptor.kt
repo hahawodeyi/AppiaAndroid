@@ -61,7 +61,7 @@ class AuthInterceptor(private val authProvider: () -> AuthSession?) : Intercepto
                 ?: text.ifEmpty { null }
                 ?: "HTTP ${response.code}"
             response.close()
-            throw ApiException("[rocket] REST $method $endpoint failed: $message")
+            throw ApiException("[rocket] REST $method $endpoint failed: $message", response.code)
         }
 
         return response

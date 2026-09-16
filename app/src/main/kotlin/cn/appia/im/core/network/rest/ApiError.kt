@@ -15,8 +15,11 @@ const val AUTH_SESSION_EXPIRED_ERROR = "auth_session_expired"
  */
 class AuthSessionExpiredException : IOException(AUTH_SESSION_EXPIRED_ERROR)
 
-/** 非 401 的 REST 错误（对应 TS restClient.ts:90 的 Error）。 */
-class ApiException(message: String) : IOException(message)
+/**
+ * 非 401 的 REST 错误（对应 TS restClient.ts:90 的 Error）。
+ * [status] = HTTP 状态码（TS `e.status` 等价通道，isRetryableError 以 5xx 判瞬时；缺失视作不可重试）。
+ */
+class ApiException(message: String, val status: Int? = null) : IOException(message)
 
 /** TS services/auth/orgSwitchInProgress.ts：组织换票期间 401 不触发登出。 */
 object OrgSwitchState {
