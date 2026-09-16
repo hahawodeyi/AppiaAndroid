@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -59,8 +60,11 @@ fun AuthBrandedLayout(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(214.dp)
+                // 品牌蓝头延至屏幕顶（RN 同）：蓝底在 inset padding 之前刷，内容垫 statusBar 安全区——
+                // app 边缘到边缘绘制时头部文字不得顶进状态栏（M2-T11 评审 Important 跨屏跟进）
                 .background(LoginTheme.statusBarSolid)
+                .statusBarsPadding()
+                .height(214.dp)
                 .padding(horizontal = 35.dp),
             contentAlignment = Alignment.BottomStart,
         ) {

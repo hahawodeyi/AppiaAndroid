@@ -39,7 +39,10 @@ import cn.appia.im.feature.login.VerifyEnterpriseResponse
 import cn.appia.im.feature.login.ui.LoginDeps
 import cn.appia.im.feature.login.ui.LoginState
 import cn.appia.im.feature.org.OrgListRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
@@ -83,6 +86,12 @@ class MainNavigationFlowTest {
 
     @After
     fun tearDown() {
+        // 先取消注入的 scope（sections 流 WhileSubscribed(5s) 宽限期会在 resetAll 关库后重查），
+        // 再等主线程与 Room 执行器上的在途查询落定（cancel 不等待第三方执行器），
+        // 最后关 MockWebServer 与库——顺序颠倒会出现「already-closed」竞态（T11 实测）
+        fixture.scopes.forEach { it.cancel() }
+        runCatching { rule.waitForIdle() }
+        Thread.sleep(100)
         runCatching { fixture.server.shutdown() } // M2 前置收尾（总纲 §4.2-5）：MockWebServer 不跨用例泄漏
         fixture.dbManager.resetAll()
     }
@@ -296,6 +305,15 @@ private class Fixture(context: Context) {
     val switchCalls = CopyOnWriteArrayList<String>()
     val server = MockWebServer()
     val ic = JsonObject(mapOf("ic" to JsonPrimitive("ticket")))
+    val scopes = CopyOnWriteArrayList<CoroutineScope>()
+
+    /** CEH 兜底：tearDown 关库与在途 observeList 的竞态异常不该记到下个用例头上（功能断言另有 UI 覆盖）。 */
+    private val silence = kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+        System.err.println("[MainNavigationFlowTest] suppressed fixture coroutine failure: $e")
+    }
+
+    private fun newScope(dispatcher: CoroutineDispatcher = Dispatchers.Unconfined) =
+        CoroutineScope(dispatcher + SupervisorJob() + silence).also { scopes.add(it) }
 
     /** orgList/coordinator 持有的 sdk（REST 就绪门前置用，见 makeRestReady）。 */
     lateinit var orgSdk: RocketSdk
@@ -308,7 +326,8 @@ private class Fixture(context: Context) {
             kv = kv,
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
-            backgroundScope = CoroutineScope(Dispatchers.Unconfined),
+            // 生产同款 IO：logout 的删库/回落异步于 UI——Unconfined 会在重组中同步关池，observeList 竞态
+            backgroundScope = newScope(Dispatchers.IO),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
         val sdk = RocketSdk().also { orgSdk = it }
@@ -320,7 +339,7 @@ private class Fixture(context: Context) {
             manager = manager,
             coordinator = coordinator,
             orgList = orgList,
-            scope = CoroutineScope(Dispatchers.Unconfined),
+            scope = newScope(),
         )
     }.apply {
         bootstrapRealtime = { s, t, u -> bootstraps.add(Triple(s, t, u)) }
@@ -336,12 +355,12 @@ private class Fixture(context: Context) {
             dbManager = dbManager,
             sdk = RocketSdk(),
             store = store,
-            scope = CoroutineScope(Dispatchers.Unconfined),
+            scope = newScope(),
             kv = kv,
             roomStreams = RoomStreamManager(
                 sdk = RocketSdk(),
                 persistMessage = { _, _ -> },
-                scope = CoroutineScope(Dispatchers.Unconfined),
+                scope = newScope(),
             ),
             networkMonitor = NetworkMonitor(context),
         )

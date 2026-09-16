@@ -15,6 +15,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -49,6 +51,13 @@ class RoomStreamManager(
     /** RN activeByRid :19：活跃房间流表（rid → 订阅与监听句柄）。 */
     private val activeByRid = ConcurrentHashMap<String, ActiveEntry>()
 
+    /**
+     * RN roomStreams 模块单线程事件循环的等价：sub/unsub 全模块串行。极快退/进同房时，
+     * 迟到的 unsubscribe（onDispose 异步）与新 subscribe 在 IO 线程并发交错会把新订阅连根
+     * 摘除（房间流静默死亡，M2-T11 评审 Minor-1）——互斥保证单操作原子，不与另一 op 交错。
+     */
+    private val opMutex = Mutex()
+
     /** 消息落库完成后发射 rid（已读 debounce 的消费口；RN onMessagePersistedCallbacks 等价）。 */
     private val _incomingMessages = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val incomingMessages: SharedFlow<String> = _incomingMessages
@@ -58,9 +67,11 @@ class RoomStreamManager(
      * 幂等：重复 sub 先退订。DDP 未初始化即抛（RN ensureDdpResumeForStreams 失败同途——
      * 会话级 resume 编排归 RealtimeSessionManager，进房前由调用方 bootstrap）。
      */
-    suspend fun subscribeRoom(rid: String) {
+    suspend fun subscribeRoom(rid: String) = opMutex.withLock { subscribeRoomLocked(rid) }
+
+    private suspend fun subscribeRoomLocked(rid: String) {
         require(rid.isNotEmpty()) { "[roomStreams] rid is required" } // RN :55-57
-        unsubscribeRoom(rid) // RN :59 幂等先退订
+        unsubscribeRoomLocked(rid) // RN :59 幂等先退订（锁内走 Locked，避免重入死锁）
 
         val ddp = sdk.ddp ?: throw DdpException("[roomStreams] ddp not initialized")
         val ddpSubs = sdk.subscribeRoom(rid) // RN :67 sdk.subscribeRoom 三条
@@ -84,13 +95,15 @@ class RoomStreamManager(
     }
 
     /** 退订本房间三条订阅并摘除监听（RN unsubscribeRoomStreams :119-132）；未订阅时 no-op。 */
-    suspend fun unsubscribeRoom(rid: String) {
+    suspend fun unsubscribeRoom(rid: String) = opMutex.withLock { unsubscribeRoomLocked(rid) }
+
+    private suspend fun unsubscribeRoomLocked(rid: String) {
         val entry = activeByRid.remove(rid) ?: return
         entry.streamStops.forEach { runCatching { it.stop() } }
         entry.ddpSubs.forEach { sub -> runCatching { sub.unsubscribe() } } // RN :130 失败吞
     }
 
-    /** 登出/断连前退订全部房间流（RN unsubscribeAllRoomStreams :135-138，并行）。 */
+    /** 登出/断连前退订全部房间流（RN unsubscribeAllRoomStreams :135-138；async 们经 opMutex 串行落地）。 */
     suspend fun unsubscribeAllRoomStreams() {
         val rids = activeByRid.keys.toList()
         coroutineScope { rids.map { rid -> async { unsubscribeRoom(rid) } }.awaitAll() }

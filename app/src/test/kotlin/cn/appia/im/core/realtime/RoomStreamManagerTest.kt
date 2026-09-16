@@ -341,6 +341,31 @@ class RoomStreamManagerTest {
         assertEquals(2, tails.get())
     }
 
+    // ---- 同房快速退/进：sub/unsub 串行化（M2-T11 评审 Minor-1）----
+
+    @Test
+    fun `interleaved subscribe and unsubscribe serialize and stay balanced`() = runBlocking {
+        val ws = RoomWsServer().also { wsListeners.add(it) }
+        sdk.connect()
+
+        // 多线程并发轰炸同一 rid 的 sub/unsub：互斥下每个操作原子，帧数收支必须平衡
+        //（任何交错穿插都会留下「sub 帧无对应 unsub 帧」的悬挂活跃流，收尾清场后无法归零）
+        val jobs = ArrayList<kotlinx.coroutines.Job>()
+        repeat(20) {
+            jobs += launch(Dispatchers.IO) { runCatching { manager.subscribeRoom("rid-1") } }
+            jobs += launch(Dispatchers.IO) { runCatching { manager.unsubscribeRoom("rid-1") } }
+        }
+        jobs.forEach { it.join() }
+        manager.unsubscribeRoom("rid-1") // 收尾清场：一次 unsub 必须能清掉全部活跃订阅
+        awaitCond("sub/unsub frames balanced after cleanup") {
+            ws.subFrames().size >= 3 && ws.subFrames().size == ws.unsubFrames().size
+        }
+        val count = ws.unsubFrames().size
+        delay(100)
+        manager.unsubscribeRoom("rid-1") // 活跃表已空 → no-op 不再发帧
+        assertEquals(count, ws.unsubFrames().size)
+    }
+
     /** 流消息帧（RN fields.args[0] 形态）。 */
     private fun streamMessageFrame(rid: String, id: String, msg: String): String =
         """{"msg":"changed","collection":"stream-room-messages","id":"evt-$id",""" +

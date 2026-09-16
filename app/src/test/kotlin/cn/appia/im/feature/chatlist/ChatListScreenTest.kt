@@ -28,6 +28,7 @@ import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.org.OrgListRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -63,6 +64,11 @@ class ChatListScreenTest {
 
     @After
     fun tearDown() {
+        // 先取消注入 scope（sections 流 WhileSubscribed(5s) 宽限期会在关库后重查），
+        // 再等在途查询落定（cancel 不等待 Room 执行器），最后清库
+        fixture.scopes.forEach { it.cancel() }
+        runCatching { rule.waitForIdle() }
+        Thread.sleep(100)
         fixture.dbManager.resetAll()
     }
 
@@ -142,6 +148,14 @@ private class Fixture(context: Context) {
     val dbManager = DatabaseManager(context)
     val opened = CopyOnWriteArrayList<Triple<String, String, String>>()
     val logoutCalls = java.util.concurrent.atomic.AtomicInteger(0)
+    val scopes = CopyOnWriteArrayList<CoroutineScope>()
+
+    /** CEH 兜底：tearDown 关库与在途 observeList 的竞态异常不该记到下个用例头上（功能断言另有 UI 覆盖）。 */
+    private val silence = kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+        System.err.println("[ChatListScreenTest] suppressed fixture coroutine failure: $e")
+    }
+
+    private fun newScope() = CoroutineScope(Dispatchers.Unconfined + silence).also { scopes.add(it) }
 
     val orchestrator: SessionBootstrapOrchestrator = run {
         val auth = AuthRepository(
@@ -150,7 +164,7 @@ private class Fixture(context: Context) {
             kv = kv,
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
-            backgroundScope = CoroutineScope(Dispatchers.Unconfined),
+            backgroundScope = newScope(),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
         val coordinator = OrgSwitchCoordinator(RocketSdk(), manager, auth, store, OrgSessionCache(InMemoryKvStore()), dbManager)
@@ -160,7 +174,7 @@ private class Fixture(context: Context) {
             manager = manager,
             coordinator = coordinator,
             orgList = OrgListRepository(RocketSdk(), kv),
-            scope = CoroutineScope(Dispatchers.Unconfined),
+            scope = newScope(),
         )
     }.apply {
         bootstrapRealtime = { _, _, _ -> } // 不触 DDP
@@ -170,12 +184,12 @@ private class Fixture(context: Context) {
         dbManager = dbManager,
         sdk = RocketSdk(),
         store = store,
-        scope = CoroutineScope(Dispatchers.Unconfined),
+        scope = newScope(),
         kv = kv,
         roomStreams = RoomStreamManager(
             sdk = RocketSdk(),
             persistMessage = { _, _ -> },
-            scope = CoroutineScope(Dispatchers.Unconfined),
+            scope = newScope(),
         ),
         networkMonitor = NetworkMonitor(context),
     )
