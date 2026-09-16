@@ -88,6 +88,8 @@ internal fun chatAvatarUrl(
  * - 首行：标题（`alert && !hideUnread` 加粗，alert = alert || tunread>0）+ 相对时间（未读主题色）。
  * - 二行：草稿前缀 > 提及前缀（user/group mentions>0）> 预览 > 静音图标（未读深蓝否则灰）> 未读徽标
  *   （hideUnread || unread<=0 不渲染；宽三档 16/24/28；>99 显 `99+`）。
+ * 双身份参数：`currentUserId`（user.id，标题/自直接助手判定）与 `currentUsername`
+ * （user.username，预览前缀判自己）不是同一个值（resolveLastMessagePreview KDoc 同注）。
  * RN 侧滑快捷（SwipeableChatRow 壳）、无障碍串、待办角标不在本行内（壳见 ChatRowActions.kt）。
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -95,6 +97,7 @@ internal fun chatAvatarUrl(
 fun ChatRow(
     chat: ChatEntity,
     currentUserId: String?,
+    currentUsername: String?,
     avatarUrl: String?,
     onPress: (ChatEntity) -> Unit = {},
     onLongPress: (ChatEntity) -> Unit = {},
@@ -112,7 +115,7 @@ fun ChatRow(
     val date = formatRoomListTime(chatListActivityMillis(chat).toLong()) { key, args ->
         args.entries.fold(context.t(key)) { acc, (k, v) -> acc.replace("{{$k}}", v) }
     }
-    val previewText = when (val p = resolveLastMessagePreview(chat, currentUserId)) {
+    val previewText = when (val p = resolveLastMessagePreview(chat, currentUsername)) {
         is PreviewResult.Text -> p.text
         is PreviewResult.Template -> {
             var s = context.t(p.key)

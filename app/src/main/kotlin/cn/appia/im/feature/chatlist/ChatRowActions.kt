@@ -126,6 +126,7 @@ private val ACTION_WIDTH = 80.dp
 fun SwipeableChatRow(
     chat: ChatEntity,
     currentUserId: String?,
+    currentUsername: String?,
     avatarUrl: String?,
     onMarkRead: () -> Unit = {},
     onMarkUnread: () -> Unit = {},
@@ -211,6 +212,7 @@ fun SwipeableChatRow(
             ChatRow(
                 chat = chat,
                 currentUserId = currentUserId,
+                currentUsername = currentUsername,
                 avatarUrl = avatarUrl,
                 onPress = onPress,
                 onLongPress = onLongPress,

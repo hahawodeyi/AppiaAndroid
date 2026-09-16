@@ -230,8 +230,9 @@ fun ChatListScreen(
                     items(section.chats, key = { it._id }, contentType = { "chat" }) { chat ->
                         SwipeableChatRow(
                             chat = chat,
-                            // 预览前缀判定值（username）；标题/助手判定（user.id）只在 onPress 的 roomTitleFromChat 用
-                            currentUserId = currentUsername,
+                            // 双身份：标题/自直接助手判定走 user.id，预览前缀判自己走 user.username
+                            currentUserId = currentUserId,
+                            currentUsername = currentUsername,
                             avatarUrl = chatAvatarUrl(
                                 serverUrl,
                                 chat.name,

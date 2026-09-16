@@ -32,7 +32,12 @@ class ChatRowSmokeTest {
     private fun setContent(chat: ChatEntity) {
         rule.setContent {
             AppiaTheme(isDark = false) {
-                ChatRow(chat = chat, currentUserId = "me", avatarUrl = null)
+                ChatRow(
+                    chat = chat,
+                    currentUserId = "uid-self",
+                    currentUsername = "me",
+                    avatarUrl = null,
+                )
             }
         }
     }
@@ -110,6 +115,28 @@ class ChatRowSmokeTest {
     fun `over 99 unread shows 99+ badge`() {
         setContent(chatRow(_id = "r1", unread = 120.0, last_message = """{"msg":"hi","u":{"username":"me"}}"""))
         rule.onNodeWithText("99+").assertExists()
+    }
+
+    // ---- 双身份拆分（user.id 供标题/助手判定，user.username 供预览前缀）----
+
+    @Test
+    fun `self direct assistant chat shows Agent label inline`() {
+        setContent(
+            chatRow(_id = "r1", t = "d", uids = """["uid-self"]""", name = "fallback-name"),
+        )
+        // uids 持 user.id：currentUserId(id) 命中自直接分支 → 行内标题为 Agent，而非 fname/name 回退
+        rule.onNodeWithText(context.t("Agent")).assertExists()
+        rule.onNodeWithText("fallback-name").assertDoesNotExist()
+    }
+
+    @Test
+    fun `own message preview has no username prefix`() {
+        setContent(
+            chatRow(_id = "r1", last_message = """{"msg":"hi","u":{"username":"me"}}"""),
+        )
+        // 前缀按 username 判自己（currentUsername 路径）：无 "me：" 前缀，仅正文
+        rule.onNodeWithText("me：hi").assertDoesNotExist()
+        rule.onNodeWithText("hi").assertExists()
     }
 
     @Test

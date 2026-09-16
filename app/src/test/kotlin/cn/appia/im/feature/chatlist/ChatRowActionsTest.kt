@@ -261,7 +261,8 @@ class ChatRowActionsTest {
             AppiaTheme(isDark = false) {
                 SwipeableChatRow(
                     chat = chat,
-                    currentUserId = "me",
+                    currentUserId = "uid-self",
+                    currentUsername = "me",
                     avatarUrl = null,
                     onMarkRead = { marks["read"] = (marks["read"] ?: 0) + 1 },
                     onMarkUnread = { marks["unread"] = (marks["unread"] ?: 0) + 1 },
