@@ -46,6 +46,10 @@ interface ChatDao {
     @Query("SELECT * FROM chats")
     fun observe(): Flow<List<ChatEntity>>
 
+    /** 单房间行观察（RoomScreen 头部标题实时跟随 chats 行；行不存在发 null → 路由参数兜底）。 */
+    @Query("SELECT * FROM chats WHERE rid = :rid LIMIT 1")
+    fun observeByRid(rid: String): Flow<ChatEntity?>
+
     /**
      * 会话列表观察（RN useRoomListChats.ts:38-43）：
      * `archived = false AND open = true AND bot != true`，按 room_updated_at 倒序兜底
