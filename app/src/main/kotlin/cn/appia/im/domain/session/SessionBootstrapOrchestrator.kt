@@ -22,7 +22,7 @@ import javax.inject.Singleton
  * bootstrap（bootstrapOnMainEntered，等价 RN MainNavigator.tsx:44-51；切库/REST hydrate/DDP
  * 冷启动重连内聚在 RealtimeSessionManager.bootstrap 步骤 1-3，此处不重复做）→
  * 会话失效（SessionExpiredBus）→ 登出（logout，UI 层订阅总线后导航回 Auth）。
- * 同时是占位 MainScreen 的会话面：登出/切组织/候选列表/连接状态（M2 换 RoomList 时收敛）。
+ * 同时是 ChatListScreen 的会话面：登出/切组织/候选两段式/连接状态/手动重连（T11 主屏装配）。
  */
 @Singleton
 class SessionBootstrapOrchestrator @Inject constructor(
@@ -106,9 +106,15 @@ class SessionBootstrapOrchestrator @Inject constructor(
         }
     }
 
-    /** 实时连接状态（占位 MainScreen 状态文本；M2 会话列表横幅同源，manager 订阅态直通）。 */
+    /** 实时连接状态（T11 会话列表横幅同源，manager 订阅态直通）。 */
     val connectionUp: StateFlow<Boolean> get() = manager.connectionUp
 
     /** 传输层三态（M2 T5 连接横幅数据源；T11 ChatListScreen 挂 ConnectionBanner 时收集）。 */
     val phase: StateFlow<RealtimeTransportPhase> get() = manager.phase
+
+    /**
+     * 横幅「重试」的手动重连（RN requestManualRealtimeReconnect；T11 ChatListScreen 接线）：
+     * 直通 bootstrap 同一 manager 单例，token 缺失时 no-op。
+     */
+    fun requestManualReconnect() = manager.requestManualReconnect()
 }

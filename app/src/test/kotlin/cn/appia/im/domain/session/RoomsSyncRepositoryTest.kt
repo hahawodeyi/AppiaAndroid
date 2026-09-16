@@ -6,6 +6,9 @@ import androidx.test.core.app.ApplicationProvider.getApplicationContext
 import cn.appia.im.core.datastore.InMemoryKvStore
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.network.RocketSdk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -282,6 +285,37 @@ class RoomsSyncRepositoryTest {
         assertTrue(persisted)
         assertNotNull(boundDb.chatDao().getById("r1"))
         assertTrue(manager.databaseFor(manager.normalizeServer("https://other.example.com")).chatDao().getAll().isEmpty())
+    }
+
+    // ---- 下拉刷新并发防抖（M1 chatsSyncInflight 最小等价，T11）----
+
+    @Test
+    fun `concurrent syncs serialize through global inflight mutex`() {
+        // 单次 sync 内部两端点本就并发（RN Promise.all 同），不能按在飞数断言；
+        // 改按请求区分归属：pull 全量（无 updatedSince，拖慢 150ms）vs bootstrap 增量（带参）。
+        // 断言：增量请求必须等 pull 自己的两个请求结束后才开始（锁串行）；无锁时增量会立即并发发出。
+        val fullEnds = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val incrementalStarts = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path!!.contains("updatedSince")) {
+                    incrementalStarts.add(System.nanoTime())
+                    return MockResponse().setBody("{}")
+                }
+                Thread.sleep(150)
+                fullEnds.add(System.nanoTime())
+                return MockResponse().setBody("{}")
+            }
+        }
+        RoomsSyncCursor(kv).set(host, 1_767_225_600_000L) // bootstrap 走增量；pull 恒全量
+        runBlocking {
+            coroutineScope {
+                launch(Dispatchers.IO) { repo.sync(RoomsSyncRepository.Mode.PULL) }
+                launch(Dispatchers.IO) { repo.sync(RoomsSyncRepository.Mode.BOOTSTRAP) }
+            }
+        }
+        val pullSecondEnd = fullEnds.sorted()[1] // pull 的第 2 个请求结束时刻
+        assertTrue(incrementalStarts.min() >= pullSecondEnd)
     }
 
     // ---- 游标 ----

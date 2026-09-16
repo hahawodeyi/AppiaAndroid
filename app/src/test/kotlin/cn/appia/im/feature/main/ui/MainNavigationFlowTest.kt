@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import cn.appia.im.AppiaNavHost
+import cn.appia.im.RouteDeps
 import cn.appia.im.core.datastore.AuthSession
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.datastore.InMemoryKvStore
@@ -25,10 +26,13 @@ import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.rest.OrgSwitchState
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.core.push.PushTokenRegistrar
+import cn.appia.im.core.realtime.NetworkMonitor
+import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.domain.session.AuthRepository
 import cn.appia.im.domain.session.OrgSwitchCoordinator
 import cn.appia.im.domain.session.RealtimeSessionManager
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
+import cn.appia.im.feature.chatlist.chatRow
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.SendCodeResult
 import cn.appia.im.feature.login.VerifyEnterpriseResponse
@@ -101,6 +105,7 @@ class MainNavigationFlowTest {
                     VerifyEnterpriseResponse(success = true, servers = listOf(CompanyServer(url = "https://s1", name = "S1")))
                 },
                 session = fixture.orchestrator,
+                deps = fixture.deps,
                 loginState = { servers, onLoginSuccess ->
                     LoginState(
                         servers,
@@ -126,17 +131,23 @@ class MainNavigationFlowTest {
         rule.onNodeWithText(context.t("enterprise_next")).performClick()
         waitUntilExists { tagExists("login_phone_input") }
 
-        // ic+验证码已预置 → 登录键可用；fake login 即回 → 持久化 → Main
+        // ic+验证码已预置 → 登录键可用；fake login 即回 → 持久化 → Main（真实会话列表）
         rule.onNodeWithTag("login_submit").performScrollTo().performClick()
-        waitUntilExists { textExists("Bob") }
+        waitUntilExists { textExists("Bob") } // 主屏顶栏显示主体名
 
         assertEquals("tok-1", fixture.store.load()?.token)
         assertEquals(listOf(Triple("https://s1", "tok-1", "u-1")), fixture.bootstraps.toList()) // 进 Main 即 bootstrap
 
-        // 登出 → 回企业码页
-        rule.onNodeWithText(context.t("profile_logout")).performClick()
+        // 登出（顶栏 ⋮ 菜单迁入）→ 回企业码页
+        openMenuAndLogout()
         waitUntilExists { tagExists("enterprise_code_input") }
         assertNull(fixture.store.load())
+    }
+
+    /** T11 主屏菜单两跳：⋮ → 退出登录（登出/我的企业自占位 MainScreen 迁入 ChatListScreen 顶栏）。 */
+    private fun openMenuAndLogout() {
+        rule.onNodeWithTag("qa-room-list-menu").performClick()
+        rule.onNodeWithText(context.t("profile_logout")).performClick()
     }
 
     @Test
@@ -144,7 +155,7 @@ class MainNavigationFlowTest {
         fixture.saveSession()
 
         rule.setContent {
-            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
         }
 
         // 无需任何导航动作：首帧即 Main（RN RootNavigator:66-95）
@@ -157,7 +168,7 @@ class MainNavigationFlowTest {
         fixture.saveSession()
 
         rule.setContent {
-            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
         }
         waitUntilExists { textExists("Bob") }
 
@@ -174,7 +185,7 @@ class MainNavigationFlowTest {
         fixture.saveSession()
 
         rule.setContent {
-            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
         }
         waitUntilExists { textExists("Bob") }
 
@@ -203,13 +214,13 @@ class MainNavigationFlowTest {
         fixture.saveSession()
 
         rule.setContent {
-            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
         }
         waitUntilExists { textExists("Bob") }
 
         rule.runOnIdle { OrgSwitchState.begin() }
         try {
-            rule.onNodeWithText(context.t("profile_logout")).performClick()
+            openMenuAndLogout()
             rule.waitForIdle()
 
             assertTrue(textExists("Bob")) // 仍在主屏（未导航回企业码页）
@@ -219,7 +230,7 @@ class MainNavigationFlowTest {
         }
 
         // 豁免窗口外的手动登出照常执行
-        rule.onNodeWithText(context.t("profile_logout")).performClick()
+        openMenuAndLogout()
         waitUntilExists { tagExists("enterprise_code_input") }
         assertNull(fixture.store.load())
     }
@@ -241,18 +252,38 @@ class MainNavigationFlowTest {
         }
 
         rule.setContent {
-            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true)
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
         }
         waitUntilExists { textExists("Bob") }
 
+        // 顶栏 ⋮ → 我的企业 → 候选两段式
+        rule.onNodeWithTag("qa-room-list-menu").performClick()
         rule.onNodeWithText(context.t("drawer_myenterprise")).performClick()
         waitUntilExists { textExists("B") } // 候选行（REST 刷新）
 
         rule.onNodeWithText("B").performClick()
         // 修复前：onSwitch 先关弹层（host 离组合）→ host 自有 scope 被取消 → 切换静默无操作；
-        // 修复后：切组织在 MainScreen 级 scope 跑完 → onSwitched 刷新主体信息
-        waitUntilExists { textExists("https://b.cn/") }
+        // 修复后：切组织在 ChatListScreen 级 scope 跑完 → session 重读 → VM 按新 server 重建
+        waitUntilExists { fixture.switchCalls.isNotEmpty() }
         assertEquals(listOf("https://b.cn/"), fixture.switchCalls.toList())
+    }
+
+    // ---- T11 导航链：列表 → 房间 → 返回 ----
+
+    @Test
+    fun `list row navigates to room and back returns to list`() {
+        fixture.seedChats()
+
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
+        }
+        waitUntilExists { textExists("General") } // ChatRow 行上屏
+
+        rule.onNodeWithText("General").performClick() // → RoomRoute(rid, title 兜底, t)
+        waitUntilExists { tagExists("qa-room-input") }
+
+        rule.onNodeWithTag("qa-room-header-back").performClick() // popBackStack → 列表
+        waitUntilExists { textExists("General") }
     }
 }
 
@@ -297,6 +328,37 @@ private class Fixture(context: Context) {
 
     fun saveSession(serverUrl: String = "https://s1") {
         store.save(AuthSession("tok-1", AuthUser(id = "u-1", username = "bob", name = "Bob"), serverUrl))
+    }
+
+    /** T11 路由装配束（真实会话列表/房间页所需单例；房间流 stub 不触 DDP）。 */
+    val deps: RouteDeps by lazy {
+        RouteDeps(
+            dbManager = dbManager,
+            sdk = RocketSdk(),
+            store = store,
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            kv = kv,
+            roomStreams = RoomStreamManager(
+                sdk = RocketSdk(),
+                persistMessage = { _, _ -> },
+                scope = CoroutineScope(Dispatchers.Unconfined),
+            ),
+            networkMonitor = NetworkMonitor(context),
+        )
+    }
+
+    /** 预置目标库会话行 + 激活库（ChatListViewModel 守卫要求 active == 绑定库）。 */
+    fun seedChats(serverUrl: String = "https://s1") {
+        saveSession(serverUrl)
+        dbManager.switchDatabase(serverUrl)
+        kotlinx.coroutines.runBlocking {
+            dbManager.databaseFor(dbManager.normalizeServer(serverUrl)).chatDao().insertAll(
+                listOf(
+                    chatRow(_id = "rid-general", name = "general", fname = "General", lm = 100.0),
+                    chatRow(_id = "rid-todo", name = "todo", fname = "Todo", todoCount = 1.0, lm = 90.0),
+                ),
+            )
+        }
     }
 
     /** REST 就绪前置：sdk 会话 hydrate（等价 MainScreen 开弹层时 bootstrap 步骤 1 已跑的时序）。 */

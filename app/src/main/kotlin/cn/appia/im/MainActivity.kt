@@ -1,6 +1,7 @@
 package cn.appia.im
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -19,29 +21,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.datastore.AuthSessionStore
+import cn.appia.im.core.datastore.KvStore
 import cn.appia.im.core.i18n.t
+import cn.appia.im.core.messaging.RoomHistoryRepository
+import cn.appia.im.core.messaging.getSendOrchestrator
 import cn.appia.im.core.network.LoginCredentials
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.BuildConfig
-import cn.appia.im.core.messaging.RoomHistoryRepository
-import cn.appia.im.core.messaging.getSendOrchestrator
+import cn.appia.im.core.realtime.NetworkMonitor
+import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.domain.session.BackgroundScope
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.DraftRepository
 import cn.appia.im.feature.chat.RoomMessagesViewModel
+import cn.appia.im.feature.chat.RoomReadMarker
 import cn.appia.im.feature.chat.ui.RoomScreen
-import cn.appia.im.feature.chat.ui.RoomScreenDeps
 import cn.appia.im.feature.chat.ui.resolveRoomHeaderTitle
+import cn.appia.im.feature.chatlist.ChatRowActions
+import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.login.AuthApi
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.LoginAreaCodeOption
@@ -54,7 +64,6 @@ import cn.appia.im.feature.login.ui.AreaCodeScreen
 import cn.appia.im.feature.login.ui.isLoginNetworkTimeoutError
 import cn.appia.im.feature.login.ui.rememberLoginState
 import cn.appia.im.feature.login.verifyEnterprise
-import cn.appia.im.feature.main.ui.MainScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -108,8 +117,25 @@ private typealias LoginStateFactory =
     (servers: List<CompanyServer>, onLoginSuccess: (LoginResult, String) -> Unit) -> LoginState
 
 /**
+ * 路由装配依赖束（原 T9 RoomScreenDeps，T11 起同时服务 Main/Room 两路由；MainActivity 注入后
+ * 传入 AppiaNavHost，UI 测试传 null 走占位）。db 绑定目标 server（换服由会话层重建，同裁定）。
+ * `roomStreams` 与 bootstrap 重连重订/teardown 清理共用同一 Hilt 单例（SessionModule 裁定）。
+ */
+class RouteDeps(
+    val dbManager: DatabaseManager,
+    val sdk: RocketSdk,
+    val store: AuthSessionStore,
+    val scope: CoroutineScope,
+    val kv: KvStore,
+    val roomStreams: RoomStreamManager,
+    val networkMonitor: NetworkMonitor,
+)
+
+private const val NAV_TAG = "roomRoute"
+
+/**
  * 导航宿主：默认落 EnterpriseCode（RN AuthStack 首屏）；verify 参数化供 UI 测试注入 fake。
- * `session` 为会话编排（T11：登录持久化/bootstrap/登出/切组织的挂接点）；`startAuthenticated`
+ * `session` 为会话编排（登录持久化/bootstrap/登出/切组织的挂接点）；`startAuthenticated`
  * 供 MainActivity 以同步恢复判定直落 Main（RN RootNavigator.tsx:66-95 首帧即定，无闪屏）。
  */
 @Composable
@@ -118,7 +144,7 @@ fun AppiaNavHost(
     session: SessionBootstrapOrchestrator? = null,
     startAuthenticated: Boolean = false,
     loginState: LoginStateFactory? = null,
-    roomDeps: RoomScreenDeps? = null,
+    deps: RouteDeps? = null,
 ) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -147,7 +173,7 @@ fun AppiaNavHost(
         SessionExpiredBus.events.collect {
             val gateway = session
             if (gateway != null && gateway.logout()) {
-                // 与 MainScreen 手动登出双触发是有意的幂等操作（logout/teardown 均幂等）
+                // 与 ChatListScreen 手动登出双触发是有意的幂等操作（logout/teardown 均幂等）
                 goAuth()
             }
         }
@@ -240,19 +266,30 @@ fun AppiaNavHost(
         }
         composable<MainRoute> {
             val gateway = session
-            if (gateway == null) {
+            if (gateway == null || deps == null) {
                 // 无会话层注入（纯 Auth 栈 UI 测试）；不放企业 servers 明文
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                MainScreen(
+                // 横幅数据源收集在装配处（ChatListScreen 收原值，测试可直接给参）
+                val phase by gateway.phase.collectAsState()
+                val online by deps.networkMonitor.online.collectAsState()
+                // NetworkMonitor 生命周期（RN startNetworkMonitoring 挂载语义）：进列表注册、离屏注销
+                DisposableEffect(Unit) {
+                    deps.networkMonitor.start()
+                    onDispose { deps.networkMonitor.stop() }
+                }
+                ChatListScreen(
                     gateway = gateway,
+                    deps = deps,
+                    phase = phase,
+                    networkOnline = online,
+                    onOpenRoom = { rid, title, roomType -> nav.navigate(RoomRoute(rid, title, roomType)) },
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
                 )
             }
         }
         composable<RoomRoute> { entry ->
             val route = entry.toRoute<RoomRoute>()
-            val deps = roomDeps
             if (deps == null) {
                 // 无会话层注入（纯 Auth 栈 UI 测试）；RoomScreen 自身由 RoomScreenTest 直测
                 Text(LocalContext.current.t("feature_not_implemented"))
@@ -262,18 +299,51 @@ fun AppiaNavHost(
                 val db = remember(serverUrl) {
                     deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
                 }
-                val vm = remember(db) {
-                    RoomMessagesViewModel(RoomHistoryRepository(deps.sdk, db), db, deps.scope)
-                }
+                // androidx viewModel（挂 Activity ViewModelStore）：旋转重建后保留分页窗口态
+                // （T9 遗留修复：remember(db) 的 VM 转屏即丢）；路由出栈随 back stack entry 释放
+                val vm: RoomMessagesViewModel = viewModel(
+                    key = "room-messages:$serverUrl:${route.rid}",
+                    factory = viewModelFactory {
+                        initializer {
+                            RoomMessagesViewModel(RoomHistoryRepository(deps.sdk, db), db, deps.scope)
+                        }
+                    },
+                )
                 LaunchedEffect(route.rid, route.roomType) { vm.openRoom(route.rid, route.roomType) }
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 val draftController = remember(db) { DraftController(DraftRepository(db), deps.scope) }
                 val auth = remember { deps.store.load() }
-                // RN getSendOrchestrator 单例（M1 会话态注入；用户切换 resetSendOrchestrator 挂 T11）
+                // RN getSendOrchestrator 单例（M1 会话态注入；reset 挂 AuthRepository.login/logout，RN App.tsx dbKey 同义）
                 val orchestrator = remember {
                     getSendOrchestrator(deps.dbManager, deps.sdk, deps.store, deps.scope)
                 }
+                // 已读标记（T10）：markRead 复用 ChatRowActions（REST+双表写单点）
+                val actions = remember(serverUrl) { ChatRowActions(deps.sdk, deps.dbManager, serverUrl) }
+                val readMarker = remember { RoomReadMarker(markRead = actions::markRoomRead, scope = deps.scope) }
+
+                // T9/T10 锚点（进房接线）：进房即读 + 订阅房间流；新消息落库信号 → 已读防抖
+                //（仅当前房间：RoomReadMarker.activeRid 守卫）。DisposableEffect 声明在 RoomScreen
+                //（子级）之前：Compose onDispose 逆声明序执行 → 卸载先 flush 草稿（子级）再退订流/清
+                // 防抖（本处），与 RN 卸载序一致（useDraft → useRoomSessionStreams → useRoomReadMessages）。
+                DisposableEffect(route.rid) {
+                    readMarker.onEnter(route.rid)
+                    val subscribeJob = deps.scope.launch {
+                        runCatching { deps.roomStreams.subscribeRoom(route.rid) }
+                            .onFailure { Log.w(NAV_TAG, "subscribe room stream failed rid=${route.rid}", it) }
+                    }
+                    onDispose {
+                        deps.scope.launch {
+                            subscribeJob.join() // 订阅在途先等完成（RN cancelled 标志同义），退订不留半挂订阅
+                            runCatching { deps.roomStreams.unsubscribeRoom(route.rid) }
+                        }
+                        readMarker.onLeave() // 先发退订再清防抖（RN cleanup 声明序）
+                    }
+                }
+                LaunchedEffect(deps.roomStreams, readMarker) {
+                    deps.roomStreams.incomingMessages.collect { rid -> readMarker.onMessagePersisted(rid) }
+                }
+
                 RoomScreen(
                     rid = route.rid,
                     title = resolveRoomHeaderTitle(route.title, chatRow),
@@ -299,7 +369,7 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var session: SessionBootstrapOrchestrator
 
-    // T9 Room 路由装配：库/sdk/会话态与后台 scope（RoomScreenDeps 打包传入 NavHost）
+    // 路由装配束：库/sdk/会话态/后台 scope + 房间流管理器 + 网络可达性（Main/Room 两路由共用）
     @Inject
     lateinit var dbManager: DatabaseManager
 
@@ -308,6 +378,15 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var authStore: AuthSessionStore
+
+    @Inject
+    lateinit var kv: KvStore
+
+    @Inject
+    lateinit var roomStreams: RoomStreamManager
+
+    @Inject
+    lateinit var networkMonitor: NetworkMonitor
 
     @Inject
     @BackgroundScope
@@ -331,7 +410,15 @@ class MainActivity : ComponentActivity() {
                     AppiaNavHost(
                         session = session,
                         startAuthenticated = startAuthenticated,
-                        roomDeps = RoomScreenDeps(dbManager, sdk, authStore, backgroundScope),
+                        deps = RouteDeps(
+                            dbManager,
+                            sdk,
+                            authStore,
+                            backgroundScope,
+                            kv,
+                            roomStreams,
+                            networkMonitor,
+                        ),
                     )
                 }
             }

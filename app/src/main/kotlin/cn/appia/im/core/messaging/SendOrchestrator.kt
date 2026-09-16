@@ -105,7 +105,13 @@ class SendOrchestrator(
     /** 入队 + 确保该 rid 的消费协程在跑（Channel 缓冲保证先入先发，单消费者保证串行）。 */
     private fun dispatch(job: SendJob) {
         val ch = queues.getOrPut(job.rid) { Channel(Channel.UNLIMITED) }
-        ch.trySend(job)
+        if (!ch.trySend(job).isSuccess) {
+            // T8 披露的 shutdown/enqueue 并发窗口：reset 关队后迟到的 enqueue 不再静默丢——
+            // 行落 ERROR（UI 可点重发，重发走新单例）；死消费协程句柄一并摘除
+            scope.launch { markStatus(job.id, ERROR) }
+            consumers.remove(job.rid)
+            return
+        }
         consumers.getOrPut(job.rid) {
             scope.launch { for (next in ch) sendOne(next) }
         }

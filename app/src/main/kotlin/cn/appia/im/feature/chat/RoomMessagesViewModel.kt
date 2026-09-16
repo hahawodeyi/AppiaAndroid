@@ -4,6 +4,7 @@ import cn.appia.im.core.database.AppiaDatabase
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.messaging.RoomHistoryRepository
 import cn.appia.im.domain.chat.ChatMerger
+import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -61,7 +62,7 @@ class RoomMessagesViewModel(
     private val scope: CoroutineScope,
     /** 进房兜底超时（RN INITIAL_LOAD_TIMEOUT_MS :15）；测试注入短值。 */
     private val initialLoadTimeoutMs: Long = INITIAL_LOAD_TIMEOUT_MS,
-) {
+) : ViewModel() {
 
     private val _state = MutableStateFlow(RoomMessagesUiState())
     val state: StateFlow<RoomMessagesUiState> = _state

@@ -100,10 +100,10 @@ internal fun buildRoomListItems(messages: List<MessageEntity>): List<RoomListIte
  * 草稿：IME 组合态不写（onValueChange 过滤 composition != null），commit 后 debounce 1s，
  * blur 即写，离开本屏 flush，发送成功清四列。
  *
- * **T11 锚点（必办）**：进房时在本 route 装配处补
+ * **T11 锚点（已在 MainActivity RoomRoute 装配处接线）**：进房
  * `RoomStreamManager.subscribeRoom(rid)`（实时消息流；T6 重连重订已挂 manager 内）+
- * `RoomReadMarker`（T10 已备：onEnter/onLeave 挂 DisposableEffect(rid)、
- * onMessagePersisted 接 incomingMessages 收集）。本屏只消费 DB 窗口流，缺订阅则无实时消息。
+ * `RoomReadMarker`（onEnter/onLeave 挂 DisposableEffect(rid)、onMessagePersisted 接
+ * incomingMessages 收集）。本屏只消费 DB 窗口流。
  */
 @Composable
 fun RoomScreen(
@@ -295,13 +295,7 @@ private fun DateSeparator(tsMs: Long) {
 }
 
 /**
- * 路由装配依赖束（MainActivity 注入后传入 AppiaNavHost；UI 测试传 null 走占位）。
- * db 绑定目标 server（换服由会话层重建 MainActivity 之上的状态，同 ChatListViewModel 裁定）。
- * T11 锚点：进房补 RoomStreamManager.subscribeRoom(rid) + 已读标记（见 RoomScreen KDoc）。
+ * 路由装配依赖束原 `RoomScreenDeps` 已于 T11 更名 [cn.appia.im.RouteDeps] 并移入 MainActivity.kt
+ * （同时服务 Main/Room 两路由）；进房接线（subscribeRoom/已读标记/草稿 flush 的生命周期编排）见
+ * MainActivity RoomRoute 装配处与 RoomScreen KDoc 的 T11 锚点说明。
  */
-class RoomScreenDeps(
-    val dbManager: cn.appia.im.core.database.DatabaseManager,
-    val sdk: cn.appia.im.core.network.RocketSdk,
-    val store: cn.appia.im.core.datastore.AuthSessionStore,
-    val scope: kotlinx.coroutines.CoroutineScope,
-)

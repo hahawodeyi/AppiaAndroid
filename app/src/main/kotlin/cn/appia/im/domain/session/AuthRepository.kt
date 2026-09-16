@@ -9,6 +9,7 @@ import cn.appia.im.core.datastore.MmkvKvStore
 import cn.appia.im.core.datastore.OrgSessionCache
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.messaging.MessageUpsert
+import cn.appia.im.core.messaging.resetSendOrchestrator
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.buildAuthUserFromLogin
@@ -60,8 +61,11 @@ class AuthRepository @Inject constructor(
     /**
      * RN login authStore.ts:98-107：三字段落库 + 注册推送（RN :104 注释——不阻塞登录流程）。
      * serverUrl 按 RN 原样存，normalize 在网络边界（RocketSdk/Registrar）做。
+     * 先丢 SendOrchestrator 单例（RN App.tsx:49-52 dbKey 变化丢单例的等价挂点之一：登录/组织切换
+     * applySession 都汇入本方法——防旧 user/旧 db 的发送队列复活，T8 reset 装配挂点）。
      */
     fun login(result: LoginResult, serverUrl: String) {
+        resetSendOrchestrator()
         store.save(
             AuthSession(
                 token = result.authToken,
@@ -100,6 +104,7 @@ class AuthRepository @Inject constructor(
         LoginSwitchCandidatesCache(kv).clear(prevUsername) // RN :144-146
         prevServer?.let { RoomsSyncCursor(kv).clear(it) } // RN :148-150 clearRoomsUpdatedAt
         teardownRealtime() // RN :152
+        resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
         store.clear() // RN :157
         prevServer?.let { server ->
             // RN :159-160 doUnregisterPushToken().catch(() => {})：Registrar 自吞网络失败，这里再兜一层
@@ -148,6 +153,20 @@ object SessionModule {
     fun provideRocketSdk(): RocketSdk = AuthApi.sdk
 
     /**
+     * 房间流管理器单例（T11 装配收口）：bootstrap 重订/teardown 清理（provideRealtimeSessionManager
+     * 内挂）与 Room 路由进退房接线共用同一实例——新建实例会让 incomingMessages 信号与重订收尾指向
+     * 无人消费的管理器。
+     */
+    @Provides
+    @Singleton
+    fun provideRoomStreamManager(sdk: RocketSdk, dbManager: DatabaseManager): RoomStreamManager =
+        RoomStreamManager(
+            sdk = sdk,
+            persistMessage = { raw, rid -> MessageUpsert.persist(dbManager.active, listOf(raw), rid) },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler),
+        )
+
+    /**
      * T8↔T9 预检裁定：syncInitial 构造注入 RoomsSyncRepository.sync（bootstrap 内部调用）。
      * repo 绑定的 server 在**调用时**现读会话（组织切换 applySession 已更新 store，
      * 随后的 bootstrap 同步新主体；repo 持有 sdk/db 引用，构建廉价）。
@@ -162,6 +181,7 @@ object SessionModule {
         dbManager: DatabaseManager,
         store: AuthSessionStore,
         kv: KvStore,
+        roomStreams: RoomStreamManager,
     ): RealtimeSessionManager {
         val syncInitial: suspend () -> Unit = {
             val serverUrl = store.load()?.serverUrl.orEmpty()
@@ -169,11 +189,6 @@ object SessionModule {
         }
         val manager = RealtimeSessionManager(sdk, dbManager, syncInitial)
         val notifyScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler)
-        val roomStreams = RoomStreamManager(
-            sdk = sdk,
-            persistMessage = { raw, rid -> MessageUpsert.persist(dbManager.active, listOf(raw), rid) },
-            scope = notifyScope,
-        )
         val notifyUser = NotifyUserPersistence(
             dbManager = dbManager,
             serverUrlProvider = { store.load()?.serverUrl.orEmpty() },

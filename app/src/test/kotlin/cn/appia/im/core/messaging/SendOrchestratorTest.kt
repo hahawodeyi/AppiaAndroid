@@ -17,6 +17,7 @@ import cn.appia.im.core.messaging.MessageStatus.SENDING
 import cn.appia.im.core.messaging.MessageStatus.SENT
 import cn.appia.im.core.network.AuthUser
 import cn.appia.im.core.network.RocketSdk
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -383,5 +384,22 @@ class SendOrchestratorTest {
         s2.shutdown()
         resetSendOrchestrator()
         dbManager.resetAll()
+    }
+
+    /** T8 披露的 shutdown/enqueue 并发窗口（T11 装配收口）：reset 关队后迟到的 enqueue 行落 ERROR，不静默丢。 */
+    @Test
+    fun `enqueue racing shutdown marks row ERROR instead of dropping it`() {
+        runBlocking {
+            orchestrator.shutdown()
+            // 复现交错：dispatch 从 queues 取出旧队引用之后、trySend 之前，shutdown 完成关队+清表。
+            // shutdown 完成后的新 enqueue 会拿到新队（无法复现），故以「表内残留已关队」等价该瞬间。
+            val queuesField = SendOrchestrator::class.java.getDeclaredField("queues")
+            queuesField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val queues = queuesField.get(orchestrator) as MutableMap<Any, Any>
+            queues[rid()] = Channel<Any>(Channel.UNLIMITED).apply { close() }
+            val tempId = orchestrator.enqueueTextMessage(rid(), "hello")
+            awaitStatus(tempId, ERROR.toDouble()) // 行可见且可点重发（resend 走重建后的新单例）
+        }
     }
 }

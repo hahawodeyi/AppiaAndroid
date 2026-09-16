@@ -13,6 +13,8 @@ import cn.appia.im.domain.chat.ChatMerger.dedupeMergedChatsById
 import cn.appia.im.domain.chat.ChatMerger.merge
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -65,10 +67,14 @@ class RoomsSyncRepository(
         }
 
     /**
-     * 同步入口：拉取 + 落库 + 推游标。
+     * 同步入口：拉取 + 落库 + 推游标。全局 inflight 互斥（M1 chatsSyncInflight 最小等价：
+     * bootstrap 初始同步与下拉 pull 并发时串行排队——RN 对 pull 语义是「等在途完成后必重跑一次
+     * pull」，串行排队达成同一结果；bootstrap 侧并发合并已由 manager inflight 承担）。
      * @return 是否有变更落库（RN persisted）。无变更/被守卫跳过均返回 false，且不推游标。
      */
-    suspend fun sync(mode: Mode = Mode.BACKGROUND): Boolean {
+    suspend fun sync(mode: Mode = Mode.BACKGROUND): Boolean = companionSyncMutex.withLock { syncLocked(mode) }
+
+    private suspend fun syncLocked(mode: Mode): Boolean {
         val since = if (mode == Mode.PULL) null else cursor.get(serverUrl)
         val syncStartedAt = System.currentTimeMillis()
 
@@ -186,6 +192,9 @@ class RoomsSyncRepository(
     companion object {
         private const val TAG = "roomSync"
         const val BATCH_SIZE = 500
+
+        /** RN chatsSyncInflight（session.ts:50/:494-502）的最小等价：全仓库共用一把同步锁。 */
+        private val companionSyncMutex = Mutex()
     }
 }
 
