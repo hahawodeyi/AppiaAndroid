@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -249,8 +250,16 @@ fun MessageRow(
     val header = remember(message) { buildMessageHeaderDisplay(message) }
     val parsed = remember(message) { parseMessageUser(message.u) }
     val isOwn = !currentUserId.isNullOrEmpty() && parsed._id == currentUserId
-    val avatarUrl = remember(message, serverUrl, token, currentUserId) {
-        buildMessageSenderAvatarUrl(serverUrl, message.u, userId = currentUserId, token = token)
+    // size 请求值 = 渲染 dp×密度取整（RN formatUrl PixelRatio.get()*size 同款；台账 #9 顺带）
+    val density = LocalDensity.current
+    val avatarUrl = remember(message, serverUrl, token, currentUserId, density) {
+        buildMessageSenderAvatarUrl(
+            serverUrl,
+            message.u,
+            userId = currentUserId,
+            token = token,
+            size = with(density) { AVATAR_SIZE.roundToPx() },
+        )
     }
 
     Row(modifier = modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {

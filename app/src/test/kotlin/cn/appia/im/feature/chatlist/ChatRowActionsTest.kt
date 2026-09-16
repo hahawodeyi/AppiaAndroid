@@ -262,7 +262,7 @@ class ChatRowActionsTest {
                 SwipeableChatRow(
                     chat = chat,
                     currentUserId = "me",
-                    serverUrl = "https://s1",
+                    avatarUrl = null,
                     onMarkRead = { marks["read"] = (marks["read"] ?: 0) + 1 },
                     onMarkUnread = { marks["unread"] = (marks["unread"] ?: 0) + 1 },
                     onToggleFavorite = { marks["fav"] = (marks["fav"] ?: 0) + 1 },

@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.AppiaTheme
@@ -31,7 +32,7 @@ class ChatRowSmokeTest {
     private fun setContent(chat: ChatEntity) {
         rule.setContent {
             AppiaTheme(isDark = false) {
-                ChatRow(chat = chat, currentUserId = "me", serverUrl = "https://s1")
+                ChatRow(chat = chat, currentUserId = "me", avatarUrl = null)
             }
         }
     }
@@ -123,5 +124,29 @@ class ChatRowSmokeTest {
         )
         rule.onNodeWithText("99+").assertDoesNotExist()
         rule.onNodeWithText(context.t("roomItem_nomessage")).assertExists()
+    }
+
+    // ---- chatAvatarUrl：鉴权参数 + etag + size（终审 Important-4）----
+
+    @Test
+    fun `avatar url carries auth etag and size`() {
+        assertEquals(
+            "https://s1/avatar/dev?version=1&format=png&size=96&rc_token=tok&rc_uid=u1&v=e1",
+            chatAvatarUrl("https://s1", "dev", "e1", userId = "u1", token = "tok", sizePx = 96),
+        )
+    }
+
+    @Test
+    fun `avatar url omits auth without uid or token and omits etag when null`() {
+        assertEquals(
+            "https://s1/avatar/dev?version=1&format=png&size=96",
+            chatAvatarUrl("https://s1", "dev", null, userId = null, token = "tok", sizePx = 96),
+        )
+    }
+
+    @Test
+    fun `avatar url is null on blank server or name`() {
+        assertEquals(null, chatAvatarUrl("", "dev", null, "u1", "tok", sizePx = 96))
+        assertEquals(null, chatAvatarUrl("https://s1", "", null, "u1", "tok", sizePx = 96))
     }
 }

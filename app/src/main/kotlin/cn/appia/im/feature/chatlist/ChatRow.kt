@@ -57,20 +57,45 @@ internal fun roomTitleFromChat(chat: ChatEntity, currentUserId: String?, agentLa
 }
 
 /**
+ * 列表行头像 URL（RN getAvatarUrl/formatUrl 会话列表路径等价，size 由调用方按渲染 dp×密度换算 px）：
+ * `{server}/avatar/{name}?version=1&format=png&size={px}&rc_token=..&rc_uid=..&v={etag}`。
+ * 鉴权参数缺一即省（服务器 `blockUnauthenticatedAccess` 默认 true，裸 URL 必 401——终审 Important-4）；
+ * server/name 空白 → null（AsyncImage 不发请求，initial 垫底可见）。
+ */
+internal fun chatAvatarUrl(
+    serverUrl: String,
+    name: String,
+    avatarEtag: String?,
+    userId: String?,
+    token: String?,
+    sizePx: Int,
+): String? {
+    if (serverUrl.isBlank() || name.isBlank()) return null
+    return buildString {
+        append(serverUrl.trimEnd('/')).append("/avatar/").append(name)
+        append("?version=1&format=png&size=").append(sizePx)
+        if (!userId.isNullOrEmpty() && !token.isNullOrEmpty()) {
+            append("&rc_token=").append(token).append("&rc_uid=").append(userId)
+        }
+        if (!avatarEtag.isNullOrEmpty()) append("&v=").append(avatarEtag)
+    }
+}
+
+/**
  * 会话列表行（RN RoomChatItem/index.tsx 的 M2 最小版）：
- * - 头像 48dp：initial 垫底 + Coil AsyncImage（M2 简化单头像 URL `/avatar/{name}`，
- *   RN DirectAvatar 双人合成/etag/appiaUsage 分支未移植）；置顶 `f` 叠金色星标。
+ * - 头像 48dp：initial 垫底 + Coil AsyncImage（URL 由 [chatAvatarUrl] 构造：鉴权参数+etag v+size×密度；
+ *   RN DirectAvatar 双人合成/appiaUsage 分支未移植）；置顶 `f` 叠金色星标。
  * - 首行：标题（`alert && !hideUnread` 加粗，alert = alert || tunread>0）+ 相对时间（未读主题色）。
  * - 二行：草稿前缀 > 提及前缀（user/group mentions>0）> 预览 > 静音图标（未读深蓝否则灰）> 未读徽标
  *   （hideUnread || unread<=0 不渲染；宽三档 16/24/28；>99 显 `99+`）。
- * RN 侧滑快捷（Swipeable）、无障碍串、待办角标不在本任务范围。
+ * RN 侧滑快捷（SwipeableChatRow 壳）、无障碍串、待办角标不在本行内（壳见 ChatRowActions.kt）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatRow(
     chat: ChatEntity,
     currentUserId: String?,
-    serverUrl: String,
+    avatarUrl: String?,
     onPress: (ChatEntity) -> Unit = {},
     onLongPress: (ChatEntity) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -124,7 +149,7 @@ fun ChatRow(
                 )
             }
             AsyncImage(
-                model = "$serverUrl/avatar/${chat.name}",
+                model = avatarUrl,
                 contentDescription = null,
                 modifier = Modifier.matchParentSize(),
             )

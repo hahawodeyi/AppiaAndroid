@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,7 +45,9 @@ import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.domain.session.RoomsSyncRepository
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.chatlist.ChatListViewModel
-import cn.appia.im.feature.chatlist.ChatRow
+import cn.appia.im.feature.chatlist.ChatRowActions
+import cn.appia.im.feature.chatlist.SwipeableChatRow
+import cn.appia.im.feature.chatlist.chatAvatarUrl
 import cn.appia.im.feature.chatlist.roomTitleFromChat
 import cn.appia.im.feature.org.ui.OrgSwitchSheet
 import kotlinx.coroutines.CancellationException
@@ -54,7 +57,8 @@ import kotlinx.coroutines.launch
  * 会话列表主屏（RN RoomListScreen 的 M2 装配：占位 MainScreen 退役，登出/我的企业迁入顶栏菜单）：
  * - 顶栏：主体显示名 + search 入口占位（全局搜索 M5，RN 搜索框本就隐藏）+ ⋮ 菜单（我的企业/退出登录）
  * - 连接横幅（T5）：phase/networkOnline 由装配方收集传入（测试可直接给值），手动重连接 manager
- * - 分段列表（T2/T3/T4）：ChatListViewModel sections + ChatRow，点击 → onOpenRoom(rid, title, t)
+ * - 分段列表（T2/T3/T4）：ChatListViewModel sections + SwipeableChatRow（左右滑快捷动作接线——
+ *   终审 Critical-1 修复），点击 → onOpenRoom(rid, title, t)
  * - 下拉刷新：RoomsSyncRepository PULL 全量等价（RN syncRoomListOnPullRefresh；
  *   组织切换中/刷新中跳过，失败 Alert——RN RoomListScreenInner.tsx:200-220 同）
  * - 进屏即 bootstrap（RN MainNavigator:44-51）；组织切换成功重读会话 → VM 按新 server 重建
@@ -79,11 +83,19 @@ fun ChatListScreen(
 
     var session by remember { mutableStateOf(gateway.restorableSession()) }
     val serverUrl = session?.serverUrl.orEmpty()
+    // 两个「自己」值分开下传（T3 KDoc 警示，终审 Important-3）：分段/助手标题用 user.id，
+    // 预览「自己消息」前缀判定按 RN 语义用 user.username（RoomListScreenInner.tsx:55）
     val currentUserId = session?.user?.id?.takeIf { it.isNotEmpty() }
+    val currentUsername = session?.user?.username?.takeIf { it.isNotEmpty() }
     // 换服重建实例（T2 裁定）：切组织成功刷新 session → serverUrl 变化 → VM 重绑新库
     val viewModel = remember(serverUrl) {
         ChatListViewModel(deps.dbManager, serverUrl, deps.store, deps.scope)
     }
+    // 列表滑动动作端点（终审 Critical-1 接线）：与 RoomRoute 同款现成实例（绑定 server，换服随 VM 重建）。
+    // 动作挂 app 级 deps.scope——行离屏/弹层关闭不取消在途 REST（同 RoomReadMarker 口径），
+    // 失败 runCatching 吞掉（RN void promise 未处理 rejection 同义，不崩不本地写）
+    val chatActions = remember(serverUrl) { ChatRowActions(deps.sdk, deps.dbManager, serverUrl) }
+    val density = LocalDensity.current
     val sections by viewModel.sections.collectAsState()
     val candidates by gateway.orgCandidates.collectAsState()
 
@@ -216,10 +228,27 @@ fun ChatListScreen(
                         }
                     }
                     items(section.chats, key = { it._id }, contentType = { "chat" }) { chat ->
-                        ChatRow(
+                        SwipeableChatRow(
                             chat = chat,
-                            currentUserId = currentUserId,
-                            serverUrl = serverUrl,
+                            // 预览前缀判定值（username）；标题/助手判定（user.id）只在 onPress 的 roomTitleFromChat 用
+                            currentUserId = currentUsername,
+                            avatarUrl = chatAvatarUrl(
+                                serverUrl,
+                                chat.name,
+                                chat.avatar_etag,
+                                userId = currentUserId,
+                                token = session?.token,
+                                sizePx = with(density) { 48.dp.roundToPx() }, // 渲染 48dp×密度（RN avatarSize=48 同款）
+                            ),
+                            onMarkRead = {
+                                deps.scope.launch { runCatching { chatActions.markRoomRead(chat._id) } }
+                            },
+                            onMarkUnread = {
+                                deps.scope.launch { runCatching { chatActions.markRoomUnread(chat._id) } }
+                            },
+                            onToggleFavorite = {
+                                deps.scope.launch { runCatching { chatActions.setRoomFavorite(chat._id, !chat.f) } }
+                            },
                             onPress = {
                                 onOpenRoom(
                                     chat._id,

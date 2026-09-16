@@ -7,6 +7,9 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.test.core.app.ApplicationProvider
 import cn.appia.im.RouteDeps
 import cn.appia.im.core.datastore.AuthSession
@@ -30,7 +33,10 @@ import cn.appia.im.feature.org.OrgListRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -139,10 +145,90 @@ class ChatListScreenTest {
         assertEquals(1, fixture.logoutCalls.get())
         assertEquals(0, fixture.opened.size)
     }
+
+    /**
+     * 滑壳装配（终审 Critical-1）：行内左右滑 → 钮可见 → 点击走真 ChatRowActions
+     * （REST 命中 MockWebServer + 本地 DB 落库）。sdk 指向 MockWebServer（同 ChatRowActionsTest 口径）。
+     */
+    @Test
+    fun `swipe actions wired - gestures reveal buttons and taps reach server and local db`() {
+        val server = MockWebServer()
+        server.start()
+        // 三次点击各一条 200（不预置应答时 MockWebServer 会把请求挂起，协程永不恢复）
+        repeat(3) { server.enqueue(MockResponse().setBody("""{"success":true}""")) }
+        val sdk = RocketSdk(client = OkHttpClient())
+        sdk.hydrateRestSession(server.url("/").toString(), "tok-1", "u-1")
+        fixture = Fixture(context, sdk)
+        fixture.seedChats()
+        runBlocking {
+            fixture.dbManager.active.chatDao().insertAll(
+                listOf(chatRow(_id = "rid-unread", name = "unread-room", fname = "UnreadRoom", unread = 5.0, lm = 95.0)),
+            )
+        }
+        setContent(RealtimeTransportPhase.CONNECTED, online = true)
+        rule.waitUntil(5_000) { tagExists("qa-room-list-section-channels") }
+
+        // 壳组合序 = 段序：[0]=todo（已读态）、[1]=rid-unread（频道段未读分支排前）、[2]=general
+        // 已读行右滑 → 「未读」「置顶」钮；钮文案首次拖拽才组装，此前不重复（RN swipeActionsReady 同款）
+        rule.onAllNodesWithTag("chat-row-swipe")[0].performTouchInput { swipeRight() }
+        rule.waitForIdle()
+        rule.onNodeWithText(context.t("roomitem_swipefavorite")).performClick()
+        rule.waitForIdle()
+        rule.waitUntil(5_000) { server.requestCount > 0 }
+        assertEquals("/api/v1/rooms.favorite", server.takeRequest().path)
+        rule.waitUntil(5_000) {
+            runBlocking { fixture.dbManager.active.chatDao().getById("rid-todo")?.f == true }
+        }
+
+        // 同行再点「未读」→ subscriptions.unread 命中（服务端动作，本地零改动等 stream 回推）。
+        // 点击前重滑打开：点按落点派发真实触摸，行合拢后按钮被行覆盖，须再滑出才能点中
+        rule.onAllNodesWithTag("chat-row-swipe")[0].performTouchInput { swipeRight() }
+        rule.waitForIdle()
+        rule.onNodeWithText(context.t("roomitem_swipemarkunread")).performClick()
+        rule.waitForIdle()
+        rule.waitUntil(5_000) { server.requestCount > 1 }
+        assertEquals("/api/v1/subscriptions.unread", server.takeRequest().path)
+
+        // 未读行左滑 → 「已读」钮；点击 → subscriptions.read 命中 + 本地双表清未读
+        rule.onAllNodesWithTag("chat-row-swipe")[1].performTouchInput { swipeLeft() }
+        rule.waitForIdle()
+        rule.onNodeWithText(context.t("roomitem_swipemarkread")).performClick()
+        rule.waitForIdle()
+        rule.waitUntil(5_000) { server.requestCount > 2 }
+        assertEquals("/api/v1/subscriptions.read", server.takeRequest().path)
+        rule.waitUntil(5_000) {
+            runBlocking { fixture.dbManager.active.chatDao().getById("rid-unread")?.unread == 0.0 }
+        }
+        runCatching { server.shutdown() }
+    }
+
+    /** 预览接线（终审 Important-3）：「自己消息」按 username 判（非 user.id），自己消息无「名字：」前缀。 */
+    @Test
+    fun `own last message preview omits sender prefix by username not id`() {
+        fixture.seedChats()
+        runBlocking {
+            fixture.dbManager.active.chatDao().insertAll(
+                listOf(
+                    chatRow(
+                        _id = "rid-own",
+                        name = "own-room",
+                        fname = "OwnRoom",
+                        lm = 110.0,
+                        last_message = """{"msg":"hello","u":{"_id":"someone-else","name":"bob","username":"bob"}}""",
+                    ),
+                ),
+            )
+        }
+        setContent(RealtimeTransportPhase.CONNECTED, online = true)
+        rule.waitUntil(5_000) { tagExists("qa-room-list-section-channels") }
+        // 会话用户 username=bob：预览命中「自己」→ 纯 "hello"；误用 user.id（u-1）恒不命中 → 会渲染 "bob：hello"
+        rule.onNodeWithText("hello").assertExists()
+        rule.onNodeWithText("bob：hello").assertDoesNotExist()
+    }
 }
 
 /** 真 orchestrator + 全 fakes（同 MainNavigationFlowTest Fixture 约定）；bootstrap 缝改记录器。 */
-private class Fixture(context: Context) {
+private class Fixture(context: Context, sdkOverride: RocketSdk = RocketSdk()) {
     val kv = InMemoryKvStore()
     val store = AuthSessionStore(kv)
     val dbManager = DatabaseManager(context)
@@ -182,7 +268,7 @@ private class Fixture(context: Context) {
 
     val deps: RouteDeps = RouteDeps(
         dbManager = dbManager,
-        sdk = RocketSdk(),
+        sdk = sdkOverride,
         store = store,
         scope = newScope(),
         kv = kv,

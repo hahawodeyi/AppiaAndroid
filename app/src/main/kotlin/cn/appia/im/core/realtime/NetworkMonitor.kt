@@ -48,14 +48,14 @@ class NetworkMonitor @Inject constructor(@ApplicationContext context: Context) {
 
     fun start() {
         if (registered) return
-        registered = true
         refresh()
         runCatching {
             connectivity?.registerNetworkCallback(
                 NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(),
                 callback,
             )
-        }.onFailure { Log.w(TAG, "registerNetworkCallback failed", it) }
+        }.onSuccess { registered = true } // 注册成功才置位（终审 ride-along）：失败时 stop() 的幂等不误注销
+        .onFailure { Log.w(TAG, "registerNetworkCallback failed", it) }
     }
 
     fun stop() {

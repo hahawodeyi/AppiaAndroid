@@ -70,6 +70,15 @@ class RoomMessagesViewModel(
     private val genCounter = AtomicInteger(0)
     private var roomJob: Job? = null
 
+    /**
+     * 终审 Important-5：本 VM 的协程跑在 app 级 @BackgroundScope（不随路由出栈取消），
+     * onCleared（退房出栈随 back stack entry 释放）不 cancel 的话 roomJob 的常驻窗口流
+     * 收集器会每访问一房间泄漏一条（RN hook unmount cleanup 的等价收口点）。
+     */
+    override fun onCleared() {
+        roomJob?.cancel()
+    }
+
     /** 进房/换房（RN useLayoutEffect [rid] :46-59）：全量重置分页状态后起本代收集与一次性 settle。 */
     fun openRoom(rid: String, roomType: String) {
         val gen = genCounter.incrementAndGet()
