@@ -76,11 +76,16 @@ class ChatRowActions(
     /**
      * 标已读（RN markRoomReadOnServerAndLocal → readMessages :85-94 顺序）：
      * 先 `POST subscriptions.read {rid}`，成功后双表写（ReadStateWriter 单点，T10 房间内标读复用）。
+     * `updateLastOpen=true` 另写 `lastOpen=now`（T10 进房即读，RN readMessages options 同名透传）。
      */
-    suspend fun markRoomRead(rid: String, now: Long = System.currentTimeMillis()) {
+    suspend fun markRoomRead(
+        rid: String,
+        now: Long = System.currentTimeMillis(),
+        updateLastOpen: Boolean = false,
+    ) {
         SubscriptionsApi.postSubscriptionsRead(sdk, rid)
         if (!activeDbMatchesAuth()) return
-        ReadStateWriter(db).applyReadState(rid, now)
+        ReadStateWriter(db).applyReadState(rid, now, updateLastOpen)
     }
 
     /**

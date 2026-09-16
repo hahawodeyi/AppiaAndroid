@@ -173,6 +173,19 @@ class ChatRowActionsTest {
     }
 
     @Test
+    fun `markRoomRead updateLastOpen writes last_open to both tables`() = runBlocking {
+        // T10 进房即读路径：同名透传 ReadStateWriter（RN readMessages options.updateLastOpen）
+        dao().insert(unreadChat("r1").copy(last_open = 555.0))
+        manager.active.subscriptionDao().insert(subRow("r1").copy(last_open = 666.0))
+        enqueueOk()
+
+        actions.markRoomRead("r1", now = 1_000L, updateLastOpen = true)
+
+        assertEquals(1_000.0, dao().getById("r1")!!.last_open!!, 0.0)
+        assertEquals(1_000.0, manager.active.subscriptionDao().getById("r1")!!.last_open!!, 0.0)
+    }
+
+    @Test
     fun `markRoomRead does not write locally when server fails`() = runBlocking {
         dao().insert(unreadChat("r1"))
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"error":"nope"}"""))

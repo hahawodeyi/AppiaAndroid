@@ -102,7 +102,8 @@ internal fun buildRoomListItems(messages: List<MessageEntity>): List<RoomListIte
  *
  * **T11 锚点（必办）**：进房时在本 route 装配处补
  * `RoomStreamManager.subscribeRoom(rid)`（实时消息流；T6 重连重订已挂 manager 内）+
- * 已读标记（ReadMarker/applyLocalReadState 同源）。本屏只消费 DB 窗口流，缺订阅则无实时消息。
+ * `RoomReadMarker`（T10 已备：onEnter/onLeave 挂 DisposableEffect(rid)、
+ * onMessagePersisted 接 incomingMessages 收集）。本屏只消费 DB 窗口流，缺订阅则无实时消息。
  */
 @Composable
 fun RoomScreen(
