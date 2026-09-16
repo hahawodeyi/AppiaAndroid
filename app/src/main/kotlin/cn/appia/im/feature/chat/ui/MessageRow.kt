@@ -44,13 +44,13 @@ private val AVATAR_SIZE = 36.dp
 /** RN RoomMessageRow/index.tsx bubbleBgColor：自己浅蓝，他人主题背景（不走色板）。 */
 private val OwnBubbleColor = Color(0xFFCCE6FF)
 
-/** RN roomMessageRowUtils ANNOUNCEMENT_TYPES：M2 走简化公告样式（SystemMessageText），M3 全渲染。 */
+/** RN roomMessageRowUtils ANNOUNCEMENT_TYPES：排除后与 RN 同走普通行渲染（非公告样式）。 */
 private val ANNOUNCEMENT_TYPES =
     setOf("room_created_announcement", "room_changed_announcement", "room_deleted_announcement")
 
 internal fun isAnnouncementType(t: String?): Boolean = t != null && t in ANNOUNCEMENT_TYPES
 
-/** 该消息走系统消息渲染（有 t 且非 announcement；load_chunk 在列表层短路）。 */
+/** 该消息走系统消息渲染（有 t 且非 announcement；announcement 走普通行=RN；load_chunk 列表层短路）。 */
 internal fun isSystemMessageRow(message: MessageEntity): Boolean =
     !message.t.isNullOrEmpty() && !isAnnouncementType(message.t)
 

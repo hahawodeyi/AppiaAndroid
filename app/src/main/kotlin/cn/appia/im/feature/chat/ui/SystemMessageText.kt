@@ -28,7 +28,7 @@ fun systemMessageT(context: android.content.Context): (String, Map<String, Strin
 
 /**
  * 系统消息行（RN SystemMessage：居中 12sp 灰字；文本来自 SystemMessageTexts 逐条映射）。
- * announcement 三型（room_*_announcement）在 RN 走普通行气泡，M2 以本简化公告样式渲染（M3 全渲染）。
+ * announcement 三型（room_*_announcement）**不走本组件**——isSystemMessageRow 排除后与 RN 同走普通行。
  */
 @Composable
 fun SystemMessageText(message: MessageEntity, modifier: Modifier = Modifier) {

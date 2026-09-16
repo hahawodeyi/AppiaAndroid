@@ -49,6 +49,37 @@ class TimeFormatsTest {
     }
 
     @Test
+    fun `seven-day window crossing month boundary stays short`() {
+        // RN :142-149 withinSevenDays && sameYear → 短格式，与是否跨月无关
+        val ts = java.time.ZonedDateTime.of(2026, 1, 28, 9, 30, 0, 0, zone8).toInstant().toEpochMilli()
+        val now = java.time.ZonedDateTime.of(2026, 2, 2, 9, 0, 0, 0, zone8).toInstant().toEpochMilli()
+        assertEquals("01/28 09:30 (UTC+8)", formatRoomMessageHeaderTime(ts, now, utc8))
+    }
+
+    @Test
+    fun `same year beyond seven days renders long format`() {
+        val ts = java.time.ZonedDateTime.of(2026, 1, 5, 9, 30, 0, 0, zone8).toInstant().toEpochMilli()
+        val now = java.time.ZonedDateTime.of(2026, 1, 20, 9, 30, 0, 0, zone8).toInstant().toEpochMilli()
+        assertEquals("2026/01/05 09:30 (UTC+8)", formatRoomMessageHeaderTime(ts, now, utc8))
+    }
+
+    @Test
+    fun `exactly seven days boundary falls to long format`() {
+        // RN withinSevenDays 闭开区间：now == given + 7d → false → 长格式
+        val ts = java.time.ZonedDateTime.of(2026, 3, 5, 7, 8, 0, 0, zone8).toInstant().toEpochMilli()
+        val now = ts + 7L * 24 * 60 * 60 * 1000
+        assertEquals("2026/03/05 07:08 (UTC+8)", formatRoomMessageHeaderTime(ts, now, utc8))
+    }
+
+    @Test
+    fun `future timestamp renders long format`() {
+        // RN now > given 才算窗口内；未来时刻 → 长格式
+        val ts = java.time.ZonedDateTime.of(2026, 3, 15, 7, 8, 0, 0, zone8).toInstant().toEpochMilli()
+        val now = java.time.ZonedDateTime.of(2026, 3, 10, 0, 0, 0, 0, zone8).toInstant().toEpochMilli()
+        assertEquals("2026/03/15 07:08 (UTC+8)", formatRoomMessageHeaderTime(ts, now, utc8))
+    }
+
+    @Test
     fun `same day instants are same calendar day`() {
         val a = java.time.ZonedDateTime.of(2026, 9, 15, 23, 59, 0, 0, zone8).toInstant().toEpochMilli()
         val b = java.time.ZonedDateTime.of(2026, 9, 15, 0, 0, 0, 0, zone8).toInstant().toEpochMilli()

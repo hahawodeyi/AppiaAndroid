@@ -32,6 +32,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.TextFieldValue
@@ -93,11 +94,15 @@ internal fun buildRoomListItems(messages: List<MessageEntity>): List<RoomListIte
 
 /**
  * RoomScreen（RN screens/RoomScreen 的 M2 版：消息列表/输入/头部）。
- * 有 t 的消息走 SystemMessageText（announcement 三型简化公告样式）；普通行走 MessageRow。
+ * 有 t 且非 announcement 的消息走 SystemMessageText；普通行（含 announcement 三型，=RN）走 MessageRow。
  * 空态：初始加载菊花 / `room_no_messages`；滚到底按钮在不在列表顶（最新处）时显示（简化：
  * 不区分"新消息到达"与"回看历史"，见任务报告）。
  * 草稿：IME 组合态不写（onValueChange 过滤 composition != null），commit 后 debounce 1s，
  * blur 即写，离开本屏 flush，发送成功清四列。
+ *
+ * **T11 锚点（必办）**：进房时在本 route 装配处补
+ * `RoomStreamManager.subscribeRoom(rid)`（实时消息流；T6 重连重订已挂 manager 内）+
+ * 已读标记（ReadMarker/applyLocalReadState 同源）。本屏只消费 DB 窗口流，缺订阅则无实时消息。
  */
 @Composable
 fun RoomScreen(
@@ -137,6 +142,8 @@ fun RoomScreen(
 
     // 输入与草稿（RN ChatInputBar + useDraft 时序；组合态不写，commit 才计）
     var input by remember(rid) { mutableStateOf(TextFieldValue("")) }
+    // 失焦即写需真实 focus→blur 跃迁：onFocusChanged 首次合成会以未聚焦态上报，须有曾聚焦守卫
+    var inputHadFocus by remember(rid) { mutableStateOf(false) }
     LaunchedEffect(rid, draftController) {
         draftController?.let { c ->
             val saved = c.loadDraft(rid)
@@ -230,6 +237,14 @@ fun RoomScreen(
                 modifier = Modifier
                     .weight(1f)
                     .widthIn(max = 320.dp)
+                    // RN ChatInputBar blur → saveDraftImmediate：失焦即写草稿（Important-1 接线）
+                    .onFocusChanged {
+                        if (it.isFocused) inputHadFocus = true
+                        else if (inputHadFocus) {
+                            inputHadFocus = false
+                            draftController?.onBlur(rid, input.text)
+                        }
+                    }
                     .testTag("qa-room-input"),
                 placeholder = { Text(context.t("chatinput_placeholder"), color = colors.auxiliaryText) },
                 maxLines = 5,
@@ -281,6 +296,7 @@ private fun DateSeparator(tsMs: Long) {
 /**
  * 路由装配依赖束（MainActivity 注入后传入 AppiaNavHost；UI 测试传 null 走占位）。
  * db 绑定目标 server（换服由会话层重建 MainActivity 之上的状态，同 ChatListViewModel 裁定）。
+ * T11 锚点：进房补 RoomStreamManager.subscribeRoom(rid) + 已读标记（见 RoomScreen KDoc）。
  */
 class RoomScreenDeps(
     val dbManager: cn.appia.im.core.database.DatabaseManager,

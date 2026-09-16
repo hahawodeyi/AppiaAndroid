@@ -9,8 +9,9 @@ import java.util.TimeZone
 /**
  * 消息时间格式（对照 appiaMobile/src/lib/chat/messageUserDisplay.ts 的
  * formatRoomMessageHeaderTime + forwardMergeMessage.ts 的同日/日期标签）：
- * - 消息头时间：同年 `MM/DD HH:mm`、跨年 `YYYY/MM/DD HH:mm`，后缀 ` (UTC±x)`（本地时区偏移，
- *   半小时偏移按 RN 数字直转渲染 `+5.5`）；
+ * - 消息头时间：**7 天内且同年** `MM/DD HH:mm`（RN :142-149 withinSevenDays && sameYear，
+ *   含未来时刻与恰好满 7 天边界→长格式），否则 `YYYY/MM/DD HH:mm`；后缀 ` (UTC±x)`（本地时区
+ *   偏移，半小时偏移按 RN 数字直转渲染 `+5.5`）；
  * - 同日判定：本地日历日相同（RN toDateString 对比）；
  * - 日期分隔标签：RN 固定 `Intl.DateTimeFormat('zh-CN', long)` → `yyyy"年"M"月"d"日"`。
  * zone 缺省系统时区；测试显式注入。minSdk 24 无 java.time，走 Calendar/SimpleDateFormat
@@ -23,12 +24,15 @@ fun formatRoomMessageHeaderTime(
 ): String {
     val given = Calendar.getInstance(zone).apply { timeInMillis = tsMs }
     val now = Calendar.getInstance(zone).apply { timeInMillis = nowMs }
+    // RN :143-145 withinSevenDays = now > given && now < given + 7d（边界闭开，未来时刻→长格式）
+    val withinSevenDays = nowMs > tsMs && nowMs - tsMs < 7L * 24 * 60 * 60 * 1000
     // RN getTimezoneOffset 为西经正（UTC+8 → -480，再取负）；Java offset 为东经正，直接除即可
     val tzHours = zone.getOffset(nowMs) / 3_600_000.0
     val tzString = if (tzHours >= 0) "(UTC+${trimDecimal(tzHours)})" else "(UTC${trimDecimal(tzHours)})"
 
     val clock = "%02d:%02d".format(given.get(Calendar.HOUR_OF_DAY), given.get(Calendar.MINUTE))
-    val formatted = if (now.get(Calendar.YEAR) == given.get(Calendar.YEAR)) {
+    val sameYear = now.get(Calendar.YEAR) == given.get(Calendar.YEAR)
+    val formatted = if (withinSevenDays && sameYear) {
         "%02d/%02d %s".format(given.get(Calendar.MONTH) + 1, given.get(Calendar.DAY_OF_MONTH), clock)
     } else {
         "%04d/%02d/%02d %s".format(
