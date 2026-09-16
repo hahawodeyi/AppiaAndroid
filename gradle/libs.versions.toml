@@ -54,6 +54,7 @@ mmkv = { group = "com.tencent", name = "mmkv", version.ref = "mmkv" }
 
 # 图片 / 协程
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
 # Hilt

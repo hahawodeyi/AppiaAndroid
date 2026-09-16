@@ -9,6 +9,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,13 +23,25 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import cn.appia.im.core.database.DatabaseManager
+import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.LoginCredentials
 import cn.appia.im.core.network.LoginResult
+import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.BuildConfig
+import cn.appia.im.core.messaging.RoomHistoryRepository
+import cn.appia.im.core.messaging.getSendOrchestrator
 import cn.appia.im.core.theme.AppiaTheme
+import cn.appia.im.domain.session.BackgroundScope
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
+import cn.appia.im.feature.chat.DraftController
+import cn.appia.im.feature.chat.DraftRepository
+import cn.appia.im.feature.chat.RoomMessagesViewModel
+import cn.appia.im.feature.chat.ui.RoomScreen
+import cn.appia.im.feature.chat.ui.RoomScreenDeps
+import cn.appia.im.feature.chat.ui.resolveRoomHeaderTitle
 import cn.appia.im.feature.login.AuthApi
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.LoginAreaCodeOption
@@ -44,6 +57,7 @@ import cn.appia.im.feature.login.verifyEnterprise
 import cn.appia.im.feature.main.ui.MainScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -85,6 +99,10 @@ data class AuthWebRoute(
 @Serializable
 data object MainRoute
 
+/** RN RoomScreen 路由参数（rid + 标题兜底 + 房间类型，RoomListScreen T11 串联入口）。 */
+@Serializable
+data class RoomRoute(val rid: String, val title: String = "", val roomType: String = "c")
+
 /** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
 private typealias LoginStateFactory =
     (servers: List<CompanyServer>, onLoginSuccess: (LoginResult, String) -> Unit) -> LoginState
@@ -100,6 +118,7 @@ fun AppiaNavHost(
     session: SessionBootstrapOrchestrator? = null,
     startAuthenticated: Boolean = false,
     loginState: LoginStateFactory? = null,
+    roomDeps: RoomScreenDeps? = null,
 ) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -231,6 +250,46 @@ fun AppiaNavHost(
                 )
             }
         }
+        composable<RoomRoute> { entry ->
+            val route = entry.toRoute<RoomRoute>()
+            val deps = roomDeps
+            if (deps == null) {
+                // 无会话层注入（纯 Auth 栈 UI 测试）；RoomScreen 自身由 RoomScreenTest 直测
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                // 绑定目标 server 的库（ChatListViewModel 同裁定）；标题 chats 行实时跟随
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val vm = remember(db) {
+                    RoomMessagesViewModel(RoomHistoryRepository(deps.sdk, db), db, deps.scope)
+                }
+                LaunchedEffect(route.rid, route.roomType) { vm.openRoom(route.rid, route.roomType) }
+                val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
+                    .collectAsState(initial = null)
+                val draftController = remember(db) { DraftController(DraftRepository(db), deps.scope) }
+                val auth = remember { deps.store.load() }
+                // RN getSendOrchestrator 单例（M1 会话态注入；用户切换 resetSendOrchestrator 挂 T11）
+                val orchestrator = remember {
+                    getSendOrchestrator(deps.dbManager, deps.sdk, deps.store, deps.scope)
+                }
+                RoomScreen(
+                    rid = route.rid,
+                    title = resolveRoomHeaderTitle(route.title, chatRow),
+                    state = vm.state.collectAsState().value,
+                    currentUserId = auth?.user?.id,
+                    currentUsername = auth?.user?.username,
+                    serverUrl = serverUrl,
+                    token = auth?.token,
+                    draftController = draftController,
+                    onSend = { msg -> orchestrator.enqueueTextMessage(route.rid, msg) },
+                    onResend = { m -> orchestrator.resend(m._id, m.rid, m.msg.orEmpty()) },
+                    onBack = { nav.popBackStack() },
+                    onLoadEarlier = { vm.loadEarlier() },
+                )
+            }
+        }
     }
 }
 
@@ -239,6 +298,20 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var session: SessionBootstrapOrchestrator
+
+    // T9 Room 路由装配：库/sdk/会话态与后台 scope（RoomScreenDeps 打包传入 NavHost）
+    @Inject
+    lateinit var dbManager: DatabaseManager
+
+    @Inject
+    lateinit var sdk: RocketSdk
+
+    @Inject
+    lateinit var authStore: AuthSessionStore
+
+    @Inject
+    @BackgroundScope
+    lateinit var backgroundScope: CoroutineScope
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -255,7 +328,11 @@ class MainActivity : ComponentActivity() {
                     Modifier.fillMaxSize()
                 }
                 Surface(rootModifier) {
-                    AppiaNavHost(session = session, startAuthenticated = startAuthenticated)
+                    AppiaNavHost(
+                        session = session,
+                        startAuthenticated = startAuthenticated,
+                        roomDeps = RoomScreenDeps(dbManager, sdk, authStore, backgroundScope),
+                    )
                 }
             }
         }
