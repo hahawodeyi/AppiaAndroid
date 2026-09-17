@@ -169,3 +169,12 @@ data class ListItem(val value: List<MdNode>, val number: Int? = null) : MdNode
 @Serializable
 @SerialName("LINE_BREAK")
 object LineBreak : MdInline, MdBlock
+
+/**
+ * Appia 扩展：`* * *` 分隔线（RN parseMsgToMd 自造 `{type:'HORIZONTAL_RULE'}`，
+ * 服务端 md 亦可能直发；RN renderMarkdownBlock 的 isHorizontalRuleBlock 另兼容小写
+ * `horizontal_rule`——由 MessageMdResolver.parseMdJson 归一化后到达此处）。
+ */
+@Serializable
+@SerialName("HORIZONTAL_RULE")
+object HorizontalRule : MdBlock

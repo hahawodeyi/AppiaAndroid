@@ -23,8 +23,8 @@ import java.util.Locale
 private const val DEFAULT_FONT_COLOR = "#1D2129"
 private const val DEFAULT_FONT_SIZE = "14px"
 
-/** editorJson.ts:75-76 URL_REGEX 逐字符转录（JS g 标志 → findAll）。 */
-private val URL_REGEX = Regex(
+/** editorJson.ts:75-76 URL_REGEX 逐字符转录（JS g 标志 → findAll）；internal 供 MessageMdResolver 回退解析复用。 */
+internal val URL_REGEX = Regex(
     "(https?)://([-;:&=\\+\\$,\\w]+@{1})?([-A-Za-z0-9.]+)+:?(\\d+)?" +
         "((/[-\\+=!:~%/.@,\\w]*)?\\??([-\\+=&!:;%@/.,\\w]+)?(?:#([^\\s)]+))?)?",
 )
