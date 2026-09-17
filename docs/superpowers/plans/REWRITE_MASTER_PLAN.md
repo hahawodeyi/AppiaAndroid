@@ -111,6 +111,21 @@ cn.appia.im/
 
 **可带走**（M1 终审 triage 全部核过）：trim NBSP/BOM 差异（触发面不存在）、POST 空 body "{}"、tSearch NULL vs 0（查询等价）、T7 verified 已修（终审顺车）、其余记录在案项。
 
+## 4.3 M2 遗留与 M3 前置任务（2026-09-17 M2 终审裁定，不得静默丢失）
+
+**写 M3 计划时必须列为显式任务行**（多为 M3 富文本/Markdown 域的既有挂账）：
+1. MENTION 显示名解析（现显示 @username；接入 MarkdownContext 解析 name）
+2. `previewTableLabel` 参数缺位（M3 表格预览扩展时补）
+3. `load_chunk` 行参与日期分隔推导（现死路径，M3 分页加载占位实现时处理）
+4. `onSessionTornDown` 绕 opMutex 的陈旧条目复活竞态 + `pending.remove(rid)` 前移对齐 RN 同步语义（M3 重连加固任务顺带，两处同文件）
+5. `success:false` 通道缺失（RN 5xx+success:false 不重试的理论分歧）
+6. Maestro 滑动用例增量（M2 终审建议）；README 测试计数随每里程碑更新
+7. 组织切换中 onSessionTornDown 相关：`onSessionTornDown` 相关竞态与 T5 busy 复位 no-token 路径——M5 横幅收口一并
+
+**flake 监控延续**：RealtimeSessionManagerTest WS 时序（M2 期 0/3+1 次偶发记录）；预案照旧。
+
+**已裁决维持现状**（勿再重开）：update/removed 500ms 竞态（RN 同款）；T7 失败 null/0 区分（修正 RN 真实缺陷，优于基线）；分页机件在公开 UiState（收窄仅为形式）；T8 mentions="[]"（echo 归一无行为）。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
