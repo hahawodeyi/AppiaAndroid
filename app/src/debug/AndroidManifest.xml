@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- M3 T2 spike：仅 debug 构建注册的调试入口（不入 release）。
+         exported=true 仅为 adb am start 直启（Android 16+ shell 无法启动非导出组件），
+         debug sourceSet 不影响生产 APK。 -->
+    <application>
+        <activity
+            android:name="cn.appia.im.feature.chat.editor.EditorSpikeActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Appia" />
+    </application>
+
+</manifest>
