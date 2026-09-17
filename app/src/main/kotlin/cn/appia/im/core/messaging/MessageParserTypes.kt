@@ -148,14 +148,14 @@ data class TableRow(val value: List<MdNode>) : MdNode
 @SerialName("TABLE_CELL")
 data class TableCell(val isHeader: Boolean? = null, val value: List<MdNode>) : MdNode
 
-/** RN editorJson.ts:42-44：list 玩家 value 混含 LIST_ITEM 与兄弟嵌套 list（level=父级 level）。 */
+/** definitions：level 可选（服务端 list 块可缺省）；RN editorJson.ts:42-44 正向恒产 level。 */
 @Serializable
 @SerialName("ORDERED_LIST")
-data class OrderedList(val level: Int, val value: List<MdNode>) : MdBlock
+data class OrderedList(val level: Int? = null, val value: List<MdNode>) : MdBlock
 
 @Serializable
 @SerialName("UNORDERED_LIST")
-data class UnorderedList(val level: Int, val value: List<MdNode>) : MdBlock
+data class UnorderedList(val level: Int? = null, val value: List<MdNode>) : MdBlock
 
 /** definitions ListItem.value: (Inlines | OrderedList | UnorderedList)[] → MdNode。 */
 @Serializable

@@ -641,6 +641,19 @@ class TipTapJsonConverterTest {
         assertEquals(ttParagraph(ttText("todo")), content[2])
     }
 
+    @Test
+    fun serverListJsonWithoutLevelDeserializesAndConverts() {
+        // 服务端 md 的 list 块 level 可选（definitions level?: number）——缺 level 不得抛 MissingFieldException
+        val raw = """{"blocks":[{"type":"UNORDERED_LIST","value":[{"type":"LIST_ITEM","value":[{"type":"PLAIN_TEXT","value":"a"}]}]}]}"""
+        val root = Json {
+            classDiscriminator = "type"
+            ignoreUnknownKeys = true
+        }.decodeFromString(MarkdownRoot.serializer(), raw)
+        assertEquals(listOf<MdBlock>(UnorderedList(level = null, value = listOf(listItem(listOf(plain("a")))))), root.blocks)
+        val doc = mdToTipTap(json.encodeToJsonElement(MarkdownRoot.serializer(), root).jsonObject)
+        assertEquals(doc(ttList("bulletList", ttListItem(ttParagraph(ttText("a"))))), doc)
+    }
+
     // ══ round-trip 无损组（TipTap→AST→TipTap 同型）══
 
     @Test
