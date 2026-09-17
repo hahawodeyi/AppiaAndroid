@@ -27,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -95,25 +97,43 @@ internal fun MarkdownParagraph(
     modifier: Modifier = Modifier,
     onKatexClick: ((String) -> Unit)? = null,
 ) {
+    var forceTrim = false
     if (value.isNotEmpty() && isEmptyQuoteMarkerLink(value[0])) {
-        // 对齐 RN：`[ ](permalink)` 引用标记不单独占行、不渲染蓝链
+        // 对齐 RN Paragraph.tsx:24-30：仅当恰好 size==2 且第二元素空白才整段不渲染（3+ 元素照常渲染）
         if (value.size == 1) return
-        val second = value[1]
-        if (second is PlainText && second.value.trim().isEmpty()) return
+        val second = value.getOrNull(1)
+        if (value.size == 2 && second is PlainText && second.value.trim().isEmpty()) return
+        forceTrim = true
+    }
+    // RN Inline.tsx:36-44 forceTrim：剔除首位 permalink 标记，次位 PLAIN_TEXT 去 trimStart
+    val rendered: List<String> = value.mapIndexed { index, inline ->
+        when {
+            forceTrim && index == 0 -> ""
+            forceTrim && index == 1 && inline is PlainText -> inline.value.trimStart()
+            else -> inlineText(inline)
+        }
     }
     val colors = LocalAppiaColors.current
     if (value.any { it is InlineKaTeX }) {
         FlowRow(modifier, verticalArrangement = Arrangement.Center) {
-            value.forEach { inline ->
-                when (inline) {
-                    is InlineKaTeX -> KatexDegradeText(inline.value, inline = true, onKatexClick)
+            value.forEachIndexed { index, inline ->
+                when {
+                    forceTrim && index == 0 -> Unit
+                    forceTrim && index == 1 && inline is PlainText -> {
+                        val trimmed = inline.value.trimStart()
+                        if (trimmed.isNotEmpty()) {
+                            Text(trimmed, fontSize = 16.sp, lineHeight = 22.sp, color = colors.bodyText)
+                        }
+                    }
+
+                    inline is InlineKaTeX -> KatexDegradeText(inline.value, inline = true, onKatexClick)
                     else -> Text(inlineText(inline), fontSize = 16.sp, lineHeight = 22.sp, color = colors.bodyText)
                 }
             }
         }
     } else {
         Text(
-            value.joinToString("") { inlineText(it) },
+            rendered.joinToString(""),
             fontSize = 16.sp,
             lineHeight = 22.sp,
             color = colors.bodyText,
@@ -143,14 +163,18 @@ internal fun MarkdownHeading(block: Heading, modifier: Modifier = Modifier) {
     )
 }
 
-// ── Quote（Quote.tsx：左 3px #e0e0e0 边框，段落逐个走 Paragraph——permalink 剔除随之复用）──
+// ── Quote（Quote.tsx：styles.quote 仅 borderLeftWidth 3 #e0e0e0 左侧竖条，段落逐个走 Paragraph）──
 
 @Composable
 internal fun MarkdownQuote(block: Quote, modifier: Modifier = Modifier, onKatexClick: ((String) -> Unit)? = null) {
     Column(
         modifier
             .padding(vertical = 2.dp)
-            .border(width = 3.dp, color = MarkdownStyle.quoteBorder)
+            .drawBehind {
+                // 仅左侧竖条（RN borderLeftWidth 3）：中线对齐 RN 边框语义
+                val stroke = 3.dp.toPx()
+                drawLine(MarkdownStyle.quoteBorder, Offset(stroke / 2, 0f), Offset(stroke / 2, size.height), strokeWidth = stroke)
+            }
             .padding(start = 8.dp),
     ) {
         block.value.filterIsInstance<Paragraph>().forEach { paragraph ->
@@ -474,7 +498,8 @@ internal fun MarkdownTable(
                                             fontWeight = if (header) FontWeight.SemiBold else null,
                                             color = colors.bodyText,
                                             modifier = Modifier
-                                                .width(layout.columnWidths[cellIndex])
+                                                // GFM 行 cells 数可不齐（RN 越界得 undefined 不崩）：缺列按最小列宽兜底
+                                                .width(layout.columnWidths.getOrNull(cellIndex) ?: MIN_COL_WIDTH.dp)
                                                 .background(if (header) MarkdownStyle.tableHeaderBg else Color.Transparent)
                                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                                         )

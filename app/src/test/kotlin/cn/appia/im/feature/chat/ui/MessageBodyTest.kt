@@ -174,6 +174,52 @@ class MessageBodyTest {
     }
 
     @Test
+    fun raggedTableRowsDoNotCrash() {
+        // GFM 行 cells 数不齐（binding：不补齐）：后续行多于首行列数不崩（评审 Critical-2）
+        val rows = listOf(
+            TableRow(
+                value = listOf(
+                    TableCell(isHeader = true, value = listOf(Paragraph(value = listOf(PlainText("A"))))),
+                ),
+            ),
+            TableRow(
+                value = listOf(
+                    TableCell(value = listOf(Paragraph(value = listOf(PlainText("a"))))),
+                    TableCell(value = listOf(Paragraph(value = listOf(PlainText("b"))))),
+                    TableCell(value = listOf(Paragraph(value = listOf(PlainText("c"))))),
+                ),
+            ),
+        )
+        setContent(Root(listOf(Paragraph(value = listOf(PlainText("| A |")), subType = "TABLE", data = rows))), onTableOpen = {})
+        rule.onNodeWithText("A").assertIsDisplayed()
+        rule.onNodeWithText("c").assertIsDisplayed()
+    }
+
+    @Test
+    fun permalinkWithTrailingContentStillRenders() {
+        // Paragraph.tsx:24-30 length===2 条件：[permalink, " ", 正文] 渲染正文（评审 Important-4）
+        setContent(
+            Root(
+                listOf(
+                    Paragraph(
+                        value = listOf(
+                            Link(
+                                value = LinkValue(
+                                    src = PlainText("https://x.com/msg=1"),
+                                    label = emptyList(),
+                                ),
+                            ),
+                            PlainText(" "),
+                            PlainText("visible"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        rule.onNodeWithText("visible").assertIsDisplayed()
+    }
+
+    @Test
     fun katexDegradeRendersFormulaAndClick() {
         var clicked: String? = null
         setContent(

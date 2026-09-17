@@ -27,11 +27,15 @@ import kotlinx.serialization.json.decodeFromJsonElement
 
 private val mdJsonFormat = Json { ignoreUnknownKeys = true; isLenient = true }
 
-/** `md` 列 JSON → [Root]；坏 JSON/非对象数组返回 null。未知块型丢块不弃整条（RN 渲染层同降级）。 */
+/**
+ * `md` 列 JSON → [Root]；坏 JSON/非对象数组返回 null。未知块型丢块不弃整条（RN 渲染层同降级）。
+ * 解码前先归一化判别符（幂等）：decodeRoot 对数组恒「成功」，重试不可达——小写 `horizontal_rule`
+ * 必须在 decode 前映射（RN isHorizontalRuleBlock 第二分支，服务端直发小写）。
+ */
 fun parseMdJson(raw: String?): Root? {
     if (raw.isNullOrEmpty()) return null
     val el = runCatching { mdJsonFormat.parseToJsonElement(raw) }.getOrNull() ?: return null
-    return decodeRoot(el) ?: decodeRoot(normalizeBlockTypes(el))
+    return decodeRoot(normalizeBlockTypes(el))
 }
 
 private fun decodeRoot(el: JsonElement): Root? {
@@ -49,7 +53,7 @@ private fun decodeRoot(el: JsonElement): Root? {
     }.getOrNull()
 }
 
-/** RN isHorizontalRuleBlock 兼容小写 `horizontal_rule`：反序列化前归一化判别符再重试。 */
+/** RN isHorizontalRuleBlock 兼容小写 `horizontal_rule`：反序列化前归一化判别符（幂等）。 */
 private fun normalizeBlockTypes(el: JsonElement): JsonElement = when (el) {
     is JsonObject -> JsonObject(
         el.mapValues { (key, value) ->
@@ -302,8 +306,9 @@ fun isParagraphVisuallyEmpty(value: List<MdInline>): Boolean {
     if (value.isEmpty()) return true
     if (isEmptyQuoteMarkerLink(value[0])) {
         if (value.size == 1) return true
-        val second = value[1]
-        if (second is PlainText && second.value.trim().isEmpty()) return true
+        // RN :31-37：仅当恰好 length===2 且第二元素空白才整段判定空（3+ 元素继续走可见文本统计）
+        val second = value.getOrNull(1)
+        if (value.size == 2 && second is PlainText && second.value.trim().isEmpty()) return true
     }
     val visibleText = value
         .filterIndexed { index, block ->

@@ -39,6 +39,18 @@ class MessageMdResolverTest {
         assertEquals(1, root!!.blocks.size)
     }
 
+    @Test
+    fun lowercaseHorizontalRuleNormalizes() {
+        // RN isHorizontalRuleBlock 第二分支：服务端直发小写 horizontal_rule（评审 Critical-1）
+        val root = parseMdJson(
+            """[{"type":"horizontal_rule"},
+               {"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"after"}]}]""",
+        )
+        assertEquals(2, root!!.blocks.size)
+        assertEquals(HorizontalRule, root.blocks[0])
+        assertTrue(root.blocks[1] is Paragraph)
+    }
+
     // ── plainTextFromMd ──
 
     @Test
@@ -147,6 +159,22 @@ class MessageMdResolverTest {
             msg = null,
         )
         assertNull(result)
+    }
+
+    @Test
+    fun permalinkWithTrailingContentStaysVisible() {
+        // RN :31-37 要求 length===2 才整段空：[permalink, " ", 后续] 继续渲染后续（评审 Important-4）
+        val permalinkPrefix = """
+            {"type":"LINK","value":{"src":{"type":"PLAIN_TEXT","value":"https://x/msg=1"},"label":[]}},
+            {"type":"PLAIN_TEXT","value":" "},
+        """.trimIndent().replace("\n", "")
+        val result = resolveMdFromMsgFields(
+            md = """[{"type":"PARAGRAPH","value":[$permalinkPrefix{"type":"PLAIN_TEXT","value":"visible"}]}]""",
+            msg = null,
+        )
+        val paragraph = result!!.blocks[0] as Paragraph
+        assertFalse(isParagraphVisuallyEmpty(paragraph.value))
+        assertEquals(3, paragraph.value.size)
     }
 
     // ── GFM 表格 augment ──
