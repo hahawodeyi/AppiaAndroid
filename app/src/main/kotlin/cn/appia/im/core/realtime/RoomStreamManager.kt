@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
@@ -127,12 +128,22 @@ class RoomStreamManager(
      * 网络退订不做——紧随其后的 disconnect 即服务端全量退订（RN :684-687 的
      * unsubscribeAllRoomStreams 在 async run 里与 disconnect 赛跑，终态一致）；活跃表清空后
      * 重连收尾不再重订已拆会话的房间流，旧监听不摘除会在同服复连后误收消息帧。
+     *
+     * 摘表必须与 sub/unsub 互斥（总纲 §4.3-4 陈旧条目复活竞态）：否则 teardown 恰好落在
+     * subscribeRoom 的「已订网、未落表」窗口内时清的是空表，subscribe 随后落表复活旧会话条目，
+     * 重连收尾即重订已拆会话的房间流。teardown hook 非 suspend：经 runBlocking 进 [opMutex]
+     * ——锁持有者只做 DDP sub/unsub 网络 IO（不反向依赖 teardown 线程，最长等一次在途操作，
+     * 随后的 disconnect 兜底），teardown 属登出/换组织终态操作，短暂阻塞可接受。
      */
     fun onSessionTornDown() {
-        for (entry in activeByRid.values) {
-            entry.streamStops.forEach { runCatching { it.stop() } }
+        runBlocking {
+            opMutex.withLock {
+                for (entry in activeByRid.values) {
+                    entry.streamStops.forEach { runCatching { it.stop() } }
+                }
+                activeByRid.clear()
+            }
         }
-        activeByRid.clear()
     }
 
     /** RN :77-96：rid 过滤 → 异步落库 → 发射 rid；失败仅 warn（RN __DEV__ console.warn 同义）。 */

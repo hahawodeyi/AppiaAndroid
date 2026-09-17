@@ -165,4 +165,13 @@ class RoomHistoryRepositoryTest {
         assertEquals(1, paths.size)
         assertTrue(backoff.isEmpty())
     }
+
+    @Test
+    fun `5xx with explicit success false body is not retried`() {
+        // 总纲 §4.3-5：success:false 先于 status 判定（RN retryPolicy 顺序）——业务拒绝不重试
+        respond = { MockResponse().setResponseCode(500).setBody("""{"success":false,"error":"denied"}""") }
+        assertNull(runBlocking { repo.loadRoomHistory("r1", "c") })
+        assertEquals(1, paths.size)
+        assertTrue(backoff.isEmpty())
+    }
 }

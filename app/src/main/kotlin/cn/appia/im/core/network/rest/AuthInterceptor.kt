@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -60,8 +61,10 @@ class AuthInterceptor(private val authProvider: () -> AuthSession?) : Intercepto
                 ?: field(json, "error")
                 ?: text.ifEmpty { null }
                 ?: "HTTP ${response.code}"
+            // 响应体显式 success:false → 业务拒绝（isRetryableError 先于 status 短路，总纲 §4.3-5）
+            val success = (json?.get("success") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
             response.close()
-            throw ApiException("[rocket] REST $method $endpoint failed: $message", response.code)
+            throw ApiException("[rocket] REST $method $endpoint failed: $message", response.code, success)
         }
 
         return response

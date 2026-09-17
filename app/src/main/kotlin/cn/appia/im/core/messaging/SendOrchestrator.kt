@@ -173,11 +173,12 @@ class SendOrchestrator(
         }
     }
 
-    /** RN markStatus :546-553。messages.status 仅本类可写。 */
+    /**
+     * RN markStatus :546-553。messages.status 仅本类可写。单列 UPDATE（[MessageDao.updateStatus]）：
+     * get-then-update 的全行回写会与并发全行 upsert（DDP echo/history）互相冲列（M2 终审 Minor-6）。
+     */
     private suspend fun markStatus(id: String, status: Int) {
-        val dao = db.messageDao()
-        val row = dao.getById(id) ?: return
-        dao.update(row.copy(status = status.toDouble()))
+        db.messageDao().updateStatus(id, status.toDouble())
     }
 
     /** RN `rec.u = JSON.stringify(this.currentUser)`：name 缺省时 JSON.stringify 丢弃 undefined 键。 */

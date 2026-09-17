@@ -285,6 +285,9 @@ class ChatRowActionsTest {
 
         composeRule.onNodeWithText(context.t("roomitem_swipemarkunread")).assertExists()
         composeRule.onNodeWithText(context.t("roomitem_swipefavorite")).assertExists()
+        // 总纲 §4.3-6：滑壳钮 testTag（Maestro 同口径 resource-id）可达
+        composeRule.onNodeWithTag("qa-swipe-mark-unread").assertExists()
+        composeRule.onNodeWithTag("qa-swipe-favorite").assertExists()
     }
 
     @Test

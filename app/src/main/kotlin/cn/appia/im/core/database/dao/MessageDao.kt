@@ -40,6 +40,14 @@ interface MessageDao {
     @Update
     suspend fun update(entity: MessageEntity)
 
+    /**
+     * 单列 status 更新（SendOrchestrator.markStatus，RN `message.update { status }` 等价）：
+     * 避免旧实现的 get-then-update 全行回写——与 DDP echo / history 的全行 upsert 并发时，
+     * 陈旧快照会把对方刚写的列冲回去（M2 终审 Minor-6 丢 SENT 窗口）。UPDATE 只触 status 列。
+     */
+    @Query("UPDATE messages SET status = :status WHERE _id = :id")
+    suspend fun updateStatus(id: String, status: Double)
+
     @Delete
     suspend fun delete(entity: MessageEntity)
 

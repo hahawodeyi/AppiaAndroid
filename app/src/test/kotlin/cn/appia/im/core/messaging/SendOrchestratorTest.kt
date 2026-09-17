@@ -289,6 +289,17 @@ class SendOrchestratorTest {
         assertTrue(backoffs.isEmpty())
     }
 
+    @Test
+    fun `http 5xx with success false body marks ERROR without retry`() = runBlocking {
+        // 总纲 §4.3-5：success:false 先于 status 判定（RN retryPolicy 顺序），sendOne 捕获链同通道
+        respond = { MockResponse().setResponseCode(500).setBody("""{"success":false,"error":"denied"}""") }
+        val id = orchestrator.enqueueTextMessage(rid(), "hello")
+        awaitStatus(id, ERROR.toDouble())
+
+        assertEquals(1, arrivals.size)
+        assertTrue(backoffs.isEmpty())
+    }
+
     // ---- 重试：退避 1s/2s/4s，MAX_ATTEMPTS=3 ----
 
     @Test

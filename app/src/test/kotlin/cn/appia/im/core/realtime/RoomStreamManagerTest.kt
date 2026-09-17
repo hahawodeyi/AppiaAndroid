@@ -31,6 +31,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -40,6 +41,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -341,6 +343,39 @@ class RoomStreamManagerTest {
         assertEquals(2, tails.get())
     }
 
+    // ---- teardown 与 sub/unsub 互斥（总纲 §4.3-4 陈旧条目复活竞态）----
+
+    /**
+     * teardown 落在 subscribeRoom「已订网、未落表」窗口内时必须等待 opMutex：
+     * 无互斥则 teardown 清的是空表，subscribe 随后落表复活旧会话条目，重连收尾即重订已拆会话的流。
+     * 服务器扣住 ready 不回 → subscribeRoom 悬在锁内；放行后 subscribe 落表、teardown 才清表。
+     */
+    @Test
+    fun `teardown waits for in-flight subscribe so the landed entry is cleared`() = runBlocking {
+        val holding = HoldingWsServer().also { wsListeners.add(it) }
+        sdk.connect() // 本测试的连接升级到 holding：sub 的 ready 被扣住
+
+        val subscribeJob = launch(Dispatchers.IO) { runCatching { manager.subscribeRoom("rid-x") } }
+        awaitCond("three sub frames sent and subscribe still held") {
+            holding.frames.count { parse(it)?.s("msg") == "sub" } >= 3 && !subscribeJob.isCompleted
+        }
+
+        val teardownDone = AtomicBoolean(false)
+        val teardownJob = launch(Dispatchers.IO) { manager.onSessionTornDown(); teardownDone.set(true) }
+        delay(300) // 给 teardown 跑出 bug 的机会：持锁窗口内它必须仍在等待
+        assertFalse("teardown must block while subscribe holds opMutex", teardownDone.get())
+
+        holding.releaseHeld() // 放行 ready → subscribe 落表完成并释放锁
+        awaitCond("teardown runs after lock released") { teardownDone.get() }
+        awaitCond("subscribe settled") { subscribeJob.isCompleted }
+
+        // 锁序保证：subscribe 落表先于 teardown 清表 → 活跃表空，重订不得复活
+        val subsBefore = holding.frames.count { parse(it)?.s("msg") == "sub" }
+        manager.resubscribeAllActiveRoomStreams()
+        delay(200)
+        assertEquals(subsBefore, holding.frames.count { parse(it)?.s("msg") == "sub" })
+    }
+
     // ---- 同房快速退/进：sub/unsub 串行化（M2-T11 评审 Minor-1）----
 
     @Test
@@ -374,9 +409,9 @@ class RoomStreamManagerTest {
 
 /**
  * 脚本化 DDP 服务端：connect→connected、ping→pong、sub→ready、unsub→nosub（T2 测试坑同口径：
- * connected 必须等服务端收到 connect 帧后再回）。
+ * connected 必须等服务端收到 connect 帧后再回）。子类覆写 [onFrame] 可扣帧（HoldingWsServer）。
  */
-private class RoomWsServer : WebSocketListener() {
+private open class RoomWsServer : WebSocketListener() {
     val frames = CopyOnWriteArrayList<String>()
     private val wsRef = AtomicReference<WebSocket?>(null)
 
@@ -388,6 +423,10 @@ private class RoomWsServer : WebSocketListener() {
         frames.add(text)
         val f = parse(text) ?: return
         val ws = wsRef.get() ?: return
+        onFrame(f, ws)
+    }
+
+    protected open fun onFrame(f: JsonObject, ws: WebSocket) {
         when (f.s("msg")) {
             "connect" -> ws.send("""{"msg":"connected","session":"s"}""")
             "ping" -> ws.send("""{"msg":"pong"}""")
@@ -398,5 +437,23 @@ private class RoomWsServer : WebSocketListener() {
 
     fun send(text: String) {
         wsRef.get()?.send(text)
+    }
+}
+
+/** 扣住 sub 的 ready 的服务端：钉 subscribeRoom 在 opMutex 锁内（teardown 互斥测试用）。 */
+private class HoldingWsServer : RoomWsServer() {
+    private val heldSubIds = CopyOnWriteArrayList<String>()
+
+    override fun onFrame(f: JsonObject, ws: WebSocket) {
+        if (f.s("msg") == "sub") {
+            heldSubIds.add(f.s("id")!!)
+            return // 扣住 ready：subscribe 停在锁内
+        }
+        super.onFrame(f, ws)
+    }
+
+    /** 放行全部扣住的 sub（逐 id 回 ready）。 */
+    fun releaseHeld() {
+        heldSubIds.forEach { id -> send("""{"msg":"ready","subs":["$id"]}""") }
     }
 }

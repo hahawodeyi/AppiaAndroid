@@ -235,7 +235,7 @@ class NotifyUserPersistenceTest {
         )
     }
 
-    // ---- removed 撤销待 flush 补丁（RN :66 pending.delete）----
+    // ---- removed 撤销待 flush 补丁（RN :66 pending.delete，handler 同步段）----
 
     @Test
     fun `removed discards queued patch so flush does not resurrect the row`() = runBlocking {
@@ -249,6 +249,30 @@ class NotifyUserPersistenceTest {
 
         slow.flushPendingToDatabase() // 若 pending 未被撤销，这里会把行写回
         assertNull(manager.active.chatDao().getById("rid-1"))
+    }
+
+    /**
+     * 撤销在 handler **同步段**（RN async fn 首个 await 前等价；总纲 §4.3-4）：
+     * scope 冻结使 launch 体永不执行——removed 若把撤销放进协程，入队补丁不会被清，flush 即写回。
+     */
+    @Test
+    fun `removed discards queued patch synchronously before any coroutine runs`() = runBlocking {
+        val frozenDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) = Unit
+        }
+        val frozen = NotifyUserPersistence(
+            dbManager = manager,
+            serverUrlProvider = { auth.load()?.serverUrl.orEmpty() },
+            scope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + frozenDispatcher),
+            flushMs = 60_000,
+            unsubscribeRoom = { rid -> unsubscribed.add(rid) },
+        )
+
+        frozen.handleStreamNotifyUser(parse(subUpdatedFrame("rid-1", unread = 2))) // 入队
+        frozen.handleStreamNotifyUser(parse(removedFrame("rid-1"))) // 同步段撤销（launch 体未跑）
+
+        frozen.flushPendingToDatabase() // pending 已空 → 不得写回
+        expectStillAbsent(manager.active.chatDao(), "rid-1", timeoutMs = 300)
     }
 
     // ---- clearQueue（teardown 挂点）----

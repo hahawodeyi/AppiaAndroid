@@ -152,8 +152,8 @@ internal data class MentionUser(val _id: String?, val username: String?, val nam
 internal sealed class BodySpan {
     data class Plain(val text: String) : BodySpan()
 
-    /** user=null 表示 mentions 数组未命中（RN 渲染 `@mention` 普通正文）。 */
-    data class Mention(val mention: String, val user: MentionUser?) : BodySpan()
+    /** MENTION 节点（是否命中/如何显示由 [resolveMentionDisplay] 统一判定）。 */
+    data class Mention(val mention: String) : BodySpan()
 }
 
 /** RN parseMentions：mentions JSON 数组 → 用户列表；空/坏 JSON → []。 */
@@ -171,21 +171,19 @@ internal fun parseMentions(raw: String?): List<MentionUser> {
 internal fun parseBodySpans(msg: String?, md: String?, mentions: List<MentionUser>): List<BodySpan> {
     if (md.isNullOrBlank()) return listOf(BodySpan.Plain(msg ?: ""))
     val out = mutableListOf<BodySpan>()
-    runCatching { walkMd(Json.parseToJsonElement(md), mentions, out) }
+    runCatching { walkMd(Json.parseToJsonElement(md), out) }
     return out.ifEmpty { listOf(BodySpan.Plain(msg ?: "")) }
 }
 
-private fun walkMd(el: JsonElement, mentions: List<MentionUser>, out: MutableList<BodySpan>) {
+private fun walkMd(el: JsonElement, out: MutableList<BodySpan>) {
     when (el) {
-        is JsonArray -> el.forEach { walkMd(it, mentions, out) }
+        is JsonArray -> el.forEach { walkMd(it, out) }
         is JsonObject -> when (el.str("type")) {
-            "MENTION_USER", "MENTION_CHANNEL" -> {
-                val mention = el["value"]?.textContent().orEmpty()
-                out += BodySpan.Mention(mention, mentions.find { it.username == mention })
-            }
+            "MENTION_USER", "MENTION_CHANNEL" ->
+                out += BodySpan.Mention(el["value"]?.textContent().orEmpty())
             "PLAIN_TEXT" -> out += BodySpan.Plain(el["value"]?.textContent() ?: "")
             // 结构节点（PARAGRAPH 等）按序展开内联 children
-            else -> el["value"]?.let { walkMd(it, mentions, out) }
+            else -> el["value"]?.let { walkMd(it, out) }
         }
         else -> Unit
     }
@@ -197,33 +195,74 @@ private fun JsonElement.textContent(): String = when (this) {
     is JsonArray -> joinToString("") { it.textContent() }
 }
 
+// ── MENTION 显示名解析（总纲 §4.3-1：共享纯函数，M3-T5 行内管线复用同一 helper）──
+
+/** 提及渲染色别（RN AtMention 数据源分支）。 */
+internal enum class MentionKind {
+    /** @all/@here → mentionGroupColor。 */
+    GROUP,
+
+    /** mentions 数组命中自己 → mentionMeColor。 */
+    ME,
+
+    /** mentions 数组命中他人 → mentionOtherColor。 */
+    OTHER,
+
+    /** mentions 数组未命中 → `@mention` 普通正文（无高亮）。 */
+    UNRESOLVED,
+}
+
+/** 提及渲染判定产物：[label] 为显示文本（命中的显示名不带 @）。 */
+internal data class MentionDisplay(val kind: MentionKind, val label: String)
+
 /**
- * 正文 AnnotatedString。RN AtMention 数据源语义：@all/@here → mentionGroupColor；
- * mentions 数组命中自己（mention===username）→ mentionMeColor、他人 → mentionOtherColor
- * （label 显示 name||username，不带 @）；未命中 → `@mention` 普通正文。
+ * RN AtMention 数据源语义：@all/@here → 群色、label 原样；mentions 数组按 username 命中 →
+ * 显示 `name || username || mention`（无 @），mention === 自己 username → mentionMeColor，
+ * 否则 mentionOtherColor；未命中 → `@mention` 普通正文（空 mention 渲染为空）。
+ * 纯函数、无 Compose 依赖：MessageRow 正文与 M3-T5 新行内管线共用，勿另写一份。
+ */
+internal fun resolveMentionDisplay(
+    mentions: List<MentionUser>,
+    mention: String,
+    currentUsername: String?,
+): MentionDisplay = when {
+    mention == "all" || mention == "here" -> MentionDisplay(MentionKind.GROUP, mention)
+    else -> mentions.find { it.username == mention }?.let { u ->
+        val label = u.name?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: u.username?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: mention
+        MentionDisplay(
+            kind = if (mention == currentUsername) MentionKind.ME else MentionKind.OTHER,
+            label = label,
+        )
+    } ?: MentionDisplay(MentionKind.UNRESOLVED, if (mention.isEmpty()) "" else "@$mention")
+}
+
+/**
+ * 正文 AnnotatedString：色别与显示名全部经 [resolveMentionDisplay]（RN AtMention 同款）。
  */
 @Composable
 internal fun buildMessageBody(message: MessageEntity, currentUsername: String?): AnnotatedString {
     val colors = LocalAppiaColors.current
-    val spans = parseBodySpans(message.msg, message.md, parseMentions(message.mentions))
+    val mentions = parseMentions(message.mentions)
+    val spans = parseBodySpans(message.msg, message.md, mentions)
     return buildAnnotatedString {
         for (span in spans) {
             when (span) {
                 is BodySpan.Plain -> append(span.text)
-                is BodySpan.Mention -> when {
-                    span.mention == "all" || span.mention == "here" ->
-                        withStyle(SpanStyle(color = colors.mentionGroupColor, fontWeight = FontWeight.Medium)) {
-                            append(span.mention)
-                        }
-                    span.user != null -> {
-                        val label = span.user.name?.trim().takeUnless { it.isNullOrEmpty() }
-                            ?: span.user.username?.trim().takeUnless { it.isNullOrEmpty() }
-                            ?: span.mention
-                        val color =
-                            if (span.mention == currentUsername) colors.mentionMeColor else colors.mentionOtherColor
-                        withStyle(SpanStyle(color = color, fontWeight = FontWeight.Medium)) { append(label) }
+                is BodySpan.Mention -> {
+                    val d = resolveMentionDisplay(mentions, span.mention, currentUsername)
+                    val color = when (d.kind) {
+                        MentionKind.GROUP -> colors.mentionGroupColor
+                        MentionKind.ME -> colors.mentionMeColor
+                        MentionKind.OTHER -> colors.mentionOtherColor
+                        MentionKind.UNRESOLVED -> null
                     }
-                    span.mention.isNotEmpty() -> append("@${span.mention}")
+                    if (color != null) {
+                        withStyle(SpanStyle(color = color, fontWeight = FontWeight.Medium)) { append(d.label) }
+                    } else {
+                        append(d.label)
+                    }
                 }
             }
         }

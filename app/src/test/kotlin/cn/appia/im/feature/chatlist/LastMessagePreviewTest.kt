@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test
  */
 class LastMessagePreviewTest {
 
-    private fun resolve(lastMessage: String?, currentUserId: String? = "me") =
-        resolveLastMessagePreview(chatRow("r1", last_message = lastMessage), currentUserId)
+    private fun resolve(lastMessage: String?, currentUserId: String? = "me", previewTableLabel: String? = null) =
+        resolveLastMessagePreview(chatRow("r1", last_message = lastMessage), currentUserId, previewTableLabel)
 
     private fun text(result: PreviewResult): String = (result as PreviewResult.Text).text
 
@@ -205,6 +205,32 @@ class LastMessagePreviewTest {
         val lm = """{"u":{"username":"bob"},"md":[
             {"type":"PARAGRAPH","subType":"TABLE","value":[{"type":"PLAIN_TEXT","value":"cell"}]}]}"""
         assertEquals("bob：cell", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `table label replaces table inlines with prefix like RN`() {
+        // 总纲 §4.3-2：previewTableLabel 进参数（RN inlinesFromBlock :24-31 label 直出）
+        val lm = """{"u":{"username":"bob"},"md":[
+            {"type":"PARAGRAPH","subType":"TABLE","value":[{"type":"PLAIN_TEXT","value":"cell"}]}]}"""
+        val raw = lm.replace("\n", "")
+        assertEquals("bob：[table]", text(resolve(raw, previewTableLabel = "[table]")))
+    }
+
+    @Test
+    fun `table label only applies to table subtype`() {
+        // 非 TABLE 段落不吃 label；label 也不阻断后续块判定
+        val lm = """{"u":{"username":"bob"},"md":[
+            {"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"para"}]},
+            {"type":"PARAGRAPH","subType":"TABLE","value":[{"type":"PLAIN_TEXT","value":"cell"}]}]}"""
+        assertEquals("bob：para", text(resolve(lm.replace("\n", ""), previewTableLabel = "[table]")))
+    }
+
+    @Test
+    fun `blank table label skips the table block like RN truthy-but-blank`() {
+        // RN：truthy 但空白 → hasVisiblePreviewInlines false → 整块跳过（不落穿、不回退同块）→ 回退纯文本
+        val lm = """{"msg":"plain","u":{"username":"bob"},"md":[
+            {"type":"PARAGRAPH","subType":"TABLE","value":[{"type":"PLAIN_TEXT","value":"cell"}]}]}"""
+        assertEquals("bob：plain", text(resolve(lm.replace("\n", ""), previewTableLabel = "  ")))
     }
 
     @Test

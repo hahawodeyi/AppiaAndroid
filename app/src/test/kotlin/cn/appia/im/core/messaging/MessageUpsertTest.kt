@@ -412,6 +412,22 @@ class MessageUpsertTest {
         assertEquals(listOf("q2", "q3"), rows.map { it._id }) // ts 倒序 + LIMIT
     }
 
+    /** 总纲 §4.3-7：updateStatus 单列 UPDATE——其余列不被回写（markStatus 与全行 upsert 不再互相冲列）。 */
+    @Test
+    fun `updateStatus writes only the status column and no-ops on missing id`() = runBlocking {
+        val db = manager.active
+        MessageUpsert.persist(db, listOf(obj("""{"_id":"s1","rid":"room-1","ts":5000.0,"msg":"echo","u":{"_id":"u9"}}""")), "room-1", now)
+        val before = db.messageDao().getById("s1")!!
+
+        db.messageDao().updateStatus("s1", 2.0) // SENT
+
+        val after = db.messageDao().getById("s1")!!
+        assertEquals(2.0, after.status!!, 0.0)
+        assertEquals(before.copy(status = 2.0), after) // 其余列逐字段不变
+
+        db.messageDao().updateStatus("no-such-id", 2.0) // 行不存在：无异常、无副作用
+    }
+
     /** parse 期望值的独立对照（ChatMerger ISO 解析的复用口径）。 */
     private object ChatMergerProbe {
         fun parse(iso: String): Double = cn.appia.im.domain.chat.ChatMerger.parseIsoMillis(iso)!!

@@ -78,11 +78,13 @@ class RoomHistoryRepository(
         const val RETRY_MAX_ATTEMPTS = 2
 
         /**
-         * RN retryPolicy.isRetryableError：HTTP ≥500 重试、4xx 业务错不重试、网络/超时
-         * （IOException 族）重试；401 会话失效（AuthSessionExpiredException）不重试——
+         * RN retryPolicy.isRetryableError 同序：**显式 `success:false` 先于 status 判定短路**
+         * （业务拒绝不重试，即便外层是 5xx——总纲 §4.3-5）；HTTP ≥500 重试、4xx 业务错不重试、
+         * 网络/超时（IOException 族）重试；401 会话失效（AuthSessionExpiredException）不重试——
          * 登出链自有处理，重试只会再次 401。
          */
         internal fun isRetryableError(e: Throwable): Boolean = when {
+            e is ApiException && e.success == false -> false
             e is ApiException -> (e.status ?: 0) >= 500
             e is IOException && e !is AuthSessionExpiredException -> true
             else -> false

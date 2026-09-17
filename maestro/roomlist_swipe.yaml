@@ -1,0 +1,19 @@
+# M3 前置收尾（总纲 §4.3-6）：会话列表滑动用例增量——滑壳右滑后「标未读/置顶」钮 testTag 可达断言。
+# 前置条件（已知边界，M2 报告同款披露）：需已登录会话的设备/模拟器——launchApp 不清态（launch_android.yaml
+# 同口径），会话恢复直进列表；无凭证环境止步企业码页，本用例不适用（跑前先过 login）。
+# 首个可见行须为已读态（RN resolveRoomListReadSwipeButtons：未读态右滑只有置顶钮，标未读钮按设计隐藏）。
+# 定位（Compose testTagsAsResourceId=true，testTag 原串即 resource-id）：
+#   滑壳 chat-row-swipe、钮 qa-swipe-mark-unread / qa-swipe-favorite（qa-swipe-mark-read 为左滑钮）。
+appId: cn.appia.im.debug
+---
+- launchApp
+- assertVisible:
+    id: "qa-room-list"
+- swipe:
+    from:
+      id: "chat-row-swipe"
+    direction: RIGHT
+- assertVisible:
+    id: "qa-swipe-mark-unread"
+- assertVisible:
+    id: "qa-swipe-favorite"

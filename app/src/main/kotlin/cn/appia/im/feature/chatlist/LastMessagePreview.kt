@@ -186,16 +186,24 @@ private fun inlineToText(node: JsonElement): String {
 }
 
 /**
- * RN lastMessagePreviewInlines.ts 关键分支的 M2 移植（不解析 msg，仅读存量 md AST）。
+ * RN lastMessagePreviewInlines.ts 关键分支的移植（不解析 msg，仅读存量 md AST）。
  * 支持块型：PARAGRAPH（含 subType=TABLE：RN 无 previewTableLabel 时落穿到 PARAGRAPH 分支，
- * 预览取表格 block.value 内联文本）、BIG_EMOJI、UNORDERED_LIST（`• ` 首项）、
- * ORDERED_LIST（`N) ` 首项）；其余块型跳过；全部块不可见/无 md → null，调用方回退纯文本。
+ * 预览取表格 block.value 内联文本；有 label 时整个预览取 label——RN inlinesFromBlock :24-31）、
+ * BIG_EMOJI、UNORDERED_LIST（`• ` 首项）、ORDERED_LIST（`N) ` 首项）；其余块型跳过；
+ * 全部块不可见/无 md → null，调用方回退纯文本。
  */
-private fun previewInlineText(md: JsonElement?): String? {
+private fun previewInlineText(md: JsonElement?, previewTableLabel: String?): String? {
     val root = parseStoredMd(md) as? JsonArray ?: return null
     for (block in root) {
         val o = block as? JsonObject ?: continue
-        val text = when (o["type"]?.let { (it as? JsonPrimitive)?.contentOrNull }) {
+        val type = o["type"]?.let { (it as? JsonPrimitive)?.contentOrNull }
+        val subType = o["subType"]?.let { (it as? JsonPrimitive)?.contentOrNull }
+        // RN：TABLE + truthy label → label 直出；truthy 但空白 → hasVisiblePreviewInlines false，跳块
+        if (type == "PARAGRAPH" && subType == "TABLE" && !previewTableLabel.isNullOrEmpty()) {
+            if (previewTableLabel.isNotBlank()) return previewTableLabel
+            continue
+        }
+        val text = when (type) {
             "PARAGRAPH", "BIG_EMOJI" -> inlineListToText(o["value"])
             "UNORDERED_LIST" -> (o["value"] as? JsonArray)?.firstOrNull()?.let {
                 "• " + inlineListToText((it as? JsonObject)?.get("value"))
@@ -221,8 +229,14 @@ private fun previewInlineText(md: JsonElement?): String? {
  *
  * @param currentUserId RN 语义为 `user.username`（RoomListScreenInner.tsx:55，前缀按 username 判自己）；
  *   与分段/助手的 `user.id` 判定（ChatListViewModel）不是同一个值，UI 接线时注意分开取。
+ * @param previewTableLabel RN lastMessagePreviewInlines 同名参数（总纲 §4.3-2）：表格段落（subType=TABLE）
+ *   的预览替换文案；null/空 = 现行为（落穿取表格内联文本）。M3 表格预览接线时由 UI 传 i18n 文案。
  */
-fun resolveLastMessagePreview(chat: ChatEntity, currentUserId: String?): PreviewResult {
+fun resolveLastMessagePreview(
+    chat: ChatEntity,
+    currentUserId: String?,
+    previewTableLabel: String? = null,
+): PreviewResult {
     val draft = chat.draft_message_plain?.takeIf { it.isNotEmpty() } ?: chat.draft_message
     if (!draft.isNullOrEmpty()) return PreviewResult.Text(draft)
 
@@ -243,7 +257,7 @@ fun resolveLastMessagePreview(chat: ChatEntity, currentUserId: String?): Preview
     }
 
     val prefix = senderPrefixFor(lastMessage, currentUserId)
-    val mdText = previewInlineText(lastMessage.md)
+    val mdText = previewInlineText(lastMessage.md, previewTableLabel)
     if (mdText != null) return PreviewResult.Text(prefix + mdText)
 
     val body = lastMessage.msg?.replace("\n", " ") ?: ""

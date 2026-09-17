@@ -79,11 +79,14 @@ internal fun onRoomInputChanged(rid: String, next: TextFieldValue, controller: D
 /**
  * RN RoomMessageList renderItem 派生：与上一条（inverted index+1，即列表后一位的更旧消息）
  * 非同一天插日期分隔（含列表末条——无更旧消息必插）；分隔标签取当前消息 ts（RN 同）。
+ * load_chunk 行（RN renderItem :250-252 chunk 早退）只落 1px 行、**不推分隔**（总纲 §4.3-3）；
+ * 分隔的「更旧一条」仍取原始相邻位（RN derivedMessages[index+1] 不过滤 chunk）。
  */
 internal fun buildRoomListItems(messages: List<MessageEntity>): List<RoomListItem> {
     val out = mutableListOf<RoomListItem>()
     for ((i, m) in messages.withIndex()) {
         out += RoomListItem.Message(m)
+        if (m.t in LOAD_CHUNK_TYPES) continue
         val older = messages.getOrNull(i + 1)
         if (older == null || !isSameCalendarDay(older.ts.toLong(), m.ts.toLong())) {
             out += RoomListItem.DateSeparator(tsMs = m.ts.toLong(), anchorId = m._id)

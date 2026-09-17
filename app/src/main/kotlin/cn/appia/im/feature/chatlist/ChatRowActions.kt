@@ -171,6 +171,7 @@ fun SwipeableChatRow(
                     background = colors.tintColor,
                     contentReady = actionsReady,
                     onClick = { close(); onMarkUnread() },
+                    tag = "qa-swipe-mark-unread", // Maestro 滑动用例定位（总纲 §4.3-6）
                 )
             }
             SwipeActionButton(
@@ -178,6 +179,7 @@ fun SwipeableChatRow(
                 background = colors.favoriteBackground,
                 contentReady = actionsReady,
                 onClick = { close(); onToggleFavorite() },
+                tag = "qa-swipe-favorite",
             )
             Spacer(Modifier.weight(1f))
             if (showMarkRead) {
@@ -186,6 +188,7 @@ fun SwipeableChatRow(
                     background = colors.tintColor,
                     contentReady = actionsReady,
                     onClick = { close(); onMarkRead() },
+                    tag = "qa-swipe-mark-read",
                 )
             }
         }
@@ -237,6 +240,7 @@ private fun CoroutineScope.launchAnimateTo(
 /**
  * 单个滑出动作钮（RN renderLeftActions 的 RectButton）：底色壳常驻、可点性随 contentReady；
  * label（RN 图标+文案）首次拖拽后才组装（RN :55-56 性能细节，Compose 无 SVG 批挂问题，仅沿用语义）。
+ * [tag]：Maestro/Compose 定位（qa-swipe-*）——壳内钮可达性断言（总纲 §4.3-6）。
  */
 @Composable
 private fun SwipeActionButton(
@@ -244,13 +248,15 @@ private fun SwipeActionButton(
     background: Color,
     contentReady: Boolean,
     onClick: () -> Unit,
+    tag: String,
 ) {
     Box(
         Modifier
             .width(ACTION_WIDTH)
             .fillMaxHeight()
             .background(background)
-            .clickable(enabled = contentReady, onClick = onClick),
+            .clickable(enabled = contentReady, onClick = onClick)
+            .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
         if (contentReady) {

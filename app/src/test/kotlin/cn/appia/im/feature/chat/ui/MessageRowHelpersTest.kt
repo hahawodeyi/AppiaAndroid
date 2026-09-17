@@ -91,12 +91,49 @@ class MessageRowHelpersTest {
         assertEquals(
             listOf(
                 BodySpan.Plain("hi "),
-                BodySpan.Mention("bob", mentions[0]),
+                BodySpan.Mention("bob"),
                 BodySpan.Plain(" and "),
-                BodySpan.Mention("zed", null), // 未命中 → 普通文本
+                BodySpan.Mention("zed"), // 未命中 → 由 resolver 判 UNRESOLVED
             ),
             spans,
         )
+    }
+
+    // ── MENTION 显示名解析（resolveMentionDisplay，总纲 §4.3-1；T5 行内管线共用）──
+
+    @Test
+    fun `mention all and here keep group color with raw label`() {
+        assertEquals(MentionDisplay(MentionKind.GROUP, "all"), resolveMentionDisplay(mentions, "all", "me"))
+        assertEquals(MentionDisplay(MentionKind.GROUP, "here"), resolveMentionDisplay(mentions, "here", "me"))
+    }
+
+    @Test
+    fun `hit mention shows name without at and colors me`() {
+        assertEquals(
+            MentionDisplay(MentionKind.ME, "Bob"),
+            resolveMentionDisplay(mentions, "bob", "bob"), // mention === 自己 username
+        )
+        assertEquals(
+            MentionDisplay(MentionKind.OTHER, "Bob"),
+            resolveMentionDisplay(mentions, "bob", "me"),
+        )
+    }
+
+    @Test
+    fun `hit mention falls back to username when name blank`() {
+        assertEquals(
+            MentionDisplay(MentionKind.OTHER, "carol"),
+            resolveMentionDisplay(mentions, "carol", "me"),
+        )
+    }
+
+    @Test
+    fun `unresolved mention renders at-username plain text`() {
+        assertEquals(
+            MentionDisplay(MentionKind.UNRESOLVED, "@zed"),
+            resolveMentionDisplay(mentions, "zed", "me"),
+        )
+        assertEquals(MentionDisplay(MentionKind.UNRESOLVED, ""), resolveMentionDisplay(mentions, "", "me"))
     }
 
     @Test

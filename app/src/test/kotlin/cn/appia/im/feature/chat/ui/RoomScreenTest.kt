@@ -199,6 +199,36 @@ class RoomScreenTest {
         )
     }
 
+    /** 总纲 §4.3-3：load_chunk 行渲染 1px，不参与分隔推导（RN chunk 早退同款）。 */
+    @Test
+    fun `load chunk rows render bare and derive no separator`() {
+        val day = 86_400_000.0
+        val hour = 3_600_000.0
+        val rows = listOf(
+            messageRow("a", ts = 10 * day + hour),
+            messageRow("chunk", t = "load-more-before", ts = 10 * day + hour - 1_000), // chunk：无分隔
+            messageRow("c", ts = 8 * day + hour), // 末条：必插
+        )
+        assertEquals(
+            listOf("Message", "Message", "Message", "DateSeparator"),
+            buildRoomListItems(rows).map { it::class.simpleName },
+        )
+    }
+
+    @Test
+    fun `chunk as oldest still derives neighbor separator from raw position`() {
+        // 分隔的「更旧一条」取原始相邻位（RN derivedMessages[index+1] 不过滤 chunk）
+        val day = 86_400_000.0
+        val rows = listOf(
+            messageRow("a", ts = 10 * day),
+            messageRow("chunk", t = "load-more-after", ts = 8 * day), // chunk 自身无分隔（虽为末条）
+        )
+        assertEquals(
+            listOf("Message", "DateSeparator", "Message"),
+            buildRoomListItems(rows).map { it::class.simpleName },
+        )
+    }
+
     @Test
     fun `same-day pair renders only the oldest-message separator`() {
         val day = 86_400_000.0

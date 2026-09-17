@@ -88,6 +88,10 @@ class NotifyUserPersistence(
                 if (type == "removed" && data is JsonObject) {
                     val rid = data.str("rid")
                     if (!rid.isNullOrEmpty()) {
+                        // RN :66 pending.delete 在 handler 同步段（async fn 首个 await 前同步执行）；
+                        // Kotlin launch 整体延迟派发，撤销必须留在本同步段——否则同 rid 先入队补丁
+                        // 后 removed 时，删除协程里的撤销晚了，flush 窗口可复活该行（总纲 §4.3-4）
+                        pending.remove(rid)
                         scope.launch {
                             try {
                                 removeChatByRid(rid)
@@ -199,12 +203,12 @@ class NotifyUserPersistence(
     }
 
     /**
-     * RN removeChatByRid :65-87：先撤销该 rid 待 flush 补丁（:66）→ 守卫 → 物理删 chats 行 →
-     * 退订房间流（:85）。Room `deleteById` 行不存在时 no-op（RN find 失败 catch 同义）。
+     * RN removeChatByRid :65-87 的异步半程（撤销补丁已前移至 [handleStreamNotifyUser] 同步段，
+     * RN :66 首 await 前语义）→ 守卫 → 物理删 chats 行 → 退订房间流（:85）。
+     * Room `deleteById` 行不存在时 no-op（RN find 失败 catch 同义）。
      * T11: notifyRoomAccessLost —— RN :86；其提示文案需 payload 的 `t`，届时透传整包。
      */
     suspend fun removeChatByRid(rid: String) {
-        pending.remove(rid)
         val db = activeDbForAuth() ?: return // RN :72-74 activeDbMatchesAuth
         db.chatDao().deleteById(rid)
         runCatching { unsubscribeRoom(rid) } // RN :85 .catch(() => undefined)
