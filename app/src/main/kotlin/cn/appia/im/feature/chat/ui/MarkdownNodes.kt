@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +55,7 @@ import cn.appia.im.core.messaging.OrderedList
 import cn.appia.im.core.messaging.Paragraph
 import cn.appia.im.core.messaging.PlainText
 import cn.appia.im.core.messaging.Quote
+import cn.appia.im.core.messaging.ResolvedEmoji
 import cn.appia.im.core.messaging.TableCell
 import cn.appia.im.core.messaging.TableRow
 import cn.appia.im.core.messaging.UnorderedList
@@ -61,6 +63,7 @@ import cn.appia.im.core.messaging.isEmptyQuoteMarkerLink
 import cn.appia.im.core.messaging.LineBreak
 import cn.appia.im.core.messaging.plainInlineText
 import cn.appia.im.core.theme.LocalAppiaColors
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlin.math.max
 
@@ -69,8 +72,8 @@ import kotlin.math.max
  * 样式对照：inlineCode #f0f0f0、codeBlock #f5f5f5、quote 边框 3px #e0e0e0、link #1d74f5、
  * hr #C9CDD4（暗色不生效是 RN 已知缺口——跟随）。
  *
- * 行内渲染（[inlineText] 纯文本扁平化）为 T4 骨架；T5 换 AnnotatedString 行内管线
- * （LINK 可点/BOLD/ITALIC/MENTION 色/EMOJI 表），届时替换各节点调用点。
+ * 行内渲染自 T5 起走 [InlineNodes] AnnotatedString 管线（Inline.tsx:41-89 对照）；
+ * Code 行仍按 RN Code.tsx `line.value.value` 直出纯文本（plainInlineText）。
  */
 
 /** RN markdown/styles.ts 硬编码色。 */
@@ -95,6 +98,7 @@ private const val MONOSPACE_LINE_HEIGHT = 18
 internal fun MarkdownParagraph(
     value: List<MdInline>,
     modifier: Modifier = Modifier,
+    env: InlineEnv = InlineEnv(),
     onKatexClick: ((String) -> Unit)? = null,
 ) {
     var forceTrim = false
@@ -105,68 +109,52 @@ internal fun MarkdownParagraph(
         if (value.size == 2 && second is PlainText && second.value.trim().isEmpty()) return
         forceTrim = true
     }
-    // RN Inline.tsx:36-44 forceTrim：剔除首位 permalink 标记，次位 PLAIN_TEXT 去 trimStart
-    val rendered: List<String> = value.mapIndexed { index, inline ->
-        when {
-            forceTrim && index == 0 -> ""
-            forceTrim && index == 1 && inline is PlainText -> inline.value.trimStart()
-            else -> inlineText(inline)
-        }
-    }
-    val colors = LocalAppiaColors.current
     if (value.any { it is InlineKaTeX }) {
+        // RN Paragraph layout='row'：含公式不能用外层 Text 包裹，逐节点 flex 行布局
         FlowRow(modifier, verticalArrangement = Arrangement.Center) {
             value.forEachIndexed { index, inline ->
                 when {
                     forceTrim && index == 0 -> Unit
                     forceTrim && index == 1 && inline is PlainText -> {
                         val trimmed = inline.value.trimStart()
-                        if (trimmed.isNotEmpty()) {
-                            Text(trimmed, fontSize = 16.sp, lineHeight = 22.sp, color = colors.bodyText)
-                        }
+                        if (trimmed.isNotEmpty()) InlineNodes(listOf(PlainText(trimmed)), env)
                     }
 
                     inline is InlineKaTeX -> KatexDegradeText(inline.value, inline = true, onKatexClick)
-                    else -> Text(inlineText(inline), fontSize = 16.sp, lineHeight = 22.sp, color = colors.bodyText)
+                    else -> InlineNodes(listOf(inline), env)
                 }
             }
         }
     } else {
-        Text(
-            rendered.joinToString(""),
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
-            color = colors.bodyText,
-            modifier = modifier,
-        )
+        // Inline.tsx:31-39 forceTrim：剔除首位 permalink 标记，次位 PLAIN_TEXT 去 trimStart
+        InlineNodes(value, env, modifier = modifier, forceTrim = forceTrim)
     }
 }
 
 // ── Heading（Heading.tsx：level 1-4 样式压制，越界回落 heading1）──
 
 @Composable
-internal fun MarkdownHeading(block: Heading, modifier: Modifier = Modifier) {
-    val colors = LocalAppiaColors.current
+internal fun MarkdownHeading(block: Heading, modifier: Modifier = Modifier, env: InlineEnv = InlineEnv()) {
     val (size, lineHeight, vertical) = when (block.level) {
         2 -> Triple(18, 24, 4)
         3 -> Triple(16, 22, 2)
         4 -> Triple(14, 20, 2)
         else -> Triple(22, 28, 4) // RN headingStyles[level-1] ?? heading1：1 与越界均落 heading1
     }
-    Text(
-        block.value.joinToString("") { inlineText(it) },
+    InlineNodes(
+        block.value,
+        env,
+        modifier = modifier.padding(vertical = vertical.dp),
         fontSize = size.sp,
         lineHeight = lineHeight.sp,
         fontWeight = FontWeight.Bold,
-        color = colors.bodyText,
-        modifier = modifier.padding(vertical = vertical.dp),
     )
 }
 
 // ── Quote（Quote.tsx：styles.quote 仅 borderLeftWidth 3 #e0e0e0 左侧竖条，段落逐个走 Paragraph）──
 
 @Composable
-internal fun MarkdownQuote(block: Quote, modifier: Modifier = Modifier, onKatexClick: ((String) -> Unit)? = null) {
+internal fun MarkdownQuote(block: Quote, modifier: Modifier = Modifier, env: InlineEnv = InlineEnv(), onKatexClick: ((String) -> Unit)? = null) {
     Column(
         modifier
             .padding(vertical = 2.dp)
@@ -178,7 +166,7 @@ internal fun MarkdownQuote(block: Quote, modifier: Modifier = Modifier, onKatexC
             .padding(start = 8.dp),
     ) {
         block.value.filterIsInstance<Paragraph>().forEach { paragraph ->
-            MarkdownParagraph(paragraph.value, onKatexClick = onKatexClick)
+            MarkdownParagraph(paragraph.value, env = env, onKatexClick = onKatexClick)
         }
     }
 }
@@ -197,7 +185,7 @@ internal fun MarkdownCode(block: Code, aiCodeBlock: Boolean, modifier: Modifier 
             copied = false
         }
     }
-    val codeText = block.value.filterIsInstance<CodeLine>().joinToString("\n") { line -> inlineText(line.value) }
+    val codeText = block.value.filterIsInstance<CodeLine>().joinToString("\n") { line -> plainInlineText(line.value) }
 
     Column(
         modifier
@@ -239,7 +227,8 @@ internal fun MarkdownCode(block: Code, aiCodeBlock: Boolean, modifier: Modifier 
             block.value.forEach { line ->
                 if (line is CodeLine) {
                     Text(
-                        inlineText(line.value),
+                        // RN Code.tsx：`line.value.value` 直出纯文本（不走行内管线）
+                        plainInlineText(line.value),
                         fontFamily = FontFamily.Monospace,
                         fontSize = MONOSPACE_SIZE.sp,
                         lineHeight = MONOSPACE_LINE_HEIGHT.sp,
@@ -285,6 +274,7 @@ internal fun MarkdownUnorderedList(
     value: List<MdNode>,
     level: Int,
     modifier: Modifier = Modifier,
+    env: InlineEnv = InlineEnv(),
     onKatexClick: ((String) -> Unit)? = null,
 ) {
     Column(modifier.padding(start = (level * 16).dp)) {
@@ -292,9 +282,9 @@ internal fun MarkdownUnorderedList(
             val li = item as? ListItem ?: return@forEachIndexed
             when (val first = li.value.firstOrNull()) {
                 // RN nestedRow：嵌套列表整体再缩进 16
-                is UnorderedList -> MarkdownUnorderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), onKatexClick)
-                is OrderedList -> MarkdownOrderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), onKatexClick)
-                else -> ListItemRow("• ", li, onKatexClick)
+                is UnorderedList -> MarkdownUnorderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), env, onKatexClick)
+                is OrderedList -> MarkdownOrderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), env, onKatexClick)
+                else -> ListItemRow("• ", li, env)
             }
         }
     }
@@ -305,46 +295,55 @@ internal fun MarkdownOrderedList(
     value: List<MdNode>,
     level: Int,
     modifier: Modifier = Modifier,
+    env: InlineEnv = InlineEnv(),
     onKatexClick: ((String) -> Unit)? = null,
 ) {
     Column(modifier.padding(start = (level * 16).dp)) {
         value.forEachIndexed { index, item ->
             val li = item as? ListItem ?: return@forEachIndexed
             when (val first = li.value.firstOrNull()) {
-                is UnorderedList -> MarkdownUnorderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), onKatexClick)
-                is OrderedList -> MarkdownOrderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), onKatexClick)
-                else -> ListItemRow(orderedMarker(level, li.number ?: index + 1), li, onKatexClick)
+                is UnorderedList -> MarkdownUnorderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), env, onKatexClick)
+                is OrderedList -> MarkdownOrderedList(first.value, first.level ?: 0, Modifier.padding(start = 16.dp), env, onKatexClick)
+                else -> ListItemRow(orderedMarker(level, li.number ?: index + 1), li, env)
             }
         }
     }
 }
 
 @Composable
-private fun ListItemRow(marker: String, item: ListItem, onKatexClick: ((String) -> Unit)?) {
-    val colors = LocalAppiaColors.current
+private fun ListItemRow(marker: String, item: ListItem, env: InlineEnv) {
     Row(Modifier.padding(vertical = 1.dp)) {
-        Text(marker, fontSize = 14.sp, lineHeight = 20.sp, color = colors.bodyText)
-        Text(
-            item.value.joinToString("") { inlineText(it) },
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
-            color = colors.bodyText,
+        Text(marker, fontSize = 14.sp, lineHeight = 20.sp, color = LocalAppiaColors.current.bodyText)
+        InlineNodes(
+            item.value.filterIsInstance<MdInline>(),
+            env,
             modifier = Modifier.weight(1f, fill = false),
         )
     }
 }
 
-// ── BigEmoji（BigEmoji.tsx：不放大仅布局特判；shortCode 待 T5 接表情表，先按原样文本）──
+// ── BigEmoji（BigEmoji.tsx：unicode 直出 14/20；shortCode → custom 图片 20dp → 查表文本；不放大）──
 
 @Composable
-internal fun MarkdownBigEmoji(value: List<MdInline>, modifier: Modifier = Modifier) {
+internal fun MarkdownBigEmoji(value: List<MdInline>, modifier: Modifier = Modifier, env: InlineEnv = InlineEnv()) {
     val colors = LocalAppiaColors.current
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         value.forEach { inline ->
             val emoji = inline as? Emoji ?: return@forEach
-            // ponytail: shortCode 无 shortnameToUnicode 表时按 ':code:' 原样（RN miss 路径同款）；T5 接表后消除
-            val text = emoji.unicode ?: emoji.shortCode?.let { ":$it:" } ?: return@forEach
-            Text(text, fontSize = 14.sp, lineHeight = 20.sp, color = colors.bodyText)
+            val code = emojiShortCode(emoji)
+            val custom = code?.let { env.getCustomEmoji?.invoke(it) as? ResolvedEmoji.Custom }
+            if (custom != null && !env.baseUrl.isNullOrEmpty()) {
+                AsyncImage(
+                    model = customEmojiUrl(custom, env.baseUrl),
+                    contentDescription = custom.name,
+                    modifier = Modifier.size(20.dp).testTag("custom-emoji"),
+                )
+            } else {
+                // 查表 miss 原样 ':code:'（RN shortnameToUnicode 同款回退）
+                emojiUnicodeText(emoji)?.let {
+                    Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = colors.bodyText)
+                }
+            }
         }
     }
 }
