@@ -69,7 +69,8 @@ def main() -> None:
     if src is None or dst is None:
         sys.exit(__doc__)
     text = src.read_text(encoding="utf-8")
-    pairs = re.findall(r"'(:[^']+:)': '(.+?)',", text)
+    # 尾逗号可选：RN 表最后一项 ':zap:': '⚡' 无尾逗号（曾丢项，勿回退）
+    pairs = re.findall(r"'(:[^']+:)': '(.+?)',?", text)
     if not pairs:
         sys.exit(f"no pairs extracted from {src}")
     keys = [k for k, _ in pairs]

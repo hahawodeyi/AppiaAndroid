@@ -314,6 +314,8 @@ class InlineNodesTest {
     @Test
     fun `shortname table lookup matches rn entries`() {
         assertEquals("👍", shortnameToUnicode(":+1:"))
+        // 表尾项（RN 源最后一行无尾逗号，生成器曾漏采）
+        assertEquals("⚡", shortnameToUnicode(":zap:"))
         assertEquals(":definitely_missing:", shortnameToUnicode(":definitely_missing:"))
     }
 

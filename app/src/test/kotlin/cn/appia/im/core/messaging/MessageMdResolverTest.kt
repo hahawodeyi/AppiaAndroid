@@ -287,4 +287,15 @@ class MessageMdResolverTest {
         // 4 个不构成 BIG_EMOJI
         assertTrue(parseMsgToMd("😀😀😀😀").single() is Paragraph)
     }
+
+    @Test
+    fun flattenHelpersCapDepthOnAdversarialNesting() {
+        // 服务端 AST 深度不可信：展平递归超 MD_INLINE_MAX_DEPTH 截断，不炸栈
+        var node: MdInline = PlainText("core")
+        repeat(100) { node = Bold(value = listOf(node)) }
+        assertEquals("", plainInlineText(node, MD_INLINE_MAX_DEPTH + 1))
+        assertEquals("", getLinkLabelText(listOf(node), MD_INLINE_MAX_DEPTH + 1))
+        // 上限内正常展平
+        assertEquals("core", plainInlineText(Bold(value = listOf(PlainText("core")))))
+    }
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import cn.appia.im.core.messaging.Bold
+import cn.appia.im.core.messaging.MD_INLINE_MAX_DEPTH
 import cn.appia.im.core.messaging.Emoji
 import cn.appia.im.core.messaging.InlineCode
 import cn.appia.im.core.messaging.InlineKaTeX
@@ -62,7 +63,8 @@ import java.net.URLEncoder
  * - LINK 走 LinkAnnotation（#1d74f5 下划线可点）；label 仍按 RN linkUtils 展平为纯文本。
  * - INLINE_KATEX 在整段含公式时仍由 MarkdownParagraph 走 FlowRow 降级（可点击），
  *   行内串内部降级为等宽 span（不可点）。
- * - 递归深度上限 [MAX_INLINE_DEPTH]：服务端恶意/异常深嵌套超限后按纯文本展平，不炸栈。
+ * - 递归深度上限 [MD_INLINE_MAX_DEPTH]：服务端恶意/异常深嵌套超限后按纯文本展平，不炸栈
+ *   （展平用的 plainInlineText/getLinkLabelText 同样带深度截断）。
  *
  * mention 显示名解析复用 MessageRow.kt 的 [resolveMentionDisplay] 共享 helper（勿另写）；
  * 纯函数 [buildInlineAnnotated] 不依赖 Compose 状态，便于单测。
@@ -96,9 +98,6 @@ internal class InlineResult(
     val annotated: AnnotatedString,
     val customEmojis: Map<String, ResolvedEmoji.Custom>,
 )
-
-/** 超过该深度的子树按纯文本展平（AST 来自服务端 JSON，深度不可信）。 */
-private const val MAX_INLINE_DEPTH = 24
 
 /** RN CustomEmoji.tsx：`baseUrl/emoji-custom/{encodeURIComponent(name)}.{extension}`。 */
 internal fun customEmojiUrl(custom: ResolvedEmoji.Custom, baseUrl: String): String =
@@ -169,7 +168,7 @@ private fun AnnotatedString.Builder.appendNode(
     custom: MutableMap<String, ResolvedEmoji.Custom>,
     depth: Int,
 ) {
-    if (depth > MAX_INLINE_DEPTH) {
+    if (depth > MD_INLINE_MAX_DEPTH) {
         appendLeaf(plainInlineText(node), acc)
         return
     }

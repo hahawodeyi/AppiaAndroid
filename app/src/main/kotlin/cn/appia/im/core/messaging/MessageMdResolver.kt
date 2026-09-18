@@ -70,16 +70,22 @@ private fun normalizeBlockTypes(el: JsonElement): JsonElement = when (el) {
 
 // ── 纯文本提取（stale 判定用，resolveMessageMd.ts:15-47 精确移植）──
 
+/** 服务端 AST 深度不可信：纯文本/label 展平递归共用上限（超限截断，与渲染层同值）。 */
+internal const val MD_INLINE_MAX_DEPTH = 24
+
 /** 仅 PLAIN_TEXT / EMOJI{unicode} 与带数组 value 的容器参与拼接（RN 同款：LINK/MENTION 贡献空串）。 */
-internal fun plainInlineText(node: MdNode): String = when (node) {
-    is PlainText -> node.value
-    is Emoji -> node.unicode.orEmpty()
-    is Bold -> node.value.joinToString("") { plainInlineText(it) }
-    is Italic -> node.value.joinToString("") { plainInlineText(it) }
-    is Strike -> node.value.joinToString("") { plainInlineText(it) }
-    is ListItem -> node.value.joinToString("") { plainInlineText(it) }
-    is CodeLine -> plainInlineText(node.value)
-    else -> ""
+internal fun plainInlineText(node: MdNode, depth: Int = 0): String {
+    if (depth > MD_INLINE_MAX_DEPTH) return ""
+    return when (node) {
+        is PlainText -> node.value
+        is Emoji -> node.unicode.orEmpty()
+        is Bold -> node.value.joinToString("") { plainInlineText(it, depth + 1) }
+        is Italic -> node.value.joinToString("") { plainInlineText(it, depth + 1) }
+        is Strike -> node.value.joinToString("") { plainInlineText(it, depth + 1) }
+        is ListItem -> node.value.joinToString("") { plainInlineText(it, depth + 1) }
+        is CodeLine -> plainInlineText(node.value, depth + 1)
+        else -> ""
+    }
 }
 
 fun plainTextFromMd(md: Root): String = md.blocks.joinToString("\n") { block ->
@@ -286,16 +292,19 @@ private fun parseInlinesDepth(text: String, depth: Int): List<MdInline> {
 
 // ── filterVisuallyEmptyMarkdown（filterVisuallyEmptyMarkdown.ts 精确移植）──
 
-/** linkUtils.getLinkLabelText：label AST 纯文本拼接（空判定语义与 RN 一致）。 */
-fun getLinkLabelText(label: List<MdInline>): String = label.joinToString("") { item ->
-    when (item) {
-        is PlainText -> item.value
-        is Link -> getLinkLabelText(item.value.label)
-        is Bold -> getLinkLabelText(item.value)
-        is Italic -> getLinkLabelText(item.value)
-        is Strike -> getLinkLabelText(item.value)
-        is Emoji -> item.unicode.orEmpty()
-        else -> ""
+/** linkUtils.getLinkLabelText：label AST 纯文本拼接（空判定语义与 RN 一致）；深度上限防恶意深嵌套。 */
+fun getLinkLabelText(label: List<MdInline>, depth: Int = 0): String {
+    if (depth > MD_INLINE_MAX_DEPTH) return ""
+    return label.joinToString("") { item ->
+        when (item) {
+            is PlainText -> item.value
+            is Link -> getLinkLabelText(item.value.label, depth + 1)
+            is Bold -> getLinkLabelText(item.value, depth + 1)
+            is Italic -> getLinkLabelText(item.value, depth + 1)
+            is Strike -> getLinkLabelText(item.value, depth + 1)
+            is Emoji -> item.unicode.orEmpty()
+            else -> ""
+        }
     }
 }
 

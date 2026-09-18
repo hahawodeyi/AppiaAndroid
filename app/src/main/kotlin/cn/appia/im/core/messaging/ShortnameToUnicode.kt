@@ -3,7 +3,7 @@ package cn.appia.im.core.messaging
 /**
  * 标准 shortname → unicode 映射（EMOJI 节点 shortCode 形态渲染用）。
  * 由 scripts/gen_shortname_to_unicode.py 从 appiaMobile
- * `src/lib/shortnameToUnicode/emojis.ts` 生成（4626 项，按 key 排序），勿手改。
+ * `src/lib/shortnameToUnicode/emojis.ts` 生成（4627 项，按 key 排序），勿手改。
  *
  * 查询走 [shortnameToUnicode]：miss 原样返回输入（RN index.ts
  * replaceShortNameWithUnicode 同款，即渲染回退 ':code:'）。
@@ -4630,6 +4630,7 @@ internal object ShortnameToUnicode {
         ":yum:" to "😋",
         ":za:" to "🇿🇦",
         ":zany_face:" to "🤪",
+        ":zap:" to "⚡",
         ":zebra:" to "🦓",
         ":zero:" to "0️⃣",
         ":zipper_mouth:" to "🤐",
