@@ -67,6 +67,14 @@ interface MessageDao {
     @Query("UPDATE messages SET reactions = :reactions WHERE _id = :id")
     suspend fun updateReactions(id: String, reactions: String?)
 
+    /**
+     * original_content 单列更新（T11 撤回快照，RN captureRecalledOriginalContent :82-99 的
+     * prepareUpdate 等价）：撤回前把原文 8 字段快照写入，只触 original_content 列（不回写全行，
+     * 与并发 DDP 回推互不冲列，同 updateStatus 裁定）。
+     */
+    @Query("UPDATE messages SET original_content = :json WHERE _id = :id")
+    suspend fun updateOriginalContent(id: String, json: String?)
+
     @Delete
     suspend fun delete(entity: MessageEntity)
 
