@@ -145,6 +145,88 @@ class AttachmentShapeTest {
     }
 
     @Test
+    fun `cross origin keeps port in origin comparison`() {
+        // RN URL.origin 含 port：downloadUrl 必须保留非默认端口（请求打到正确 host:port）
+        val p = buildDocPreviewParamsFromFileLink(
+            title = "external.doc",
+            fileLink = "https://appia.example.com:8443/file-upload/u1/f1/a.doc",
+            fileUrl = null,
+            userId = "u1",
+            token = "tk",
+            server = "https://appia.example.com",
+        )
+        assertEquals(
+            "https://appia.example.com:8443/file-proxy/u1/f1/a.doc?rc_uid=u1&rc_token=tk",
+            p.downloadUrl,
+        )
+
+        // 同源同端口：downloadUrl 仍走 RN 无条件 file-proxy 重写
+        val same = buildDocPreviewParamsFromFileLink(
+            title = "internal.doc",
+            fileLink = "https://appia.example.com:8443/file-upload/u1/f1/b.doc",
+            fileUrl = null,
+            userId = "u1",
+            token = "tk",
+            server = "https://appia.example.com:8443",
+        )
+        assertEquals(
+            "https://appia.example.com:8443/file-proxy/u1/f1/b.doc?rc_uid=u1&rc_token=tk",
+            same.downloadUrl,
+        )
+    }
+
+    // ── 图片网格 ↔ 预览页同源（评审 Critical：混合附件不得错位）──
+
+    @Test
+    fun `image grid aligns cells with viewer list in mixed attachments`() {
+        val attachments = parseServerAttachments(
+            """[
+                {"title":"report.pdf","title_link":"/file-upload/u1/f1/report.pdf","type":"file"},
+                {"title":"img.png","title_link":"/file-upload/u1/f1/img.png","image_url":"/file-upload/u1/f1/img.png"}
+            ]""",
+        )
+        val images = attachments.filter { attachmentKind(it) == AttachmentKind.IMAGE }
+        val grid = buildImageViewerGrid(images, "u1", "tk", "https://server.com")
+
+        assertEquals(1, grid.cells.size)
+        // 网格格子渲染的是图片 URL（评审前会取到 PDF 的 title_link）
+        assertEquals(
+            "https://server.com/file-upload/u1/f1/img.png?rc_uid=u1&rc_token=tk",
+            grid.cells[0]?.url,
+        )
+        assertEquals(listOf(0), grid.cellToItem)
+        assertEquals(1, grid.items.size)
+        // 点击第 0 格 → 预览页起始项就是该图片
+        assertEquals(
+            "https://server.com/file-upload/u1/f1/img.png?rc_uid=u1&rc_token=tk",
+            grid.items[grid.cellToItem[0]].url,
+        )
+    }
+
+    @Test
+    fun `image grid skips author attachments without displacing indices`() {
+        val grid = buildImageViewerGrid(
+            parseServerAttachments(
+                """[
+                    {"author_name":"bot","image_url":"/a.png"},
+                    {"image_url":"/b.png"}
+                ]""",
+            ),
+            "u1",
+            "tk",
+            "https://server.com",
+        )
+        assertNull(grid.cells[0])
+        assertEquals(-1, grid.cellToItem[0])
+        assertEquals(1, grid.items.size)
+        assertEquals(0, grid.cellToItem[1]) // 跳过项不占 items 位 → b.png 是 items[0]
+        assertEquals(
+            "https://server.com/b.png?rc_uid=u1&rc_token=tk",
+            grid.items[grid.cellToItem[1]].url,
+        )
+    }
+
+    @Test
     fun `fileId falls back through downloadUrl then explicit fallback`() {
         val viaDownloadUrl = buildDocPreviewParamsFromFileLink(
             title = "a.doc",

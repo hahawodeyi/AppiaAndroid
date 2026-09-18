@@ -241,9 +241,10 @@ fun buildDocPreviewParamsFromFileLink(
     var appia = attachmentAppiaBaseUrl?.trim()?.takeUnless { it.isNullOrEmpty() }
     if (appia == null && resolvedLink.startsWith("http")) {
         appia = runCatching {
-            val linkOrigin = java.net.URI(resolvedLink).let { "${it.scheme}://${it.host}" }
-            val baseOrigin = java.net.URI(server).let { "${it.scheme}://${it.host}" }
-            if (linkOrigin.isNotEmpty() && linkOrigin != baseOrigin) linkOrigin else null
+            // RN URL.origin 含 port（同主机不同端口的自建/测试环境常见）→ 用 authority（host:port）
+            val linkOrigin = java.net.URI(resolvedLink).let { u -> u.scheme?.let { s -> "$s://${u.authority}" } }
+            val baseOrigin = java.net.URI(server).let { u -> u.scheme?.let { s -> "$s://${u.authority}" } }
+            if (!linkOrigin.isNullOrEmpty() && linkOrigin != baseOrigin) linkOrigin else null
         }.getOrNull()
     }
 
@@ -268,20 +269,20 @@ data class ViewerImage(
 )
 
 /**
- * RN attachmentToMediaItem 的图片面：author_name 附件跳过（公告作者行）；
+ * 单个附件 → 预览条目（RN attachmentToMediaItem 图片面）：author_name 附件跳过（公告作者行）；
  * url = formatAttachmentUrl(title_link || image_url)；缩略 = thumb_url（格式化）否则
- * image_preview → data URI（image_type || image/jpeg）。url 空 → 跳过。
+ * image_preview → data URI（image_type || image/jpeg）。url 空 → null。
  */
-fun buildViewerImages(
-    attachments: List<ParsedAttachment>,
+fun buildViewerImage(
+    a: ParsedAttachment,
     userId: String,
     token: String,
     server: String,
-): List<ViewerImage> = attachments.mapNotNull { a ->
-    if (a.authorName != null) return@mapNotNull null
-    val raw = a.titleLink?.takeUnless { it.isEmpty() } ?: a.imageUrl ?: return@mapNotNull null
+): ViewerImage? {
+    if (a.authorName != null) return null
+    val raw = a.titleLink?.takeUnless { it.isEmpty() } ?: a.imageUrl ?: return null
     val url = AttachmentUrlFormatter.format(raw, userId, token, server)
-    if (url.isEmpty()) return@mapNotNull null
+    if (url.isEmpty()) return null
     val thumbnailUrl = a.thumbUrl?.takeUnless { it.isEmpty() }
         ?.let { AttachmentUrlFormatter.format(it, userId, token, server) }
     val previewDataUri = if (thumbnailUrl == null && !a.imagePreview.isNullOrEmpty()) {
@@ -289,7 +290,49 @@ fun buildViewerImages(
     } else {
         null
     }
-    ViewerImage(url = url, thumbnailUrl = thumbnailUrl, previewDataUri = previewDataUri)
+    return ViewerImage(url = url, thumbnailUrl = thumbnailUrl, previewDataUri = previewDataUri)
+}
+
+/** 便捷形态：逐项 [buildViewerImage] 过滤 null。 */
+fun buildViewerImages(
+    attachments: List<ParsedAttachment>,
+    userId: String,
+    token: String,
+    server: String,
+): List<ViewerImage> = attachments.mapNotNull { buildViewerImage(it, userId, token, server) }
+
+/**
+ * 图片网格 ↔ 预览页对齐数据（评审修复：网格与预览列表必须同源，防混合附件错位）。
+ * [cells] 逐格条目（可空 = 该格无预览，仅占位底色）；[items] 预览页列表（去 null）；
+ * [cellToItem] 格 → items 下标（-1 = 无），点击导航 initialIndex 由此取。
+ */
+data class ImageViewerGrid(
+    val cells: List<ViewerImage?>,
+    val cellToItem: List<Int>,
+    val items: List<ViewerImage>,
+)
+
+/** 图片分区（已按 kind==IMAGE 过滤）逐格建条目；跳过项不占 items 位。 */
+fun buildImageViewerGrid(
+    images: List<ParsedAttachment>,
+    userId: String,
+    token: String,
+    server: String,
+): ImageViewerGrid {
+    val items = mutableListOf<ViewerImage>()
+    val cells = mutableListOf<ViewerImage?>()
+    val cellToItem = mutableListOf<Int>()
+    images.forEach { att ->
+        val img = buildViewerImage(att, userId, token, server)
+        cells += img
+        if (img == null) {
+            cellToItem += -1
+        } else {
+            cellToItem += items.size
+            items += img
+        }
+    }
+    return ImageViewerGrid(cells = cells, cellToItem = cellToItem, items = items)
 }
 
 /** 视频播放页参数（RN attachmentToMediaItem 视频面：url=video_url，缩略=thumb_url）。 */

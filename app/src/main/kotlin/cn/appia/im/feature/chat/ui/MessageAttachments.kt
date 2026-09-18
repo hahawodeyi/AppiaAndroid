@@ -95,13 +95,14 @@ fun MessageAttachmentsNode(
         .partition { attachmentKind(it.value) == AttachmentKind.IMAGE }
     val userId = currentUserId.orEmpty()
     val tk = token.orEmpty()
-    val viewerImages = remember(raw, userId, tk, serverUrl) {
-        buildViewerImages(attachments, userId, tk, serverUrl)
+    // 网格与预览页同源（评审 Critical 修复）：只对图片分区建条目，混合附件（文件+图）不再错位
+    val grid = remember(raw, userId, tk, serverUrl) {
+        buildImageViewerGrid(images.map { it.value }, userId, tk, serverUrl)
     }
 
     Column(modifier) {
         if (images.isNotEmpty()) {
-            MessageImageGrid(images, viewerImages, onNav)
+            MessageImageGrid(images.map { it.value }, grid, onNav)
         }
         others.forEach { (_, att) ->
             when (attachmentKind(att)) {
@@ -115,11 +116,11 @@ fun MessageAttachmentsNode(
     }
 }
 
-/** 图片网格（RN MessageImageRow：多图 90 方格 gap 6、单图 computeImageSize 适配）。 */
+/** 图片网格（RN MessageImageRow：多图 90 方格 gap 6、单图 computeImageSize 适配）；条目/导航同源自 [ImageViewerGrid]。 */
 @Composable
 private fun MessageImageGrid(
-    images: List<IndexedValue<ParsedAttachment>>,
-    viewerImages: List<ViewerImage>,
+    images: List<ParsedAttachment>,
+    grid: ImageViewerGrid,
     onNav: (AttachmentNav) -> Unit,
 ) {
     val isMulti = images.size >= 2
@@ -129,7 +130,8 @@ private fun MessageImageGrid(
             .padding(top = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        images.forEachIndexed { localIndex, (_, att) ->
+        grid.cells.forEachIndexed { localIndex, img ->
+            val att = images[localIndex]
             val cell = if (isMulti) {
                 Modifier.size(MultiImageSize)
             } else {
@@ -137,15 +139,15 @@ private fun MessageImageGrid(
                 Modifier.width(w.dp).height(h.dp)
             }
             AsyncImage(
-                model = viewerImages.getOrNull(localIndex)?.url,
+                model = img?.url,
                 contentDescription = att.description ?: att.title,
                 contentScale = ContentScale.Crop,
                 modifier = cell
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFFE5E5E5))
                     .clickable {
-                        if (viewerImages.isNotEmpty()) {
-                            onNav(AttachmentNav.Images(viewerImages, localIndex))
+                        grid.cellToItem[localIndex].takeIf { it >= 0 }?.let { itemIndex ->
+                            onNav(AttachmentNav.Images(grid.items, itemIndex))
                         }
                     },
             )
