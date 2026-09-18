@@ -117,9 +117,10 @@ class SendOrchestrator(
      * RN enqueueTextMessage :90-126：tempId → messages 表 create QUEUED 行
      * （rid/msg/ts=now/u=当前用户 JSON/mentions '[]'/alias ''/parseUrls '[]'，其余可空列落 null
      * ——Watermelon 对 isOptional 列 '' 归一 null 的等价）→ per-rid 队列 → dequeue。
+     * T12：编辑器产出 md（TipTap→AST JSON）随行携带（RN sendTextMessage 同参 md 可选）。
      * @return tempId（= 行 `_id` = wire `message._id` 幂等键）
      */
-    suspend fun enqueueTextMessage(rid: String, msg: String): String {
+    suspend fun enqueueTextMessage(rid: String, msg: String, md: JsonElement? = null): String {
         val tempId = randomMessageId()
         val now = nowMs()
         db.messageDao().insert(
@@ -134,9 +135,10 @@ class SendOrchestrator(
                 _updated_at = now.toDouble(),
                 status = QUEUED.toDouble(),
                 mentions = "[]",
+                md = md?.toString(),
             ),
         )
-        dispatch(SendJob(id = tempId, rid = rid, msg = msg))
+        dispatch(SendJob(id = tempId, rid = rid, msg = msg, md = md))
         return tempId
     }
 

@@ -10,9 +10,6 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import cn.appia.im.core.database.AppiaDatabase
@@ -21,6 +18,7 @@ import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.DraftRepository
+import cn.appia.im.feature.chat.editor.ChatInputBarController
 import cn.appia.im.feature.chat.RoomMessagesUiState
 import cn.appia.im.feature.chatlist.chatRow
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +57,8 @@ class RoomScreenTest {
     private val draftScheduler = TestCoroutineScheduler()
     private val draftScope = CoroutineScope(StandardTestDispatcher(draftScheduler))
     private val draftController = DraftController(DraftRepository(db), draftScope)
+    private val editorScope = CoroutineScope(StandardTestDispatcher(draftScheduler))
+    private val editor = ChatInputBarController(editorScope)
 
     @Before
     fun setUp() {
@@ -100,7 +100,9 @@ class RoomScreenTest {
                     serverUrl = "https://s1",
                     token = "tok",
                     draftController = draftController,
-                    onSend = { msg ->
+                    editorController = editor,
+                    onSend = { msg, _ ->
+                        println("DEBUG onSend called: $msg")
                         sentTexts += msg
                         val id = "local-${sentTexts.size}"
                         runBlocking { db.messageDao().insert(messageRow(id, msg = msg, status = 1.0, u = """{"_id":"me","username":"me"}""")) }
@@ -117,6 +119,12 @@ class RoomScreenTest {
 
     private fun chat() = runBlocking { db.chatDao().getById("r1") }
 
+    companion object {
+        private val TEST_DOC_JSON = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"hello"}]}]}""",
+        ) as kotlinx.serialization.json.JsonObject
+    }
+
     /** 虚拟时钟推进 + 泵调度器直到草稿列满足条件（Room suspend 恢复异步再入队列）。 */
     private fun awaitDraft(desc: String, cond: (cn.appia.im.core.database.entity.ChatEntity) -> Boolean) {
         val deadline = System.nanoTime() + 5_000_000_000
@@ -130,10 +138,13 @@ class RoomScreenTest {
     }
 
     @Test
-    fun `send chain - typed text becomes QUEUED row then SENT badge clears`() {
+    fun `send chain - editor content becomes QUEUED row then SENT badge clears`() {
         setContent()
-        rule.onNodeWithTag("qa-room-input").performTextInput("hello")
+        // T12：编辑器内容经 controller 管线（WebView JS 在 Robolectric 不执行，测试缝直注）
+        editor.simulateContent(TEST_DOC_JSON, "hello")
+        rule.waitForIdle()
         rule.onNodeWithTag("qa-room-send").performClick()
+        rule.waitUntil(5_000) { sentTexts.isNotEmpty() } // 发送在 recomposer 协程域，异步落
         rule.waitForIdle()
 
         assertEquals(listOf("hello"), sentTexts)
@@ -153,23 +164,19 @@ class RoomScreenTest {
     }
 
     @Test
-    fun `draft debounce - composition never saves, commit saves after 1s virtual`() {
+    fun `draft debounce - editor content settles saves after 1s virtual`() {
         setContent()
 
-        // IME 组合态：composition 非空 → 不调度草稿
-        val composing = TextFieldValue("pin", selection = TextRange(3), composition = TextRange(0, 3))
-        onRoomInputChanged("r1", composing, draftController)
-        draftScheduler.advanceTimeBy(5_000)
+        // 编辑器内容落定（content-update → getJSON 管线等价）→ 草稿 debounce 1s
+        editor.simulateContent(TEST_DOC_JSON, "pin")
+        draftScheduler.advanceTimeBy(500)
         draftScheduler.runCurrent()
         assertNull(chat()?.draft_message_plain)
 
-        // commit（composition 清空）→ debounce 1s
-        onRoomInputChanged("r1", TextFieldValue("pin", selection = TextRange(3)), draftController)
         draftScheduler.advanceTimeBy(500)
-        draftScheduler.runCurrent()
-        assertNull(chat()?.draft_message_plain)
-        draftScheduler.advanceTimeBy(500)
-        awaitDraft("commit debounced write") { it.draft_message_plain == "pin" }
+        awaitDraft("debounced write") { it.draft_message_plain == "pin" }
+        // T12：draft_message 存 TipTap JSON（plain 列存纯文本）
+        assertEquals(TEST_DOC_JSON.toString(), chat()?.draft_message)
     }
 
     @Test

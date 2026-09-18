@@ -39,6 +39,9 @@ class RoomActionsUiTest {
     private val recalled = mutableListOf<String>()
     private val batchRecalled = mutableListOf<List<String>>()
     private var readOnly = false
+    private val editor = cn.appia.im.feature.chat.editor.ChatInputBarController(
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
+    )
 
     private fun ownMsg(
         _id: String,
@@ -69,7 +72,8 @@ class RoomActionsUiTest {
                     serverUrl = "https://s1",
                     token = "tok",
                     draftController = null,
-                    onSend = { msg -> sentTexts += msg },
+                    editorController = editor,
+                    onSend = { msg, _ -> sentTexts += msg },
                     onResend = {},
                     onBack = {},
                     onLoadEarlier = {},
@@ -104,8 +108,12 @@ class RoomActionsUiTest {
         rule.onNodeWithTag("qa-action-reply").performClick()
         rule.waitForIdle()
         rule.onNodeWithTag("qa-reply-preview").assertExists()
-        rule.onNodeWithTag("qa-room-input").performTextInput("reply!")
+        editor.simulateContent(null, "reply!")
+        rule.waitForIdle()
+        println("DEBUG plain=|" + editor.plainText + "|")
         rule.onNodeWithTag("qa-room-send").performClick()
+        rule.waitForIdle()
+        rule.waitUntil(5_000) { sentTexts.isNotEmpty() } // 发送在 recomposer 协程域，异步落
         rule.waitForIdle()
         assertEquals(listOf("[ ](https://s1/group/r1?msg=m1) reply!"), sentTexts)
         rule.onNodeWithTag("qa-reply-preview").assertDoesNotExist()
@@ -133,7 +141,7 @@ class RoomActionsUiTest {
         rule.waitForIdle()
 
         rule.onNodeWithTag("qa-multiselect-count").assertTextEquals("1 selected")
-        rule.onNodeWithTag("qa-room-input").assertDoesNotExist() // 多选态替换输入框（RN RoomFooter）
+        rule.onNodeWithTag("qa-room-editor").assertDoesNotExist() // 多选态替换输入框（RN RoomFooter）
         rule.onNodeWithTag("qa-message-selected").assertExists() // 已选行勾选列
 
         rule.onAllNodesWithTag("qa-room-message-body")[1].performClick() // 点未选行加入
@@ -148,7 +156,7 @@ class RoomActionsUiTest {
         rule.waitForIdle()
         assertEquals(1, batchRecalled.size)
         assertEquals(setOf("m1", "m2"), batchRecalled[0].toSet())
-        rule.onNodeWithTag("qa-room-input").assertExists() // 已退出多选
+        rule.onNodeWithTag("qa-room-editor").assertExists() // 已退出多选
     }
 
     @Test
@@ -160,8 +168,11 @@ class RoomActionsUiTest {
         )
         rule.onNodeWithTag("qa-system-message-reedit").performClick()
         rule.waitForIdle()
-        rule.onNodeWithTag("qa-room-input").assertTextEquals("restore me") // 回填输入框
+        // 回填编辑器（buildEditContent 无 md → HTML；plainText 本地快照立即生效）
+        rule.onNodeWithTag("qa-room-editor").assertExists()
+        org.junit.Assert.assertEquals("restore me", editor.plainText)
         rule.onNodeWithTag("qa-room-send").performClick()
+        rule.waitUntil(5_000) { sentTexts.isNotEmpty() } // 发送在 recomposer 协程域，异步落
         rule.waitForIdle()
         assertEquals(listOf("restore me"), sentTexts) // 作为新消息发送（不进编辑模式）
     }

@@ -1,5 +1,7 @@
 package cn.appia.im.core.messaging
 
+import cn.appia.im.core.database.entity.MessageEntity
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -563,3 +565,51 @@ fun mdToTipTap(
         put("content", JsonArray(blocks))
     }
 }
+
+// ── 编辑回填（mdToTipTap.ts:299-307 buildEditContent）──────────
+
+private val editContentHtmlEscape = arrayOf(
+    "&" to "&amp;",
+    "<" to "&lt;",
+    ">" to "&gt;",
+    "\"" to "&quot;",
+    "'" to "&#39;",
+)
+
+private fun escapeHtml(s: String): String {
+    var out = s
+    for ((raw, escaped) in editContentHtmlEscape) out = out.replace(raw, escaped)
+    return out
+}
+
+/**
+ * 从消息构建可回填编辑器的 Content（mdToTipTap.ts:299-307 buildEditContent）：
+ * 有 md → mdToTipTap（mentions 还原 mention 节点）；无 md/坏 md → `<p>{escapeHtml(msg)}</p>`
+ * HTML 串（tiptap setContent(string) 直吃）。[emojiResolver]/[baseUrl] 语义同 [mdToTipTap]
+ * （自定义表情还原）。
+ */
+fun buildEditContent(
+    message: MessageEntity,
+    emojiResolver: EmojiResolver? = null,
+    baseUrl: String? = null,
+): JsonElement {
+    val mdEl = message.md?.let { raw ->
+        runCatching { Json { ignoreUnknownKeys = true; isLenient = true }.parseToJsonElement(raw) }.getOrNull()
+    }
+    val blocks = when (mdEl) {
+        is JsonArray -> mdEl
+        is JsonObject -> mdEl["blocks"] as? JsonArray
+        else -> null
+    }
+    if (blocks != null) {
+        val mentions = runCatching {
+            Json.parseToJsonElement(message.mentions.orEmpty()) as? JsonArray
+        }.getOrNull()
+        return mdToTipTap(buildJsonObject { put("blocks", blocks) }, mentions, emojiResolver, baseUrl)
+    }
+    return JsonPrimitive("<p>${escapeHtml(message.msg.orEmpty())}</p>")
+}
+
+/** 编辑器产物 md（AST Root）→ wire JSON（`{"blocks":[...]}`；SendOrchestrator `md?.toString()` 同形态）。 */
+fun rootToJsonElement(root: Root): JsonElement =
+    kotlinx.serialization.json.Json.encodeToJsonElement(MarkdownRoot.serializer(), root)

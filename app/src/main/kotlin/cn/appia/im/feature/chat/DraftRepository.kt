@@ -7,24 +7,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 草稿读写（对照 appiaMobile/src/hooks/useDraft.ts :78-102）：
- * - [saveDraft]：`draft_message` 与 `draft_message_plain` 同值（M2 纯文本，无 TipTap JSON；
- *   RN 语义 plainText 为空时 draft_message 落 ''，此处同值直写等价）；`draft_reply_msg_id`
- *   **不写**留 M3（RN 该列写 replyMsgId ?? ''，M2 无回复上下文）；
+ * 草稿读写（对照 appiaMobile/src/hooks/useDraft.ts :78-102；T12 起 TipTap JSON 口径）：
+ * - [saveDraft]：`draft_message` 存 TipTap JSON（编辑器回填源），`draft_message_plain` 存纯文本；
+ *   `draft_reply_msg_id` **不写**（回复态未持久化，RN 该列写 replyMsgId ?? ''——M3-T12 现状）；
  * - [clearDraft]：四列清空（:87-102）；
  * - chat 行不存在静默跳过（RN find 失败 catch）。
  */
 class DraftRepository(private val db: AppiaDatabase) {
 
-    /** 恢复输入框内容：plain 优先，回退 draft_message（RN initialContent 源）。 */
-    suspend fun loadDraft(rid: String): String {
-        val chat = db.chatDao().getById(rid) ?: return ""
-        return chat.draft_message_plain?.takeIf { it.isNotEmpty() } ?: chat.draft_message.orEmpty()
+    /** 恢复编辑器内容：draft_message（TipTap JSON 串）；空/缺失返回 null。 */
+    suspend fun loadDraftJson(rid: String): String? {
+        val chat = db.chatDao().getById(rid) ?: return null
+        return chat.draft_message?.takeIf { it.isNotEmpty() }
     }
 
-    suspend fun saveDraft(rid: String, plainText: String) {
+    suspend fun saveDraft(rid: String, json: String, plain: String) {
         val chat = db.chatDao().getById(rid) ?: return
-        db.chatDao().update(chat.copy(draft_message = plainText, draft_message_plain = plainText))
+        db.chatDao().update(chat.copy(draft_message = json, draft_message_plain = plain))
     }
 
     suspend fun clearDraft(rid: String) {
@@ -42,8 +41,9 @@ class DraftRepository(private val db: AppiaDatabase) {
 
 /**
  * 草稿保存时机（RN useDraft hook 的 :185-233/:264-285 时序等价）：
- * - [onTextChanged]：IME **commit 后**才调（组合态在 UI 层拦截），重置 1s debounce；
- * - [onBlur]：失焦立即写（RN saveDraftImmediate）；
+ * - [onTextChanged]：编辑器内容落定（content-update 拉取）后调，重置 1s debounce
+ *   （M2 的 IME 组合态守卫随 TextField 移除——WebView 内组合态对 native 不可见，debounce 吸收）；
+ * - [onBlur]：失焦立即写（RN saveDraftImmediate）；WebView 路径 blur 前先 fetchContentNow；
  * - [flushOnDispose]：卸载时仅在有未落库 pending 时补写（RN unmount flush）；
  * - [clearAfterSend]：发送成功后取消 pending 并清四列（RN clearDraft）。
  * scope 注入虚拟时钟 dispatcher 即可测 debounce 时序。
@@ -55,39 +55,43 @@ class DraftController(
 ) {
 
     private var pending: Job? = null
-    private var latestText = ""
+    private var latestJson = ""
+    private var latestPlain = ""
 
-    fun onTextChanged(rid: String, text: String) {
-        latestText = text
+    fun onTextChanged(rid: String, json: String, plain: String) {
+        latestJson = json
+        latestPlain = plain
         pending?.cancel()
         pending = scope.launch {
             delay(debounceMs)
-            repo.saveDraft(rid, latestText)
+            repo.saveDraft(rid, latestJson, latestPlain)
         }
     }
 
-    fun onBlur(rid: String, text: String) {
-        latestText = text
+    fun onBlur(rid: String, json: String, plain: String) {
+        latestJson = json
+        latestPlain = plain
         pending?.cancel()
         pending = null
-        scope.launch { repo.saveDraft(rid, text) }
+        scope.launch { repo.saveDraft(rid, json, plain) }
     }
 
     fun flushOnDispose(rid: String) {
         val hadPending = pending?.isActive == true
         pending?.cancel()
         pending = null
-        if (hadPending) scope.launch { repo.saveDraft(rid, latestText) }
+        if (hadPending) scope.launch { repo.saveDraft(rid, latestJson, latestPlain) }
     }
 
     fun clearAfterSend(rid: String) {
         pending?.cancel()
         pending = null
-        latestText = ""
+        latestJson = ""
+        latestPlain = ""
         scope.launch { repo.clearDraft(rid) }
     }
 
-    suspend fun loadDraft(rid: String): String = repo.loadDraft(rid)
+    suspend fun loadDraftJson(rid: String): String? = repo.loadDraftJson(rid)
 
     companion object {
         /** RN useDraft.ts DEBOUNCE_MS。 */

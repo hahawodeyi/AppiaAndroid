@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -15,10 +16,12 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,21 +35,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.onGloballyPositioned
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.i18n.t
+import cn.appia.im.core.messaging.buildEditContent
+import cn.appia.im.core.messaging.convertTipTapJsonToMessageParserRoot
+import cn.appia.im.core.messaging.isMessageEdited
+import cn.appia.im.core.messaging.rootToJsonElement
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.MessageAction
 import cn.appia.im.feature.chat.MessageActionContext
 import cn.appia.im.feature.chat.MessageMultiSelectStore
+import cn.appia.im.feature.chat.PendingAttachment
 import cn.appia.im.feature.chat.PendingAttachments
+import cn.appia.im.feature.chat.PrepareStatus
 import cn.appia.im.feature.chat.RoomMessagesUiState
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.core.util.formatMessageDateLabel
@@ -55,22 +66,32 @@ import cn.appia.im.feature.chat.RoomAttachmentButton
 import cn.appia.im.feature.chat.SelectedAttachmentList
 import cn.appia.im.feature.chat.applyDisplayMessageTransforms
 import cn.appia.im.feature.chat.buildBatchRecallTip
+import cn.appia.im.feature.chat.buildOrderedFileIds
 import cn.appia.im.feature.chat.canRecallMessage
 import cn.appia.im.feature.chat.composeQuotedMessageText
 import cn.appia.im.feature.chat.copyableText
 import cn.appia.im.feature.chat.deserializeOriginalContent
+import cn.appia.im.feature.chat.editor.ChatInputBarController
+import cn.appia.im.feature.chat.editor.EditorWebView
+import cn.appia.im.feature.chat.editor.rememberChatInputBarController
+import cn.appia.im.feature.chat.editor.shouldPrimeAndroidIme
 import cn.appia.im.feature.chat.filterVisibleDisplayMessages
 import cn.appia.im.feature.chat.getOptions
 import cn.appia.im.feature.chat.isReeditableRollback
 import cn.appia.im.feature.chat.isRoomReadOnly
+import cn.appia.im.feature.chat.serverMessageToEditableFiles
 import cn.appia.im.feature.chat.summarizeSenders
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.util.Log
 import android.widget.Toast
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 
 /** RN messageTypeLoad：load_chunk 渲染 1px 空行。 */
@@ -78,6 +99,9 @@ private val LOAD_CHUNK_TYPES = setOf("load-more-before", "load-more-after")
 
 /** Log tag（T11 撤回失败等，与 MainActivity NAV_TAG 同前缀）。 */
 private const val ROOM_TAG = "roomRoute"
+
+/** 键盘弹起时 ProseMirror 底部 padding（RN RichText.tsx TOOLBAR_HEIGHT = 44）。 */
+private const val IME_DOC_PADDING_PX = 44
 
 /** 列表项两型：消息（含系统/1px chunk）与日期分隔（contentType 三型在此派生）。 */
 internal sealed class RoomListItem {
@@ -96,12 +120,6 @@ internal fun RoomListItem.contentType(): String = when (this) {
     is RoomListItem.Message ->
         if (isSystemMessageRow(message)) "system" else "msg"
     is RoomListItem.DateSeparator -> "separator"
-}
-
-/** 输入变更（含 IME 组合态守卫）：组合期不写草稿，commit 后才计 debounce；返回新输入态。 */
-internal fun onRoomInputChanged(rid: String, next: TextFieldValue, controller: DraftController?): TextFieldValue {
-    if (next.composition == null) controller?.onTextChanged(rid, next.text)
-    return next
 }
 
 /**
@@ -146,7 +164,7 @@ fun RoomScreen(
     serverUrl: String,
     token: String?,
     draftController: DraftController?,
-    onSend: suspend (String) -> Unit,
+    onSend: suspend (String, kotlinx.serialization.json.JsonElement?) -> Unit,
     /** 文件消息（T6）：ready 附件 + 输入文案 → SendOrchestrator.enqueueFileMessage（缺省装配前禁用）。 */
     onSendFiles: suspend (List<cn.appia.im.core.media.LocalFileInput>, String) -> Unit = { _, _ -> },
     onResend: (MessageEntity) -> Unit,
@@ -166,8 +184,18 @@ fun RoomScreen(
     onRecall: suspend (MessageEntity) -> Unit = {},
     /** 批量撤回（T11 多选条 / RN handleBatchRecall：POST message.batch.recall，装配处实现）。 */
     onBatchRecall: suspend (List<String>) -> Unit = {},
-    /** 编辑入口（T11 参数化回调，T12 接编辑器；RN onEdit → setEditing）。 */
-    onEdit: (MessageEntity) -> Unit = {},
+    /**
+     * 编辑提交（T12 / RN onSendFiles editing 分支装配）：(message, msg, md, 附件条行)。
+     * **绕过 Orchestrator**：items 空 → 直 DDP updateMessage；非空 → 逐文件多附件上传 +
+     * `multiAttachments.replace`（装配处 MessageEditController/UploadReplaceApi）。
+     */
+    onEditSubmit: suspend (MessageEntity, String, kotlinx.serialization.json.JsonElement?, List<PendingAttachment>?) -> Unit = { _, _, _, _ -> },
+    /** 编辑单文件上传（多附件模式）；fileIds 组装在装配处（buildOrderedFileIds 可单测）。 */
+    onEditUpload: suspend (cn.appia.im.core.media.LocalFileInput) -> String = { "" },
+    /** @提及选人页路由（T12 / RN navigation.navigate('MentionSuggestion', {initialQuery})）。 */
+    onOpenMentionSuggestion: (String) -> Unit = {},
+    /** 编辑器控制器（T12；缺省本组合建——UI 测试注入自有实例驱动内容态）。 */
+    editorController: ChatInputBarController = rememberChatInputBarController(),
     /** 转发路由（T11 / RN ForwardSelect isMerged）：(messageIds, 合并?)。单条与多选共用。 */
     onForward: (List<String>, Boolean) -> Unit = { _, _ -> },
     onBack: () -> Unit,
@@ -221,14 +249,31 @@ fun RoomScreen(
     }
     val bannerVisible = !bannerDismissed && unreadBannerVisible(bannerMsgId, bannerCount)
 
-    // 输入与草稿（RN ChatInputBar + useDraft 时序；组合态不写，commit 才计）
-    var input by remember(rid) { mutableStateOf(TextFieldValue("")) }
-    // 失焦即写需真实 focus→blur 跃迁：onFocusChanged 首次合成会以未聚焦态上报，须有曾聚焦守卫
-    var inputHadFocus by remember(rid) { mutableStateOf(false) }
-    LaunchedEffect(rid, draftController) {
-        draftController?.let { c ->
-            val saved = c.loadDraft(rid)
-            if (saved.isNotEmpty()) input = TextFieldValue(saved)
+    // ── 编辑器与草稿（T12 / RN ChatInputBar + useDraft 时序）──
+    // 草稿注入两道门（RN ChatInputBar.tsx:465-494 的 editorRef 教训）：controller 是稳定引用，
+    // LaunchedEffect 只以 (rid, draftController) 为 key——**禁以 editor/controller 实例为依赖**
+    // （RN 根因：editor 每渲染换引用 → 注入 effect 重跑 → 旧 draft 覆盖输入）。
+    val controller = editorController
+    LaunchedEffect(rid, draftController, controller) {
+        controller.onContentSettled = { json, plain ->
+            // 内容落定 → 草稿 debounce（draft_message=TipTap JSON / draft_message_plain=纯文本）
+            draftController?.onTextChanged(rid, json?.toString().orEmpty(), plain)
+        }
+        val saved = draftController?.loadDraftJson(rid)
+        if (!saved.isNullOrEmpty()) {
+            runCatching { Json.parseToJsonElement(saved) as? JsonObject }
+                .getOrNull()?.let { controller.setContentWhenReady(it) }
+        }
+    }
+    // 失焦即写（RN saveDraftImmediate）：先同步拉最新内容（异步 RPC 滞后保护）再 onBlur
+    LaunchedEffect(controller) {
+        var prevFocused = false
+        snapshotFlow { controller.isFocused }.distinctUntilChanged().collect { focused ->
+            if (prevFocused && !focused) {
+                runCatching { controller.fetchContentNow() }
+                draftController?.onBlur(rid, controller.jsonContent?.toString().orEmpty(), controller.plainText)
+            }
+            prevFocused = focused
         }
     }
     DisposableEffect(rid) {
@@ -255,6 +300,44 @@ fun RoomScreen(
     val multiSelect = remember(rid) { MessageMultiSelectStore() }
     val multiState by multiSelect.state.collectAsState()
 
+    // ── 编辑模式（T12 / RN EditContext editingMessage + stashedEditingDraftRef）──
+    /** 编辑态 stash（RN stashedEditingDraftRef：pending 附件 + 当前编辑器 JSON，退出恢复）。 */
+    data class EditStash(val items: List<PendingAttachment>, val json: JsonObject?)
+    var editingMessage by remember(rid) { mutableStateOf<MessageEntity?>(null) }
+    var editStash by remember(rid) { mutableStateOf<EditStash?>(null) }
+
+    /** buildEditContent 产物分流（TipTap JSON / 无 md 的 HTML 串）。 */
+    fun applyEditContent(content: kotlinx.serialization.json.JsonElement) {
+        when (content) {
+            is JsonObject -> controller.setContentWhenReady(content)
+            is JsonPrimitive -> controller.setContentHtmlWhenReady(content.content)
+            else -> Unit
+        }
+    }
+
+    /** 进入编辑（RN setEditing :1415-1422）：stash 当前 → setContent(buildEditContent) → focus。 */
+    fun enterEdit(m: MessageEntity) {
+        if (editingMessage == null) {
+            editStash = EditStash(pendingAttachments.items.value, controller.jsonContent)
+            // 编辑态附件回填（RN serverMessageToEditableAttachments：files 列水合，带 fileId 不重传）
+            val serverFiles = serverMessageToEditableFiles(m)
+            if (serverFiles.isNotEmpty()) pendingAttachments.hydrate(serverFiles)
+        }
+        applyEditContent(buildEditContent(m))
+        controller.requestFocus("end")
+        editingMessage = m
+        replyTo = null // RN setEditing :1421 setReplyingMessage(null)
+    }
+
+    /** 退出编辑（RN EditPreview ✕ → clearEditing :1423-1425 → effect 恢复 stash :549-559）。 */
+    fun exitEdit() {
+        editingMessage = null
+        val stash = editStash ?: return
+        editStash = null
+        pendingAttachments.hydrate(stash.items)
+        controller.setContentWhenReady(stash.json)
+    }
+
     /** 长按入口（RN handleMessageLongPress :806-812 早退守卫：多选态/只读房不开菜单）。 */
     val handleLongPress: (MessageEntity) -> Unit = { m ->
         if (!multiState.active && !isRoomReadOnly) sheetMessage = m
@@ -268,7 +351,7 @@ fun RoomScreen(
     fun dispatchAction(action: MessageAction, m: MessageEntity) {
         when (action) {
             MessageAction.REPLY -> replyTo = m
-            MessageAction.EDIT -> onEdit(m) // T12 接编辑器
+            MessageAction.EDIT -> enterEdit(m) // T12：接编辑器（RN onEdit → setEditing）
             MessageAction.COPY -> {
                 val text = copyableText(m)
                 if (text.isNotEmpty()) {
@@ -293,9 +376,24 @@ fun RoomScreen(
         }
     }
 
-    /** 重新编辑（RN handleReedit :806-812：反序列化快照回填输入框作新消息，不进编辑模式）。 */
+    /**
+     * 重新编辑（RN handleReedit :805-812：快照反序列化 → setContent 回填，不进编辑模式）。
+     * T11 rider：**tmid 回复态恢复/清空一并处理**（RN ChatInputBar setContent :1426-1441）。
+     */
     val handleReedit: (MessageEntity) -> Unit = { m ->
-        deserializeOriginalContent(m)?.let { restored -> input = TextFieldValue(restored.msg.orEmpty()) }
+        deserializeOriginalContent(m)?.let { restored ->
+            applyEditContent(
+                buildEditContent(
+                    m.copy(
+                        msg = restored.msg ?: m.msg,
+                        md = restored.md,
+                        mentions = restored.mentions,
+                        tmid = restored.tmid,
+                    ),
+                ),
+            )
+            replyTo = if (!restored.tmid.isNullOrEmpty()) m else null
+        }
     }
 
     /** 批量撤回确认文案（RN :981-985 buildBatchRecallTip；弹窗打开时才组装）。 */
@@ -306,6 +404,79 @@ fun RoomScreen(
         systemMessageT(context)(tip.key, tip.params)
     } else {
         ""
+    }
+
+    /**
+     * 发送（RN ChatInputBar handleSubmit :846-954）：发送前同步拉编辑器最新内容
+     * （RN blur→getJSON 语义）；编辑态 → [onEditSubmit]（绕 Orchestrator），普通态 →
+     * 附件优先（enqueueFileMessage）否则文本（enqueueTextMessage 带 md）。
+     */
+    suspend fun handleSend() {
+        runCatching { controller.fetchContentNow() }
+        val editing = editingMessage
+        val json = controller.jsonContent
+        val plain = controller.plainText
+        val md = json?.let {
+            runCatching { rootToJsonElement(convertTipTapJsonToMessageParserRoot(it)) }.getOrNull()
+        }
+        if (editing != null) {
+            val items = pendingAttachments.items.value
+            // RN :857-861：编辑态附件未 ready → toast 拦（不提交）
+            if (items.any { it.prepareStatus != PrepareStatus.READY }) {
+                Toast.makeText(context, context.t("edit_message_failed"), Toast.LENGTH_SHORT).show()
+                return
+            }
+            // null（updateMessage，服务端不动附件）仅限纯文本消息；带文件的消息一律走
+            // replace 整包覆盖（可为空表）——否则编辑态删空附件条时服务端旧附件残留
+            val hadServerFiles = !editing.files.isNullOrEmpty()
+            val submitItems: List<PendingAttachment>? = if (items.isEmpty() && !hadServerFiles) null else items
+            try {
+                onEditSubmit(editing, plain, md, submitItems)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(ROOM_TAG, "edit message failed id=${editing._id}", e) // RN :660-662 console.warn + toast
+                Toast.makeText(context, context.t("edit_message_failed"), Toast.LENGTH_SHORT).show()
+                return
+            }
+            // 提交成功：stash 丢弃（RN discardStashedEditingDraftRef :897）+ 四态清
+            editingMessage = null
+            editStash = null
+            pendingAttachments.clear()
+            controller.clearEditor()
+            draftController?.clearAfterSend(rid)
+            return
+        }
+        val files = pendingAttachments.readyFiles
+        if (files.isNotEmpty()) {
+            val finalMsg = composeQuotedMessageText(
+                plainText = plain,
+                replyingMessage = replyTo,
+                serverUrl = serverUrl,
+                rid = rid,
+                roomType = state.roomType.ifEmpty { null },
+                authUserId = currentUserId,
+            )
+            onSendFiles(files, finalMsg)
+            pendingAttachments.clear()
+            controller.clearEditor()
+            draftController?.clearAfterSend(rid)
+            replyTo = null
+            return
+        }
+        if (plain.isBlank()) return
+        val finalMsg = composeQuotedMessageText(
+            plainText = plain,
+            replyingMessage = replyTo,
+            serverUrl = serverUrl,
+            rid = rid,
+            roomType = state.roomType.ifEmpty { null },
+            authUserId = currentUserId,
+        )
+        onSend(finalMsg, md)
+        controller.clearEditor()
+        draftController?.clearAfterSend(rid)
+        replyTo = null // RN :821/:926 发送后清回复态
     }
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
@@ -480,6 +651,84 @@ fun RoomScreen(
                 onCancel = { multiSelect.exit() },
             )
         } else {
+            // 编辑横幅（T12 / RN EditPreview：编辑中标题 + ✕ 退出恢复 stash）
+            if (editingMessage != null) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.messageboxBackground)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .testTag("qa-edit-banner"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        context.t("chatinput_editmessage"),
+                        color = colors.primary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "✕",
+                        color = colors.auxiliaryText,
+                        fontSize = 16.sp,
+                        modifier = Modifier
+                            .clickable { exitEdit() }
+                            .padding(8.dp)
+                            .testTag("qa-edit-close"),
+                    )
+                }
+            }
+
+            // Android IME 预热（RN androidImePrime：从未交互的 WebView requestFocus 拉不起 IME，
+            // 先用隐藏原生输入框绑一次 IME，再让 WebView 抢回焦点；仅一次）
+            var imePrimed by remember(rid) { mutableStateOf(false) }
+            val imeAnchor = remember { FocusRequester() }
+            LaunchedEffect(controller.isReady, controller.isFocused) {
+                if (shouldPrimeAndroidIme("android", controller.isReady, controller.isFocused, imePrimed)) {
+                    imePrimed = true
+                    runCatching { imeAnchor.requestFocus() }
+                    controller.requestFocus("end")
+                }
+            }
+            @Suppress("ComposeModifierMissing")
+            BasicTextField(
+                value = "",
+                onValueChange = {},
+                modifier = Modifier
+                    .size(1.dp)
+                    .alpha(0f)
+                    .focusRequester(imeAnchor),
+            )
+
+            // 键盘联动（RN RichText.tsx:91-101 Android 路径：键盘弹起 → ProseMirror 底部
+            // padding + 滚动 margin = 工具条高度 44，收起归零）
+            val imeVisible = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(
+                androidx.compose.ui.platform.LocalDensity.current,
+            ) > 0
+            LaunchedEffect(imeVisible) {
+                val padding = if (imeVisible) IME_DOC_PADDING_PX else 0
+                controller.rpcBridge?.setDocBottomPadding(padding)
+                controller.rpcBridge?.updateScrollThresholdAndMargin(padding)
+            }
+
+            // mention-trigger → 选人页（RN ChatInputBar :1249-1273；DM 房不触发，RN :1256 同守卫）
+            controller.onMentionNavigate = { query, cursorPos ->
+                if (rid.isNotEmpty() && state.roomType != "d") {
+                    onOpenMentionSuggestion(query)
+                } else {
+                    controller.mentionRange = null
+                    cursorPos.hashCode() // no-op（统一 lambda 签名）
+                }
+            }
+            // 选人回插（RN DeviceEventEmitter MENTION_SELECTED_EVENT :763-785）+ 回房重新拉起键盘
+            LaunchedEffect(rid, controller) {
+                MentionSelectionBus.events.collect { members ->
+                    controller.applyMentionSelection(members)
+                    controller.requestFocus("end")
+                }
+            }
+
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -488,30 +737,45 @@ fun RoomScreen(
                 verticalAlignment = Alignment.Bottom,
             ) {
             RoomAttachmentButton(pending = pendingAttachments)
-            TextField(
-                value = input,
-                onValueChange = { v ->
-                    // IME 组合态（拼音/滑行预提交）不触发草稿保存抖动；commit 后才计
-                    input = onRoomInputChanged(rid, v, draftController)
-                },
-                modifier = Modifier
+            Box(
+                Modifier
                     .weight(1f)
                     .widthIn(max = 320.dp)
-                    // RN ChatInputBar blur → saveDraftImmediate：失焦即写草稿（Important-1 接线）
-                    .onFocusChanged {
-                        if (it.isFocused) inputHadFocus = true
-                        else if (inputHadFocus) {
-                            inputHadFocus = false
-                            draftController?.onBlur(rid, input.text)
+                    // contentHeight 联动（RN :1225 compact 行 min 38 max 150）
+                    .height(cn.appia.im.feature.chat.editor.ChatInputBarController.clampHeight(controller.contentHeightDp).dp)
+                    .background(colors.backgroundColor, RoundedCornerShape(18.dp))
+                    .testTag("qa-room-editor"),
+            ) {
+                EditorWebView(
+                    modifier = Modifier.fillMaxSize(),
+                    onMessage = { raw -> controller.onRawMessage(raw) },
+                    onWebViewReady = { _, bridge ->
+                        controller.bridge = bridge
+                        controller.rpcBridge = bridge
+                    },
+                )
+            }
+            // 工具栏 @ 直跳（RN :1029-1043：非 DM 房显示；range 置空 = 光标处插入）
+            if (state.roomType != "d") {
+                Text(
+                    "@",
+                    color = colors.auxiliaryText,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .padding(horizontal = 6.dp)
+                        .size(36.dp)
+                        .wrapContentSize(Alignment.Center)
+                        .clickable {
+                            controller.mentionRange = null
+                            onOpenMentionSuggestion("")
                         }
-                    }
-                    .testTag("qa-room-input"),
-                placeholder = { Text(context.t("chatinput_placeholder"), color = colors.auxiliaryText) },
-                maxLines = 5,
-            )
+                        .testTag("qa-room-mention"),
+                )
+            }
             Text(
                 "↑",
-                color = if (input.text.isNotBlank() || pendingAttachments.readyFiles.isNotEmpty()) {
+                color = if (controller.plainText.isNotBlank() || pendingAttachments.readyFiles.isNotEmpty()) {
                     colors.tintColor
                 } else {
                     colors.auxiliaryText
@@ -522,32 +786,12 @@ fun RoomScreen(
                     .size(40.dp)
                     .wrapContentSize(Alignment.Center)
                     .clickable(
-                        enabled = input.text.isNotBlank() ||
-                            (pendingAttachments.readyFiles.isNotEmpty() && !pendingAttachments.isPreparing),
+                        enabled = controller.plainText.isNotBlank() ||
+                            pendingAttachments.readyFiles.isNotEmpty() ||
+                            pendingAttachments.isPreparing ||
+                            attachments.isNotEmpty(),
                     ) {
-                        val text = input.text
-                        val files = pendingAttachments.readyFiles
-                        scope.launch {
-                            // 回复引用前缀（T11 / RN ChatInputBar composeQuotedMessageText :812/:918 两路径同拼）
-                            val finalMsg = composeQuotedMessageText(
-                                plainText = text,
-                                replyingMessage = replyTo,
-                                serverUrl = serverUrl,
-                                rid = rid,
-                                roomType = state.roomType.ifEmpty { null },
-                                authUserId = currentUserId,
-                            )
-                            if (files.isNotEmpty()) {
-                                // 文件消息（T6）：ready 附件 + 输入文案作 msg → enqueueFileMessage
-                                onSendFiles(files, finalMsg)
-                                pendingAttachments.clear() // RN ChatInputBar 发送后清附件条
-                            } else {
-                                onSend(finalMsg) // SendOrchestrator.enqueueTextMessage（纯文本）
-                            }
-                            replyTo = null // RN :821 发送后清回复态
-                            input = TextFieldValue("") // 发送成功清输入
-                            draftController?.clearAfterSend(rid) // 四列清（RN clearDraft）
-                        }
+                        scope.launch { handleSend() }
                     }
                     .testTag("qa-room-send"),
             )
@@ -566,21 +810,22 @@ fun RoomScreen(
             )
         }
 
-        // 批量撤回确认（T11 / RN handleBatchRecall Alert：确定 → POST + 退出多选）
+        // 批量撤回确认（T11 / RN handleBatchRecall Alert：确定 → POST；**成功才退多选**——
+        // T12 rider 修正：T11 先退后调使失败后需重进多选重选，RN :996-1005 为 await 成功才退）
         if (batchRecallConfirm) {
             BatchRecallConfirmDialog(
                 message = batchRecallTipText,
                 onConfirm = {
                     batchRecallConfirm = false
                     val ids = multiState.selectedIds
-                    multiSelect.exit()
                     scope.launch {
                         try {
                             onBatchRecall(ids)
+                            multiSelect.exit()
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            // RN :996-999 catch → toast multiSelect_batchRecallFailed
+                            // RN :996-999 catch → toast multiSelect_batchRecallFailed（留在多选态）
                             Toast.makeText(context, context.t("multiselect_batchrecallfailed"), Toast.LENGTH_SHORT).show()
                         }
                     }

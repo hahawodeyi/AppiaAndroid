@@ -64,8 +64,8 @@ class DraftRepositoryTest {
     }
 
     @Test
-    fun `debounce holds until 1s then writes`() {
-        controller.onTextChanged("r1", "hello")
+    fun `debounce holds until 1s then writes json and plain columns`() {
+        controller.onTextChanged("r1", DOC_JSON, "hello")
         dispatcher.scheduler.advanceTimeBy(500)
         dispatcher.scheduler.runCurrent()
         assertNull(chat()?.draft_message_plain) // 半程未写
@@ -73,44 +73,45 @@ class DraftRepositoryTest {
         dispatcher.scheduler.advanceTimeBy(500)
         dispatcher.scheduler.runCurrent()
         awaitCond("debounced write") { chat()?.draft_message_plain == "hello" }
-        assertEquals("hello", chat()?.draft_message) // 两列同值
+        assertEquals(DOC_JSON, chat()?.draft_message) // T12：JSON/plain 两列分写
     }
 
     @Test
     fun `rapid typing resets debounce window`() {
-        controller.onTextChanged("r1", "a")
+        controller.onTextChanged("r1", """{"a":1}""", "a")
         dispatcher.scheduler.advanceTimeBy(800)
-        controller.onTextChanged("r1", "ab") // 800ms 处重置
+        controller.onTextChanged("r1", """{"a":2}""", "ab") // 800ms 处重置
         dispatcher.scheduler.advanceTimeBy(800)
         dispatcher.scheduler.runCurrent()
         assertNull(chat()?.draft_message_plain)
         dispatcher.scheduler.advanceTimeBy(200)
         dispatcher.scheduler.runCurrent()
         awaitCond("reset window write") { chat()?.draft_message_plain == "ab" }
+        assertEquals("""{"a":2}""", chat()?.draft_message)
     }
 
     @Test
     fun `blur writes immediately without advancing clock`() {
-        controller.onTextChanged("r1", "draft!")
-        controller.onBlur("r1", "draft!")
+        controller.onTextChanged("r1", DOC_JSON, "draft!")
+        controller.onBlur("r1", DOC_JSON, "draft!")
         dispatcher.scheduler.runCurrent()
         awaitCond("immediate blur write") { chat()?.draft_message_plain == "draft!" }
 
         // blur 落库后老 debounce 作废：再走 2s 不产生第二次写（值同无法分辨，改查后写不同值）
-        controller.onTextChanged("r1", "stale")
-        controller.onBlur("r1", "fresh")
+        controller.onTextChanged("r1", DOC_JSON, "stale")
+        controller.onBlur("r1", DOC_JSON, "fresh")
         dispatcher.scheduler.runCurrent()
         awaitCond("blur overrides pending debounce") { chat()?.draft_message_plain == "fresh" }
     }
 
     @Test
     fun `dispose flush writes only when pending exists`() {
-        controller.onTextChanged("r1", "unflushed")
+        controller.onTextChanged("r1", DOC_JSON, "unflushed")
         controller.flushOnDispose("r1")
         dispatcher.scheduler.runCurrent()
         awaitCond("flush writes pending") { chat()?.draft_message_plain == "unflushed" }
 
-        controller.onBlur("r1", "done") // debounce 已无 pending
+        controller.onBlur("r1", DOC_JSON, "done") // debounce 已无 pending
         dispatcher.scheduler.runCurrent()
         Thread.sleep(50)
         controller.flushOnDispose("r1") // 无 pending 不写
@@ -122,7 +123,7 @@ class DraftRepositoryTest {
     fun `clearAfterSend empties all four draft columns`() = runBlocking {
         val row = chat()!!.copy(draft_reply_msg_id = "m-1", draft_attachments = """["a"]""")
         db.chatDao().update(row)
-        controller.onTextChanged("r1", "to send")
+        controller.onTextChanged("r1", DOC_JSON, "to send")
         controller.clearAfterSend("r1")
         dispatcher.scheduler.runCurrent()
         awaitCond("four columns cleared") {
@@ -134,12 +135,17 @@ class DraftRepositoryTest {
     }
 
     @Test
-    fun `missing chat row silently skips and loads empty`() = runBlocking {
-        controller.onTextChanged("ghost", "x")
-        awaitCond("ghost write skipped") { dispatcher.scheduler.runCurrent(); true }
-        Thread.sleep(50)
-        assertEquals("", repo.loadDraft("ghost"))
-        assertEquals("", repo.loadDraft("r1"))
+    fun `missing chat row silently skips and loads null`() = runBlocking {
+        assertNull(repo.loadDraftJson("ghost")) // 行不存在静默
+        controller.onTextChanged("r1", DOC_JSON, "x")
+        controller.onBlur("r1", DOC_JSON, "x") // 立即写
+        dispatcher.scheduler.runCurrent()
+        awaitCond("r1 written") { chat()?.draft_message_plain == "x" }
+        assertEquals(DOC_JSON, repo.loadDraftJson("r1"))
         Unit
+    }
+
+    companion object {
+        private const val DOC_JSON = """{"type":"doc","content":[]}"""
     }
 }

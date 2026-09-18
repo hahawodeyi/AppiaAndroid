@@ -172,7 +172,7 @@ class ReadReceiptUiTest {
                     serverUrl = "https://s1",
                     token = "tok",
                     draftController = null,
-                    onSend = {},
+                    onSend = { _, _ -> },
                     onResend = {},
                     onBack = {},
                     onLoadEarlier = {},

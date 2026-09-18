@@ -53,6 +53,7 @@ import cn.appia.im.feature.chat.ui.AttachmentNav
 import cn.appia.im.feature.chat.ui.AttachmentViewerScreen
 import cn.appia.im.feature.chat.ui.DocPreviewParams
 import cn.appia.im.feature.chat.ui.DocPreviewScreen
+import cn.appia.im.feature.chat.ui.MentionSuggestionScreen
 import cn.appia.im.feature.chat.ui.VideoPlayerScreen
 import cn.appia.im.feature.chat.ui.ViewerImage
 import cn.appia.im.feature.chat.ui.ReactionActions
@@ -63,8 +64,20 @@ import cn.appia.im.feature.chat.forward.ForwardDetailScreen
 import cn.appia.im.feature.chat.forward.ForwardSearcher
 import cn.appia.im.feature.chat.forward.ForwardSelectScreen
 import cn.appia.im.core.network.api.ForwardApi
+import cn.appia.im.core.network.api.RecallApi
 import cn.appia.im.core.network.api.ReadReceiptsApi
+import cn.appia.im.core.network.api.RoomsApi
 import cn.appia.im.core.network.api.SpotlightApi
+import cn.appia.im.core.media.UploadApi
+import cn.appia.im.feature.chat.MentionCandidate
+import cn.appia.im.feature.chat.OrderedFileIdsResult
+import cn.appia.im.feature.chat.UploadReplaceApi
+import cn.appia.im.feature.chat.agentBotsToCandidates
+import cn.appia.im.feature.chat.buildOrderedFileIds
+import cn.appia.im.feature.chat.filterBotsByClawAgentVisibility
+import cn.appia.im.feature.chat.parseAgentBotMentionList
+import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
+import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.login.AuthApi
@@ -159,6 +172,14 @@ data class ReadReceiptRoute(
     val rid: String,
     val userId: String,
     val roomType: String = "c",
+)
+
+/** @提及选人页路由（T12，RN navigate('MentionSuggestion', {chatId, t, initialQuery})；agent 房 M4 接入）。 */
+@Serializable
+data class MentionSuggestionRoute(
+    val rid: String,
+    val roomType: String = "c",
+    val initialQuery: String = "",
 )
 
 /** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
@@ -406,7 +427,7 @@ fun AppiaNavHost(
                     serverUrl = serverUrl,
                     token = auth?.token,
                     draftController = draftController,
-                    onSend = { msg -> orchestrator.enqueueTextMessage(route.rid, msg) },
+                    onSend = { msg, md -> orchestrator.enqueueTextMessage(route.rid, msg, md) },
                     onSendFiles = { files, msg -> orchestrator.enqueueFileMessage(route.rid, files, msg) },
                     // 文件行（attachments 非空）走 file 作业重发；md 从行列解析（RN resend snapshot 同参）
                     onResend = { m ->
@@ -449,8 +470,39 @@ fun AppiaNavHost(
                     onRecall = { m -> recallActions.recall(m) },
                     // 批量撤回（T11 多选条）：POST message.batch.recall {ids}（不快照，RN 同）
                     onBatchRecall = { ids -> recallActions.batchRecall(ids) },
-                    // 编辑入口（T11 参数化回调；编辑器 UI 是 T12，暂 no-op）
-                    onEdit = { },
+                    // 编辑提交（T12 / RN handleSendFiles editing 分支装配）：绕 Orchestrator——
+                    // 附件条空直 updateMessage（RecallApi.editMessage），非空逐文件多附件上传 +
+                    // multiAttachments.replace 整包覆盖
+                    onEditSubmit = { m, msg, md, items ->
+                        if (items == null) {
+                            RecallApi.editMessage(deps.sdk, route.rid, m._id, msg, md)
+                        } else {
+                            val ordered = buildOrderedFileIds(items) { file ->
+                                UploadApi.uploadFileForOrchestrator(
+                                    deps.sdk, route.rid, file, isMultiAttachment = true,
+                                ).fileId
+                            }
+                            val fileIds = when (ordered) {
+                                is OrderedFileIdsResult.Ok -> ordered.fileIds
+                                is OrderedFileIdsResult.Failed ->
+                                    throw IllegalStateException("edit attachment not ready: ${ordered.failedItemId}")
+                            }
+                            UploadReplaceApi.replaceMultiAttachments(deps.sdk, m._id, route.rid, fileIds, msg, md)
+                        }
+                    },
+                    onEditUpload = { file ->
+                        UploadApi.uploadFileForOrchestrator(deps.sdk, route.rid, file, isMultiAttachment = true).fileId
+                    },
+                    // @提及选人页（T12 / RN MentionSuggestion）：成员 v2 / agent bot 门控装配
+                    onOpenMentionSuggestion = { initialQuery ->
+                        nav.navigate(
+                            MentionSuggestionRoute(
+                                rid = route.rid,
+                                roomType = route.roomType,
+                                initialQuery = initialQuery,
+                            ),
+                        )
+                    },
                     // 转发（T11 / RN ForwardSelect）：单条（菜单）与多选（多选条）共用路由
                     onForward = { ids, merged ->
                         nav.navigate(ForwardSelectRoute(messageIds = ids, isMerged = merged))
@@ -559,8 +611,44 @@ fun AppiaNavHost(
                 )
             }
         }
-        composable<ReadReceiptRoute> { entry ->
-            val route = entry.toRoute<ReadReceiptRoute>()
+        composable<MentionSuggestionRoute> { entry ->
+            val route = entry.toRoute<MentionSuggestionRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                MentionSuggestionScreen(
+                    initialQuery = route.initialQuery,
+                    isAgentRoom = false, // agent 房（myAgents）M4 域；门控数据源已备（settings 拉齐后即通）
+                    loadCandidates = { isAgentRoom ->
+                        if (isAgentRoom) {
+                            // Agent_Bot_List × Appia_Claw_Agent_Visibility 门控（settings 表 M5 拉齐前为空集）
+                            val bots = parseAgentBotMentionList(
+                                db.settingDao().getById("Agent_Bot_List")?.value_as_string,
+                            )
+                            val visibility = parseClawAgentVisibilityMap(
+                                db.settingDao().getById("Appia_Claw_Agent_Visibility")?.value_as_string,
+                            )
+                            agentBotsToCandidates(filterBotsByClawAgentVisibility(bots, visibility) { it.username })
+                        } else {
+                            parseAppiaRoomMembersV2(RoomsApi.getAppiaRoomMembersV2(deps.sdk, route.rid))
+                                .map { row ->
+                                    MentionCandidate(
+                                        id = row._id,
+                                        username = row.username,
+                                        displayName = row.name ?: row.username,
+                                    )
+                                }
+                        }
+                    },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        composable<ReadReceiptRoute> { entry ->            val route = entry.toRoute<ReadReceiptRoute>()
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {

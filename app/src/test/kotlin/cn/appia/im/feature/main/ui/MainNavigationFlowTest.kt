@@ -289,7 +289,7 @@ class MainNavigationFlowTest {
         waitUntilExists { textExists("General") } // ChatRow 行上屏
 
         rule.onNodeWithText("General").performClick() // → RoomRoute(rid, title 兜底, t)
-        waitUntilExists { tagExists("qa-room-input") }
+        waitUntilExists { tagExists("qa-room-editor") } // T12：输入框换 10tap WebView 编辑器
 
         rule.onNodeWithTag("qa-room-header-back").performClick() // popBackStack → 列表
         waitUntilExists { textExists("General") }

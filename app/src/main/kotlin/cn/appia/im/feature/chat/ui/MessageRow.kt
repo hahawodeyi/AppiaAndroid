@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -37,7 +39,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appia.im.core.database.entity.MessageEntity
+import cn.appia.im.core.i18n.t
 import cn.appia.im.core.messaging.MessageStatus
+import cn.appia.im.core.messaging.isMessageEdited
 import cn.appia.im.core.messaging.SystemMessageTexts
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.core.util.formatRoomMessageHeaderTime
@@ -251,12 +255,17 @@ internal fun resolveMentionDisplay(
 
 /**
  * 正文 AnnotatedString：色别与显示名全部经 [resolveMentionDisplay]（RN AtMention 同款）。
+ * 有 md 且已编辑：行内追加 (edited) 标记（RN appendEditedTagToMd 末端内联的平铺渲染等价；
+ * 无 md 的独立标记由调用处 [MessageRow] 另行渲染）。
  */
 @Composable
 internal fun buildMessageBody(message: MessageEntity, currentUsername: String?): AnnotatedString {
     val colors = LocalAppiaColors.current
+    val context = LocalContext.current
     val mentions = parseMentions(message.mentions)
     val spans = parseBodySpans(message.msg, message.md, mentions)
+    // 有 md 才行内追加（RN appendEditedTagToMd 前提 baseMd 非空；无 md 走独立标记）
+    val editedInline = isMessageEdited(message) && !message.md.isNullOrEmpty()
     return buildAnnotatedString {
         for (span in spans) {
             when (span) {
@@ -275,6 +284,12 @@ internal fun buildMessageBody(message: MessageEntity, currentUsername: String?):
                         append(d.label)
                     }
                 }
+            }
+        }
+        if (editedInline && spans.isNotEmpty()) {
+            // 有 md：行内尾随 (edited)（RN appendEditedTagToMd 末端内联；平铺渲染等价）
+            withStyle(SpanStyle(color = colors.auxiliaryText, fontSize = 13.sp)) {
+                append(" ${context.t("edited")}")
             }
         }
     }
@@ -428,12 +443,22 @@ fun MessageRow(
                             onOpen = onOpenForwardMerge,
                         )
                     } else {
+                        val context = LocalContext.current
                         Text(
                             text = buildMessageBody(message, currentUsername),
                             color = colors.bodyText,
                             fontSize = 15.sp,
                             lineHeight = 21.sp,
                         )
+                        // 无 md 且已编辑：独立 (edited) 标记（RN showEditedWithoutMd）
+                        if (isMessageEdited(message)) {
+                            Text(
+                                context.t("edited"),
+                                color = colors.auxiliaryText,
+                                fontSize = 13.sp,
+                                modifier = Modifier.testTag("qa-message-edited-tag"),
+                            )
+                        }
                         MessageAttachmentsNode(
                             message = message,
                             currentUserId = currentUserId,

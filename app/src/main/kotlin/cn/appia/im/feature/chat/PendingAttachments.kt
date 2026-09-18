@@ -32,6 +32,8 @@ data class PendingAttachment(
     val localPath: String? = null,
     val source: String, // photo | file | server
     val prepareStatus: PrepareStatus,
+    /** 服务端 fileId（编辑回填水合行直用，replace 不重传；T12）。 */
+    val fileId: String? = null,
 )
 
 /** 选择器产出（RN AttachmentResult asset/file 的展平形态）。 */
@@ -143,6 +145,15 @@ class PendingAttachments(
     fun clear() {
         generation += 1
         _items.value = emptyList()
+    }
+
+    /**
+     * 整组替换（RN replacePendingAttachments 的 Android 等价；T12 编辑回填/退出编辑恢复）：
+     * 代数推进作废在途拷贝，行直接就位（服务端水合行已 READY；恢复 stash 原样）。
+     */
+    fun hydrate(items: List<PendingAttachment>) {
+        generation += 1
+        _items.value = items
     }
 
     /** RN readyFiles :190-193：仅 ready 项转 LocalFileInput。 */
