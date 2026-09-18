@@ -24,8 +24,10 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
@@ -106,7 +108,7 @@ class RocketSdk(
      */
     suspend fun login(credentials: LoginCredentials, timeoutMs: Long? = null): LoginResult {
         val call = LoginRequestFactory.create(credentials)
-        val resp = restRequest("POST", call.endpoint, call.body, timeoutMs = timeoutMs)
+        val resp = restRequest("POST", call.endpoint, jsonBody(call.body), timeoutMs = timeoutMs)
         val data = flatten(resp) as? JsonObject
         val authToken = data.str("authToken")
             ?: throw ApiException("[rocket] login: missing authToken in response")
@@ -138,6 +140,15 @@ class RocketSdk(
 
     /** RN post sdk/index.ts:204-214：JSON body；响应平铺同 get。 */
     suspend fun post(endpoint: String, body: JsonElement? = null): JsonElement {
+        requireSession()
+        return flatten(restRequest("POST", endpoint, jsonBody(body)))
+    }
+
+    /**
+     * multipart 通道（T6 UploadApi rooms.upload 专用）：同 restRequest 的 URL 规范化/会话拦截器
+     * （AuthInterceptor 注入鉴权头 + 非 2xx 抛 ApiException）/响应平铺语义，仅 body 换 multipart。
+     */
+    suspend fun postMultipart(endpoint: String, body: MultipartBody): JsonElement {
         requireSession()
         return flatten(restRequest("POST", endpoint, body))
     }
@@ -175,7 +186,7 @@ class RocketSdk(
         val raw = restRequest(
             "POST",
             "method.call/${encodeURIComponent(method)}",
-            buildJsonObject { put("message", message) },
+            jsonBody(buildJsonObject { put("message", message) }),
         )
         return parseMethodCallRestResponse(raw)
     }
@@ -220,6 +231,10 @@ class RocketSdk(
 
     private fun ddp(): DdpClient = ddp ?: throw IllegalStateException("RocketSdk not initialized")
 
+    /** JSON body 编码（null → restRequest POST 分支回退空体，RN `(body ?? '')` 同义）。 */
+    private fun jsonBody(body: JsonElement?): RequestBody? =
+        body?.toString()?.toRequestBody("application/json".toMediaType())
+
     /** RN assertLoggedIn sdk/index.ts:183-186。 */
     private fun requireSession() {
         session ?: throw IllegalStateException("Not logged in")
@@ -231,11 +246,11 @@ class RocketSdk(
         return obj["data"]?.takeUnless { it is JsonNull } ?: resp
     }
 
-    /** RN rocketRestRequest restClient.ts:35-99：URL 组装 + JSON 编解码；错误链/401 在 AuthInterceptor。 */
+    /** RN rocketRestRequest restClient.ts:35-99：URL 组装 + body 编解码；错误链/401 在 AuthInterceptor。 */
     private suspend fun restRequest(
         method: String,
         endpoint: String,
-        body: JsonElement?,
+        body: RequestBody?,
         params: Map<String, String>? = null,
         timeoutMs: Long? = null,
     ): JsonElement = withContext(Dispatchers.IO) {
@@ -254,7 +269,7 @@ class RocketSdk(
             if (method == "GET") {
                 get()
             } else {
-                post((body?.toString() ?: "").toRequestBody("application/json".toMediaType()))
+                post(body ?: "".toRequestBody("application/json".toMediaType()))
             }
         }.build()
         val call = http.newCall(request)
