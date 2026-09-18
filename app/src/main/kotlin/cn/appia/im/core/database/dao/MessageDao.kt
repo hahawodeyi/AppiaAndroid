@@ -48,6 +48,17 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE _id = :id")
     suspend fun updateStatus(id: String, status: Double)
 
+    /**
+     * attachments 单列更新（SendOrchestrator.updateAttachments 失败路径，T6）：只触 attachments 列，
+     * 与 markStatus 同理不回写全行（并发 DDP echo 保护；成功路径禁用——服务端 attachments 才是渲染源）。
+     */
+    @Query("UPDATE messages SET attachments = :attachments WHERE _id = :id")
+    suspend fun updateAttachments(id: String, attachments: String?)
+
+    /** retryFile 两列更新（RN row.update { attachments; status } 等价；同不回写全行）。 */
+    @Query("UPDATE messages SET attachments = :attachments, status = :status WHERE _id = :id")
+    suspend fun updateAttachmentsAndStatus(id: String, attachments: String?, status: Double)
+
     @Delete
     suspend fun delete(entity: MessageEntity)
 
