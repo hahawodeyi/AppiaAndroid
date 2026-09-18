@@ -127,6 +127,10 @@ class EditorSpikeActivity : ComponentActivity() {
             }
             is TenTapBridge.TenTapMessage.ContentUpdate -> logLine("← content-update")
             is TenTapBridge.TenTapMessage.DocumentHeight -> logLine("← document-height ${msg.height}")
+            is TenTapBridge.TenTapMessage.HtmlBack ->
+                logLine("← send-html-back bytes=${msg.content.length}")
+            is TenTapBridge.TenTapMessage.TextBack ->
+                logLine("← send-text-back bytes=${msg.content.length}")
             is TenTapBridge.TenTapMessage.JsonBack -> {
                 logLine("← send-json-back id=${msg.messageId} bytes=${msg.content.toString().length}")
                 logLine("getJSON=${msg.content.toString().take(500)}")
@@ -239,7 +243,7 @@ class EditorSpikeActivity : ComponentActivity() {
                     .fillMaxWidth()
                     .weight(1f),
                 onMessage = { raw -> runOnUiThread { handle(raw) } },
-                onWebViewReady = { webView = it },
+                onWebViewReady = { wv, _ -> webView = wv },
             )
 
             Row(

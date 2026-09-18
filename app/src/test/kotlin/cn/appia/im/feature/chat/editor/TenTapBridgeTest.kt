@@ -178,4 +178,103 @@ class TenTapBridgeTest {
         assertFalse(withTag.contains("</script>"))
         assertTrue(withTag.contains("\\u003c/script>"))
     }
+
+    // ── T12 转正：get-html/get-text 回包解析 + set-content HTML 形态 + margin/editable ──
+
+    @Test
+    fun `send html back and send text back parse with messageId`() {
+        val html = TenTapBridge.parseMessage(
+            """{"type":"send-html-back","payload":{"content":"<p>hi</p>","messageId":"h1"}}"""
+        )
+        assertEquals(TenTapBridge.TenTapMessage.HtmlBack("<p>hi</p>", "h1"), html)
+        val text = TenTapBridge.parseMessage(
+            """{"type":"send-text-back","payload":{"content":"hello","messageId":"t1"}}"""
+        )
+        assertEquals(TenTapBridge.TenTapMessage.TextBack("hello", "t1"), text)
+        // 缺 messageId 不崩：配对层按 null 忽略
+        val bare = TenTapBridge.parseMessage("""{"type":"send-text-back","payload":{"content":"x"}}""")
+        assertTrue(bare is TenTapBridge.TenTapMessage.TextBack && bare.messageId == null)
+    }
+
+    @Test
+    fun `set content html action carries string content verbatim`() {
+        val json = TenTapBridge.setContentHtmlAction("<p>a&amp;b</p>")
+        val payload = Json.parseToJsonElement(json).jsonObject["payload"]!!.jsonObject["payload"]!!.jsonObject
+        assertEquals("<p>a&amp;b</p>", payload["content"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `get html get text margin editable builders wire payload`() {
+        val getHtml = Json.parseToJsonElement(TenTapBridge.getHtmlAction("h9")).jsonObject
+        assertEquals("get-html", getHtml["payload"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("h9", getHtml["payload"]!!.jsonObject["payload"]!!.jsonObject["messageId"]!!.jsonPrimitive.content)
+
+        val getText = Json.parseToJsonElement(TenTapBridge.getTextAction("t9")).jsonObject
+        assertEquals("get-text", getText["payload"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+
+        val margin = Json.parseToJsonElement(TenTapBridge.updateScrollMarginAction(44)).jsonObject
+        assertEquals("update-scroll-threshold-and-margin", margin["payload"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals(44, margin["payload"]!!.jsonObject["payload"]!!.jsonPrimitive.content.toInt())
+
+        val editable = Json.parseToJsonElement(TenTapBridge.setEditableAction(false)).jsonObject
+        assertEquals("set-editable", editable["payload"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals(false, editable["payload"]!!.jsonObject["payload"]!!.jsonPrimitive.content.toBooleanStrict())
+    }
+
+    /** T2 绑定 (b) 决策落痕：insert-mention 不再携带 avatarUrl（fork schema 无此 attr，静默丢弃）。 */
+    @Test
+    fun `insert mention action carries no avatar url`() {
+        val mention = Json.parseToJsonElement(TenTapBridge.insertMentionAction("u1", "@x")).jsonObject
+        val mPayload = mention["payload"]!!.jsonObject["payload"]!!.jsonObject
+        assertEquals(setOf("id", "label"), mPayload.keys)
+    }
+
+    // ── T12 转正：extendCSS 样式注入（getStyleSheetCSS/getInjectedJS 等价）──
+
+    @Test
+    fun `style sheet js creates tagged style element and sets content`() {
+        val js = TenTapBridge.styleSheetJs("a{color:red}", "mention")
+        assertTrue(js.contains("style[data-tag=" + TenTapBridge.jsStringLiteral("mention") + "]"))
+        assertTrue(js.contains("createElement('style')"))
+        assertTrue(js.contains("styleElement.innerHTML=cssContent;"))
+        assertTrue(js.contains("a{color:red}"))
+    }
+
+    @Test
+    fun `injected style sheets covers every bridge with extend css`() {
+        val js = TenTapBridge.injectedStyleSheets(EditorCss.BRIDGE_EXTEND_CSS)
+        for (tag in EditorCss.BRIDGE_EXTEND_CSS.keys) {
+            assertTrue("missing style tag $tag", js.contains("data-tag=" + TenTapBridge.jsStringLiteral(tag) + "]"))
+        }
+        // RN getInjectedJS 以 `true;` 收尾；css 内容经字面量转义不得破串
+        assertTrue(js.endsWith(" true;"))
+        assertFalse(js.contains("</script>"))
+        // fork mention 芯片样式必须在场（ RN bridges/mention.ts extendCSS 逐字）
+        assertTrue(js.contains(".mention-node"))
+    }
+
+    /** 异步 RPC 配对：同 messageId 完成等待方；未登记/缺 id 忽略。 */
+    @Test
+    fun `async messages pairs by message id`() = kotlinx.coroutines.test.runTest {
+        val async = EditorAsyncMessages()
+        val d1 = async.prepare("id1")
+        val d2 = async.prepare("id2")
+        async.onMessage("id2", Json.parseToJsonElement("""{"a":1}"""))
+        assertEquals("""{"a":1}""", d2.await().toString())
+        assertFalse(d1.isCompleted)
+        async.onMessage(null, Json.parseToJsonElement("{}")) // 缺 id 忽略
+        async.onMessage("ghost", Json.parseToJsonElement("{}")) // 未登记忽略
+        assertFalse(d1.isCompleted)
+        async.onMessage("id1", Json.parseToJsonElement("""{"b":2}"""))
+        assertEquals("""{"b":2}""", d1.await().toString())
+    }
+
+    /** EditorCss：输入条 CSS 带 placeholder content 与列表计数后缀（RN handleLoad 逐段）。 */
+    @Test
+    fun `input bar css embeds placeholder and counter styles`() {
+        val css = EditorCss.inputBarCss("Say something")
+        assertTrue(css.contains("content: \"Say something\";"))
+        assertTrue(css.contains("list-style-type: decimal-type;"))
+        assertTrue(css.contains("scrollbar-width: none;"))
+    }
 }
