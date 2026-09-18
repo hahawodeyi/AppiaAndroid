@@ -3,6 +3,7 @@ package cn.appia.im.feature.chat.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,7 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,6 +26,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -281,6 +285,8 @@ internal fun buildMessageBody(message: MessageEntity, currentUsername: String?):
  * 左头像 36dp 固定列 + 内容列（上排 发送者名 alias>`@loginName`/name/username + 时间
  * MM/DD HH:mm（跨年 YYYY/MM/DD HH:mm）+ `(UTC±x)`；下排 气泡（自己 #CCE6FF）+ 状态徽标：
  * QUEUED/SENDING 菊花、ERROR 红叹号点重发、SENT/null 无；已读回执图标（T10）。
+ * T11：整行长按 → 长按菜单（RN Pressable delayLongPress=500 的 Compose combinedClickable
+ * 为系统长按时长 ~400ms，行为一致）；多选态下点击切换选中并显示勾选列。
  */
 @Composable
 fun MessageRow(
@@ -301,8 +307,18 @@ fun MessageRow(
     roomType: String? = null,
     /** 已读回执可点图标（T10）：自己的消息 unread=true（非 DM）→ ReadReceipt 明细路由。 */
     onOpenReadReceipt: (MessageEntity) -> Unit = {},
+    /** 长按菜单入口（T11）；多选态下 RoomScreen 不传（RN handleMessageLongPress inMultiSelect 早退）。 */
+    onLongPress: (MessageEntity) -> Unit = {},
+    /** 行点击（T11 多选态：切换选中；普通态 no-op）。 */
+    onClick: (MessageEntity) -> Unit = {},
+    /** 多选态选中显示（T11）：null=非多选态不渲染勾选列。 */
+    selected: Boolean? = null,
 ) {
     val colors = LocalAppiaColors.current
+    // pointerInput 捕获的是首个组合的 lambda：经 rememberUpdatedState 每次事件读最新回调，
+    // 防 RoomScreen 侧守卫（多选态/只读房）变化后长按走旧判定
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val currentOnClick by rememberUpdatedState(onClick)
     val header = remember(message) { buildMessageHeaderDisplay(message) }
     val parsed = remember(message) { parseMessageUser(message.u) }
     val isOwn = !currentUserId.isNullOrEmpty() && parsed._id == currentUserId
@@ -318,7 +334,32 @@ fun MessageRow(
         )
     }
 
-    Row(modifier = modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            // pointerInput 而非 combinedClickable：后者会合并行内子节点语义（testTag 不可见，
+            // ReactionBar/回执 UI 测试碎）；detectTapGestures 零语义变更。RN delayLongPress=500
+            // 对应 Compose 系统长按时长（~400ms），行为一致。
+            .pointerInput(message) {
+                detectTapGestures(
+                    onTap = { currentOnClick(message) },
+                    onLongPress = { currentOnLongPress(message) },
+                )
+            }
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+    ) {
+        // 多选勾选列（T11）：非多选态不占位
+        if (selected != null) {
+            Text(
+                text = if (selected) "☑" else "☐",
+                color = colors.primary,
+                fontSize = 16.sp,
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .padding(end = 6.dp)
+                    .testTag(if (selected) "qa-message-selected" else "qa-message-unselected"),
+            )
+        }
         // 头像固定列：initial 垫底 + Coil AsyncImage（鉴权 rc_token/rc_uid + etag v）
         Box(Modifier.padding(top = 4.dp).size(AVATAR_SIZE), contentAlignment = Alignment.Center) {
             Box(

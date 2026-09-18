@@ -36,12 +36,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.feature.chat.DraftController
+import cn.appia.im.feature.chat.MessageAction
+import cn.appia.im.feature.chat.MessageActionContext
+import cn.appia.im.feature.chat.MessageMultiSelectStore
 import cn.appia.im.feature.chat.PendingAttachments
 import cn.appia.im.feature.chat.RoomMessagesUiState
 import cn.appia.im.core.theme.LocalAppiaColors
@@ -49,12 +53,31 @@ import cn.appia.im.core.util.formatMessageDateLabel
 import cn.appia.im.core.util.isSameCalendarDay
 import cn.appia.im.feature.chat.RoomAttachmentButton
 import cn.appia.im.feature.chat.SelectedAttachmentList
+import cn.appia.im.feature.chat.applyDisplayMessageTransforms
+import cn.appia.im.feature.chat.buildBatchRecallTip
+import cn.appia.im.feature.chat.canRecallMessage
+import cn.appia.im.feature.chat.composeQuotedMessageText
+import cn.appia.im.feature.chat.copyableText
+import cn.appia.im.feature.chat.deserializeOriginalContent
+import cn.appia.im.feature.chat.filterVisibleDisplayMessages
+import cn.appia.im.feature.chat.getOptions
+import cn.appia.im.feature.chat.isReeditableRollback
+import cn.appia.im.feature.chat.isRoomReadOnly
+import cn.appia.im.feature.chat.summarizeSenders
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.util.Log
+import android.widget.Toast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.io.File
 
 /** RN messageTypeLoad：load_chunk 渲染 1px 空行。 */
 private val LOAD_CHUNK_TYPES = setOf("load-more-before", "load-more-after")
+
+/** Log tag（T11 撤回失败等，与 MainActivity NAV_TAG 同前缀）。 */
+private const val ROOM_TAG = "roomRoute"
 
 /** 列表项两型：消息（含系统/1px chunk）与日期分隔（contentType 三型在此派生）。 */
 internal sealed class RoomListItem {
@@ -137,6 +160,16 @@ fun RoomScreen(
     onOpenReadReceipt: (MessageEntity) -> Unit = {},
     /** 未读横幅数据源（T10 / RN useRoomUnreadBanner）：GET room.firsUnread；失败/关闭回 null。 */
     loadFirstUnread: suspend (String) -> cn.appia.im.core.network.api.FirstUnread? = { null },
+    /** 房间只读（T11 / RN isRoomReadOnly = archived||ro）：只读房拦长按菜单。 */
+    isRoomReadOnly: Boolean = false,
+    /** 撤回（T11 / RN onRecall doRecall：先快照后 POST，装配处 = RecallActions.recall）。 */
+    onRecall: suspend (MessageEntity) -> Unit = {},
+    /** 批量撤回（T11 多选条 / RN handleBatchRecall：POST message.batch.recall，装配处实现）。 */
+    onBatchRecall: suspend (List<String>) -> Unit = {},
+    /** 编辑入口（T11 参数化回调，T12 接编辑器；RN onEdit → setEditing）。 */
+    onEdit: (MessageEntity) -> Unit = {},
+    /** 转发路由（T11 / RN ForwardSelect isMerged）：(messageIds, 合并?)。单条与多选共用。 */
+    onForward: (List<String>, Boolean) -> Unit = { _, _ -> },
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -144,7 +177,14 @@ fun RoomScreen(
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val items = remember(state.messages) { buildRoomListItems(state.messages) }
+    // rollback 分组（T11 / RN applyDisplayMessageTransforms + filterVisible）：连续同 rollbacker
+    // 归组后过滤 hidden 条，再走日期分隔（RN visibleMessages 同序）
+    val display = remember(state.messages) { applyDisplayMessageTransforms(state.messages) }
+    val visible = remember(display) { filterVisibleDisplayMessages(display) }
+    val rollbackGroups = remember(display) {
+        display.mapNotNull { d -> d.rollbackGroup?.let { d.message._id to it } }.toMap()
+    }
+    val items = remember(visible) { buildRoomListItems(visible.map { it.message }) }
     val latestState by rememberUpdatedState(state)
     val latestOnLoadEarlier by rememberUpdatedState(onLoadEarlier)
 
@@ -205,6 +245,69 @@ fun RoomScreen(
     }
     val attachments by pendingAttachments.items.collectAsState()
 
+    // ── T11：长按菜单 / 回复态 / 多选态（RN handleMessageLongPress + ReplyContext + multiSelectStore）──
+    val messageContext = remember(currentUserId) {
+        MessageActionContext(currentUserId = currentUserId.orEmpty()) // 权限硬编码对照 RN RoomScreen:423-427
+    }
+    var sheetMessage by remember(rid) { mutableStateOf<MessageEntity?>(null) }
+    var replyTo by remember(rid) { mutableStateOf<MessageEntity?>(null) }
+    var batchRecallConfirm by remember(rid) { mutableStateOf(false) }
+    val multiSelect = remember(rid) { MessageMultiSelectStore() }
+    val multiState by multiSelect.state.collectAsState()
+
+    /** 长按入口（RN handleMessageLongPress :806-812 早退守卫：多选态/只读房不开菜单）。 */
+    val handleLongPress: (MessageEntity) -> Unit = { m ->
+        if (!multiState.active && !isRoomReadOnly) sheetMessage = m
+    }
+    /** 行点击（RN handleMessagePress :838-842：多选态下点击即切换选中）。 */
+    val handleRowClick: (MessageEntity) -> Unit = { m ->
+        if (multiState.active) multiSelect.toggle(m)
+    }
+
+    /** 菜单动作分发（RN handlers :815-873 逐条）。 */
+    fun dispatchAction(action: MessageAction, m: MessageEntity) {
+        when (action) {
+            MessageAction.REPLY -> replyTo = m
+            MessageAction.EDIT -> onEdit(m) // T12 接编辑器
+            MessageAction.COPY -> {
+                val text = copyableText(m)
+                if (text.isNotEmpty()) {
+                    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
+                        ClipData.newPlainText("message", text),
+                    )
+                    Toast.makeText(context, context.t("copied_to_clipboard"), Toast.LENGTH_SHORT).show()
+                }
+            }
+            MessageAction.FORWARD -> onForward(listOf(m._id), false)
+            MessageAction.MULTI_SELECT -> multiSelect.enter(rid, m)
+            MessageAction.RECALL -> scope.launch {
+                try {
+                    onRecall(m)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(ROOM_TAG, "recall message failed id=${m._id}", e) // RN console.warn :879
+                }
+            }
+            MessageAction.RESEND -> onResend(m)
+        }
+    }
+
+    /** 重新编辑（RN handleReedit :806-812：反序列化快照回填输入框作新消息，不进编辑模式）。 */
+    val handleReedit: (MessageEntity) -> Unit = { m ->
+        deserializeOriginalContent(m)?.let { restored -> input = TextFieldValue(restored.msg.orEmpty()) }
+    }
+
+    /** 批量撤回确认文案（RN :981-985 buildBatchRecallTip；弹窗打开时才组装）。 */
+    val batchRecallTipText = if (batchRecallConfirm) {
+        val tip = buildBatchRecallTip(
+            summarizeSenders(multiState.selectedMap.values.toList(), currentUsername),
+        )
+        systemMessageT(context)(tip.key, tip.params)
+    } else {
+        ""
+    }
+
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
         RoomHeader(title = title, onBack = onBack)
 
@@ -235,8 +338,23 @@ fun RoomScreen(
                             is RoomListItem.Message -> when {
                                 item.message.t in LOAD_CHUNK_TYPES ->
                                     Box(Modifier.fillMaxWidth().height(1.dp)) // RN load_chunk 1px
+                                isSystemMessageRow(item.message) && rollbackGroups.containsKey(item.message._id) ->
+                                    // rollback 分组头（T11 / RN SystemMessage → RollbackMessageGroup，≥2 条成组）
+                                    RollbackMessageGroup(
+                                        groupMessage = item.message,
+                                        groupMessages = rollbackGroups[item.message._id].orEmpty(),
+                                        currentUserId = currentUserId,
+                                    )
                                 isSystemMessageRow(item.message) ->
-                                    SystemMessageText(item.message)
+                                    SystemMessageText(
+                                        item.message,
+                                        // 重新编辑（RN SystemMessage isReeditableRollback :25-33）
+                                        onReedit = if (isReeditableRollback(item.message, currentUserId)) {
+                                            { handleReedit(item.message) }
+                                        } else {
+                                            null
+                                        },
+                                    )
                                 else ->
                                     MessageRow(
                                         message = item.message,
@@ -255,6 +373,14 @@ fun RoomScreen(
                                         // 已读回执（T10）：unread 可点图标进明细（DM 例外在行内判定）
                                         roomType = state.roomType,
                                         onOpenReadReceipt = onOpenReadReceipt,
+                                        // 长按菜单 + 多选点选（T11）
+                                        onLongPress = handleLongPress,
+                                        onClick = handleRowClick,
+                                        selected = if (multiState.active) {
+                                            item.message._id in multiState.selectedIds
+                                        } else {
+                                            null
+                                        },
                                     )
                             }
                             is RoomListItem.DateSeparator -> DateSeparator(item.tsMs)
@@ -298,20 +424,69 @@ fun RoomScreen(
         }
 
         // 附件条：输入区上方（RN SelectedAttachmentList 挂位；T11 组装完整形态）
-        if (attachments.isNotEmpty()) {
+        if (attachments.isNotEmpty() && !multiState.active) {
             SelectedAttachmentList(
                 items = attachments,
                 onRemove = { pendingAttachments.remove(it) },
             )
         }
 
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(colors.messageboxBackground)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
+        // 回复预览（T11 / RN ChatInputBar ReplyPreview：发送者名 + 原文一行 + ✕ 关闭）
+        replyTo?.let { reply ->
+            val replyName = parseMessageUser(reply.u).name ?: parseMessageUser(reply.u).username.orEmpty()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.messageboxBackground)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .testTag("qa-reply-preview"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        replyName,
+                        color = colors.primary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                    Text(
+                        reply.msg.orEmpty(),
+                        color = colors.auxiliaryText,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    "✕",
+                    color = colors.auxiliaryText,
+                    fontSize = 16.sp,
+                    modifier = Modifier
+                        .clickable { replyTo = null }
+                        .padding(8.dp)
+                        .testTag("qa-reply-close"),
+                )
+            }
+        }
+
+        // 底部区（RN RoomFooter 优先级：多选态操作栏替换输入框；只读横幅 M2 现状不变）
+        if (multiState.active) {
+            MultiSelectActionBar(
+                selectedCount = multiState.selectedIds.size,
+                canRecall = multiState.selectedMap.values.all { canRecallMessage(it, messageContext) },
+                onForwardOneByOne = { onForward(multiState.selectedIds, false) },
+                onForwardCombine = { onForward(multiState.selectedIds, true) },
+                onBatchRecall = { batchRecallConfirm = true },
+                onCancel = { multiSelect.exit() },
+            )
+        } else {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.messageboxBackground)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
             RoomAttachmentButton(pending = pendingAttachments)
             TextField(
                 value = input,
@@ -353,18 +528,64 @@ fun RoomScreen(
                         val text = input.text
                         val files = pendingAttachments.readyFiles
                         scope.launch {
+                            // 回复引用前缀（T11 / RN ChatInputBar composeQuotedMessageText :812/:918 两路径同拼）
+                            val finalMsg = composeQuotedMessageText(
+                                plainText = text,
+                                replyingMessage = replyTo,
+                                serverUrl = serverUrl,
+                                rid = rid,
+                                roomType = state.roomType.ifEmpty { null },
+                                authUserId = currentUserId,
+                            )
                             if (files.isNotEmpty()) {
                                 // 文件消息（T6）：ready 附件 + 输入文案作 msg → enqueueFileMessage
-                                onSendFiles(files, text)
+                                onSendFiles(files, finalMsg)
                                 pendingAttachments.clear() // RN ChatInputBar 发送后清附件条
                             } else {
-                                onSend(text) // SendOrchestrator.enqueueTextMessage（纯文本）
+                                onSend(finalMsg) // SendOrchestrator.enqueueTextMessage（纯文本）
                             }
+                            replyTo = null // RN :821 发送后清回复态
                             input = TextFieldValue("") // 发送成功清输入
                             draftController?.clearAfterSend(rid) // 四列清（RN clearDraft）
                         }
                     }
                     .testTag("qa-room-send"),
+            )
+            }
+        }
+
+        // 长按菜单（T11）：getOptions 判定 → Sheet 分发
+        sheetMessage?.let { m ->
+            MessageActionsSheet(
+                actions = getOptions(m, messageContext),
+                onAction = { action ->
+                    sheetMessage = null
+                    dispatchAction(action, m)
+                },
+                onDismiss = { sheetMessage = null },
+            )
+        }
+
+        // 批量撤回确认（T11 / RN handleBatchRecall Alert：确定 → POST + 退出多选）
+        if (batchRecallConfirm) {
+            BatchRecallConfirmDialog(
+                message = batchRecallTipText,
+                onConfirm = {
+                    batchRecallConfirm = false
+                    val ids = multiState.selectedIds
+                    multiSelect.exit()
+                    scope.launch {
+                        try {
+                            onBatchRecall(ids)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // RN :996-999 catch → toast multiSelect_batchRecallFailed
+                            Toast.makeText(context, context.t("multiselect_batchrecallfailed"), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onDismiss = { batchRecallConfirm = false },
             )
         }
     }

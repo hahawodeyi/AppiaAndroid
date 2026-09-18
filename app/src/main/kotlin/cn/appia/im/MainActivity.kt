@@ -46,6 +46,7 @@ import cn.appia.im.domain.session.BackgroundScope
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.DraftRepository
+import cn.appia.im.feature.chat.RecallActions
 import cn.appia.im.feature.chat.RoomMessagesViewModel
 import cn.appia.im.feature.chat.RoomReadMarker
 import cn.appia.im.feature.chat.ui.AttachmentNav
@@ -371,6 +372,8 @@ fun AppiaNavHost(
                 val readMarker = remember { RoomReadMarker(markRead = actions::markRoomRead, scope = deps.scope) }
                 // 表情回应（T8）：乐观翻转 + chat.react + 失败回滚；username 口径（非 userId）
                 val reactionActions = remember(db) { ReactionActions(deps.sdk, db) }
+                // 撤回（T11）：先快照 original_content 再 POST message.recall / batch.recall
+                val recallActions = remember(db) { RecallActions(deps.sdk, db) }
 
                 // T9/T10 锚点（进房接线）：进房即读 + 订阅房间流；新消息落库信号 → 已读防抖
                 //（仅当前房间：RoomReadMarker.activeRid 守卫）。DisposableEffect 声明在 RoomScreen
@@ -440,6 +443,18 @@ fun AppiaNavHost(
                     },
                     // 未读横幅数据源（T10）：GET room.firsUnread（拼写保留）
                     loadFirstUnread = { rid -> ReadReceiptsApi.getFirstUnread(deps.sdk, rid) },
+                    // 只读房（T11 / RN isRoomReadOnly = archived||ro）：拦长按菜单
+                    isRoomReadOnly = chatRow?.archived == true || chatRow?.ro == true,
+                    // 撤回（T11 / RN onRecall doRecall：先快照 original_content 再 POST message.recall）
+                    onRecall = { m -> recallActions.recall(m) },
+                    // 批量撤回（T11 多选条）：POST message.batch.recall {ids}（不快照，RN 同）
+                    onBatchRecall = { ids -> recallActions.batchRecall(ids) },
+                    // 编辑入口（T11 参数化回调；编辑器 UI 是 T12，暂 no-op）
+                    onEdit = { },
+                    // 转发（T11 / RN ForwardSelect）：单条（菜单）与多选（多选条）共用路由
+                    onForward = { ids, merged ->
+                        nav.navigate(ForwardSelectRoute(messageIds = ids, isMerged = merged))
+                    },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->
                         when (target) {
