@@ -1,5 +1,6 @@
 package cn.appia.im.feature.chat.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -275,7 +280,7 @@ internal fun buildMessageBody(message: MessageEntity, currentUsername: String?):
  * 普通消息行（RN RoomMessageRow/index.tsx + RoomMessageRowAuthorHeader）：
  * 左头像 36dp 固定列 + 内容列（上排 发送者名 alias>`@loginName`/name/username + 时间
  * MM/DD HH:mm（跨年 YYYY/MM/DD HH:mm）+ `(UTC±x)`；下排 气泡（自己 #CCE6FF）+ 状态徽标：
- * QUEUED/SENDING 菊花、ERROR 红叹号点重发、SENT/null 无；已读回执占位 M3）。
+ * QUEUED/SENDING 菊花、ERROR 红叹号点重发、SENT/null 无；已读回执图标（T10）。
  */
 @Composable
 fun MessageRow(
@@ -292,6 +297,10 @@ fun MessageRow(
     onToggleReaction: (String) -> Unit = {},
     /** 合并转发卡片点击（T9）：(msgData 原文, 标题) → ForwardDetail 路由。 */
     onOpenForwardMerge: (String, String) -> Unit = { _, _ -> },
+    /** 房间类型（T10 已读回执）：'d' 为 DM——不可点图标不渲染（绑定裁定#4）。 */
+    roomType: String? = null,
+    /** 已读回执可点图标（T10）：自己的消息 unread=true（非 DM）→ ReadReceipt 明细路由。 */
+    onOpenReadReceipt: (MessageEntity) -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
     val header = remember(message) { buildMessageHeaderDisplay(message) }
@@ -394,6 +403,27 @@ fun MessageRow(
                         )
                     }
                 }
+                // 已读回执挂点（T10 / RN RoomMessageRow:213-229 + MessageReadReceipt）：仅自己消息 +
+                // 服务端 unread 列非空才渲染（本地产物 unread=null 无图标）；false 蓝色已读对勾；
+                // true 可点图标进明细（DM 'd' 不渲染可点图标——绑定裁定#4；系统/公告行无 t 才可能命中）
+                if (isOwn && message.t.isNullOrEmpty() && !roomType.isNullOrEmpty()) {
+                    when (message.unread) {
+                        false -> MessageReadReceiptIcon(
+                            read = true,
+                            modifier = Modifier.padding(start = 4.dp).testTag("qa-read-receipt-read"),
+                        )
+                        true -> if (roomType != "d") {
+                            MessageReadReceiptIcon(
+                                read = false,
+                                modifier = Modifier
+                                    .padding(start = 4.dp)
+                                    .clickable { onOpenReadReceipt(message) }
+                                    .testTag("qa-read-receipt-unread"),
+                            )
+                        }
+                        else -> Unit
+                    }
+                }
                 StatusBadge(
                     status = message.status?.toInt(),
                     onResend = { onResend(message) },
@@ -432,5 +462,30 @@ private fun StatusBadge(status: Int?, onResend: () -> Unit, modifier: Modifier =
                 .clickable(onClick = onResend),
         )
         else -> Unit
+    }
+}
+
+/**
+ * 已读回执图标（RN MessageReadIcon 双勾 / MessageUnreadIcon 单勾 16dp 等价，Canvas 描边勾）：
+ * read=true → colors.primary（蓝色已读），false → colors.tintColor（可点未读）。
+ */
+@Composable
+private fun MessageReadReceiptIcon(read: Boolean, modifier: Modifier = Modifier) {
+    val color = if (read) LocalAppiaColors.current.primary else LocalAppiaColors.current.tintColor
+    Canvas(modifier.size(16.dp)) {
+        val stroke = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        fun check(offsetX: Float) {
+            drawPath(
+                Path().apply {
+                    moveTo(offsetX + 2.4.dp.toPx(), 8.2.dp.toPx())
+                    lineTo(offsetX + 5.6.dp.toPx(), 11.2.dp.toPx())
+                    lineTo(offsetX + 12.5.dp.toPx(), 4.4.dp.toPx())
+                },
+                color = color,
+                style = stroke,
+            )
+        }
+        check(0f)
+        if (read) check(3.5.dp.toPx())
     }
 }

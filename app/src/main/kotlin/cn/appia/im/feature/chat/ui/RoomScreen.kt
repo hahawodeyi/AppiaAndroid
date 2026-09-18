@@ -133,6 +133,10 @@ fun RoomScreen(
     onToggleReaction: suspend (MessageEntity, String) -> Unit = { _, _ -> },
     /** 合并转发卡片点击（T9）：(msgData 原文, 标题) → ForwardDetail 路由。 */
     onOpenForwardMerge: (String, String) -> Unit = { _, _ -> },
+    /** 已读回执明细路由（T10）：自己的消息 unread 可点图标 → ReadReceiptScreen。 */
+    onOpenReadReceipt: (MessageEntity) -> Unit = {},
+    /** 未读横幅数据源（T10 / RN useRoomUnreadBanner）：GET room.firsUnread；失败/关闭回 null。 */
+    loadFirstUnread: suspend (String) -> cn.appia.im.core.network.api.FirstUnread? = { null },
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -156,6 +160,26 @@ fun RoomScreen(
                 }
             }
     }
+
+    // 未读横幅（T10 / RN useRoomUnreadBanner :16-45 + RoomScreen:783-799）：进房拉一次
+    // room.firsUnread；count>=10 才显示；滚过 firstUnread（该消息可见且 index+1>=unreadCount）
+    // 或点击跳转后消失（RN hideBanner 单向，不复现）。
+    var firstUnread by remember(rid) { mutableStateOf<cn.appia.im.core.network.api.FirstUnread?>(null) }
+    var bannerDismissed by remember(rid) { mutableStateOf(false) }
+    LaunchedEffect(rid) {
+        firstUnread = runCatching { loadFirstUnread(rid) }.getOrNull()?.takeIf { it.success }
+    }
+    val bannerMsgId = firstUnread?.messageId
+    val bannerCount = firstUnread?.unread ?: 0
+    LaunchedEffect(listState, bannerMsgId, bannerCount) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.toList() }
+            .collect { infos ->
+                if (bannerMsgId != null && infos.any { it.key == bannerMsgId && it.index + 1 >= bannerCount }) {
+                    bannerDismissed = true
+                }
+            }
+    }
+    val bannerVisible = !bannerDismissed && unreadBannerVisible(bannerMsgId, bannerCount)
 
     // 输入与草稿（RN ChatInputBar + useDraft 时序；组合态不写，commit 才计）
     var input by remember(rid) { mutableStateOf(TextFieldValue("")) }
@@ -228,11 +252,29 @@ fun RoomScreen(
                                         },
                                         // 合并转发卡片（T9）：点击进 ForwardDetail（装配处导航）
                                         onOpenForwardMerge = onOpenForwardMerge,
+                                        // 已读回执（T10）：unread 可点图标进明细（DM 例外在行内判定）
+                                        roomType = state.roomType,
+                                        onOpenReadReceipt = onOpenReadReceipt,
                                     )
                             }
                             is RoomListItem.DateSeparator -> DateSeparator(item.tsMs)
                         }
                     }
+                }
+
+                // 未读横幅（T10）：右上角 pill，点击滚到 firstUnread 并消失
+                if (bannerVisible) {
+                    UnreadBanner(
+                        unreadCount = bannerCount,
+                        onPress = {
+                            val idx = items.indexOfFirst { it.key == bannerMsgId }
+                            if (idx >= 0) scope.launch { listState.animateScrollToItem(idx) }
+                            bannerDismissed = true // RN handleUnreadBannerPress :794-799
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 30.dp),
+                    )
                 }
 
                 // 滚到底：不在最新处即显示（简化实现）

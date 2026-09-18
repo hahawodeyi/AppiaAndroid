@@ -55,12 +55,14 @@ import cn.appia.im.feature.chat.ui.DocPreviewScreen
 import cn.appia.im.feature.chat.ui.VideoPlayerScreen
 import cn.appia.im.feature.chat.ui.ViewerImage
 import cn.appia.im.feature.chat.ui.ReactionActions
+import cn.appia.im.feature.chat.ui.ReadReceiptScreen
 import cn.appia.im.feature.chat.ui.RoomScreen
 import cn.appia.im.feature.chat.ui.resolveRoomHeaderTitle
 import cn.appia.im.feature.chat.forward.ForwardDetailScreen
 import cn.appia.im.feature.chat.forward.ForwardSearcher
 import cn.appia.im.feature.chat.forward.ForwardSelectScreen
 import cn.appia.im.core.network.api.ForwardApi
+import cn.appia.im.core.network.api.ReadReceiptsApi
 import cn.appia.im.core.network.api.SpotlightApi
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
@@ -148,6 +150,15 @@ data class ForwardSelectRoute(val messageIds: List<String>, val isMerged: Boolea
 /** 合并转发详情路由（T9）：msgData 原文 + 卡片标题（RN navigate('ForwardMessage', {messages, originRid, title}) 的等价自包含参数）。 */
 @Serializable
 data class ForwardDetailRoute(val msgDataJson: String, val title: String = "")
+
+/** 已读回执明细路由（T10，RN navigate('ReadReceipt', {messageId, rid, roomType, userId})）。 */
+@Serializable
+data class ReadReceiptRoute(
+    val messageId: String,
+    val rid: String,
+    val userId: String,
+    val roomType: String = "c",
+)
 
 /** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
 private typealias LoginStateFactory =
@@ -416,6 +427,19 @@ fun AppiaNavHost(
                     onOpenForwardMerge = { msgData, title ->
                         nav.navigate(ForwardDetailRoute(msgDataJson = msgData, title = title))
                     },
+                    // 已读回执（T10）：自己的消息 unread 可点图标 → ReadReceiptScreen
+                    onOpenReadReceipt = { m ->
+                        nav.navigate(
+                            ReadReceiptRoute(
+                                messageId = m._id,
+                                rid = route.rid,
+                                userId = auth?.user?.id.orEmpty(),
+                                roomType = route.roomType,
+                            ),
+                        )
+                    },
+                    // 未读横幅数据源（T10）：GET room.firsUnread（拼写保留）
+                    loadFirstUnread = { rid -> ReadReceiptsApi.getFirstUnread(deps.sdk, rid) },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->
                         when (target) {
@@ -516,6 +540,24 @@ fun AppiaNavHost(
                     onOpenForwardMerge = { msgData, title ->
                         nav.navigate(ForwardDetailRoute(msgDataJson = msgData, title = title))
                     },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        composable<ReadReceiptRoute> { entry ->
+            val route = entry.toRoute<ReadReceiptRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val auth = remember { deps.store.load() }
+                ReadReceiptScreen(
+                    messageId = route.messageId,
+                    rid = route.rid,
+                    userId = route.userId,
+                    sdk = deps.sdk,
+                    serverUrl = serverUrl,
+                    token = auth?.token,
                     onBack = { nav.popBackStack() },
                 )
             }
