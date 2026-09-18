@@ -286,6 +286,8 @@ fun MessageRow(
     modifier: Modifier = Modifier,
     /** 附件点击路由（图片/视频/音频/文档；T7）。 */
     onAttachmentNav: (AttachmentNav) -> Unit = {},
+    /** 表情回应 toggle（T8；参数 = shortname。行内反应条点击 + picker 选中共用；长按菜单入口 T11）。 */
+    onToggleReaction: (String) -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
     val header = remember(message) { buildMessageHeaderDisplay(message) }
@@ -386,6 +388,13 @@ fun MessageRow(
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }
+
+            // 行内反应条（T8）：reactions 非空才渲染；点击 chip/picker 项 → onToggleReaction(shortname)
+            ReactionBar(
+                reactionsJson = message.reactions,
+                currentUsername = currentUsername,
+                onToggle = onToggleReaction,
+            )
         }
     }
 }

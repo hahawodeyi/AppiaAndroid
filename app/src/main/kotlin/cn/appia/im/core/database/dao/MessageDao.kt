@@ -59,6 +59,14 @@ interface MessageDao {
     @Query("UPDATE messages SET attachments = :attachments, status = :status WHERE _id = :id")
     suspend fun updateAttachmentsAndStatus(id: String, attachments: String?, status: Double)
 
+    /**
+     * reactions 单列更新（T8 表情回应乐观翻转/失败回滚）：只触 reactions 列，
+     * 与 updateStatus 同理不回写全行——乐观写与 DDP 回推的全行 upsert 并发时互不冲列
+     * （回推以服务端真值覆盖 reactions，乐观写不冲它的其余字段）。
+     */
+    @Query("UPDATE messages SET reactions = :reactions WHERE _id = :id")
+    suspend fun updateReactions(id: String, reactions: String?)
+
     @Delete
     suspend fun delete(entity: MessageEntity)
 

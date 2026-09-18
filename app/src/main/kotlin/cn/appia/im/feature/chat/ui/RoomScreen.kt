@@ -129,6 +129,8 @@ fun RoomScreen(
     onResend: (MessageEntity) -> Unit,
     /** 附件点击路由（T7：图片/视频/音频/文档 → MainActivity 导航装配）。 */
     onAttachmentNav: (AttachmentNav) -> Unit = {},
+    /** 表情回应 toggle（T8）：(message, emoji=shortname) → 装配处乐观翻转 + chat.react。 */
+    onToggleReaction: suspend (MessageEntity, String) -> Unit = { _, _ -> },
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -218,6 +220,10 @@ fun RoomScreen(
                                         token = token,
                                         onResend = onResend,
                                         onAttachmentNav = onAttachmentNav,
+                                        // 表情回应（T8）：行内反应条点击 → 乐观翻转 + chat.react（装配处实现）
+                                        onToggleReaction = { emoji ->
+                                            scope.launch { onToggleReaction(item.message, emoji) }
+                                        },
                                     )
                             }
                             is RoomListItem.DateSeparator -> DateSeparator(item.tsMs)

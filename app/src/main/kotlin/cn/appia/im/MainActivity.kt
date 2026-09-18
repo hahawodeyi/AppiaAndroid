@@ -54,6 +54,7 @@ import cn.appia.im.feature.chat.ui.DocPreviewParams
 import cn.appia.im.feature.chat.ui.DocPreviewScreen
 import cn.appia.im.feature.chat.ui.VideoPlayerScreen
 import cn.appia.im.feature.chat.ui.ViewerImage
+import cn.appia.im.feature.chat.ui.ReactionActions
 import cn.appia.im.feature.chat.ui.RoomScreen
 import cn.appia.im.feature.chat.ui.resolveRoomHeaderTitle
 import cn.appia.im.feature.chatlist.ChatRowActions
@@ -344,6 +345,8 @@ fun AppiaNavHost(
                 // 已读标记（T10）：markRead 复用 ChatRowActions（REST+双表写单点）
                 val actions = remember(serverUrl) { ChatRowActions(deps.sdk, deps.dbManager, serverUrl) }
                 val readMarker = remember { RoomReadMarker(markRead = actions::markRoomRead, scope = deps.scope) }
+                // 表情回应（T8）：乐观翻转 + chat.react + 失败回滚；username 口径（非 userId）
+                val reactionActions = remember(db) { ReactionActions(deps.sdk, db) }
 
                 // T9/T10 锚点（进房接线）：进房即读 + 订阅房间流；新消息落库信号 → 已读防抖
                 //（仅当前房间：RoomReadMarker.activeRid 守卫）。DisposableEffect 声明在 RoomScreen
@@ -392,6 +395,10 @@ fun AppiaNavHost(
                     },
                     onBack = { nav.popBackStack() },
                     onLoadEarlier = { vm.loadEarlier() },
+                    onToggleReaction = { m, emoji ->
+                        runCatching { reactionActions.toggle(m._id, emoji, auth?.user?.username) }
+                            .onFailure { Log.w(NAV_TAG, "toggle reaction failed id=${m._id}", it) }
+                    },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->
                         when (target) {
