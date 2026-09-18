@@ -285,6 +285,7 @@
     <string name="feedback_title">意见反馈</string>
     <string name="forwardfailed">转发失败</string>
     <string name="forward_search_placeholder">搜索</string>
+    <string name="forward_search_empty">未找到相关结果</string>
     <string name="forward_select_hint">选择转发对象</string>
     <string name="forward_select_title">转发到</string>
     <string name="forward_selected_count">已选 {{count}}/{{max}}</string>

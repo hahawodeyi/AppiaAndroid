@@ -57,6 +57,11 @@ import cn.appia.im.feature.chat.ui.ViewerImage
 import cn.appia.im.feature.chat.ui.ReactionActions
 import cn.appia.im.feature.chat.ui.RoomScreen
 import cn.appia.im.feature.chat.ui.resolveRoomHeaderTitle
+import cn.appia.im.feature.chat.forward.ForwardDetailScreen
+import cn.appia.im.feature.chat.forward.ForwardSearcher
+import cn.appia.im.feature.chat.forward.ForwardSelectScreen
+import cn.appia.im.core.network.api.ForwardApi
+import cn.appia.im.core.network.api.SpotlightApi
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.login.AuthApi
@@ -135,6 +140,14 @@ data class DocPreviewRoute(
     val downloadUrl: String = "",
     val fileType: String = "",
 )
+
+/** 转发选择页路由（T9）：被转发的消息 id 列表 + 是否合并；入口（长按菜单多选）T11 接线。 */
+@Serializable
+data class ForwardSelectRoute(val messageIds: List<String>, val isMerged: Boolean = false)
+
+/** 合并转发详情路由（T9）：msgData 原文 + 卡片标题（RN navigate('ForwardMessage', {messages, originRid, title}) 的等价自包含参数）。 */
+@Serializable
+data class ForwardDetailRoute(val msgDataJson: String, val title: String = "")
 
 /** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
 private typealias LoginStateFactory =
@@ -399,6 +412,10 @@ fun AppiaNavHost(
                         runCatching { reactionActions.toggle(m._id, emoji, auth?.user?.username) }
                             .onFailure { Log.w(NAV_TAG, "toggle reaction failed id=${m._id}", it) }
                     },
+                    // 合并转发卡片（T9）：点击进 ForwardDetail
+                    onOpenForwardMerge = { msgData, title ->
+                        nav.navigate(ForwardDetailRoute(msgDataJson = msgData, title = title))
+                    },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->
                         when (target) {
@@ -421,6 +438,85 @@ fun AppiaNavHost(
                             )
                         }
                     },
+                )
+            }
+        }
+        composable<ForwardSelectRoute> { entry ->
+            val route = entry.toRoute<ForwardSelectRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                val chats by remember(serverUrl) { db.chatDao().observeList() }
+                    .collectAsState(initial = emptyList())
+                // spotlightv2 聚合搜索（REST 包 DDP call）+ 300ms debounce
+                val searcher = remember(serverUrl) {
+                    ForwardSearcher({ q -> SpotlightApi.fetchForwardSelectSearch(deps.sdk, q) }, deps.scope)
+                }
+                ForwardSelectScreen(
+                    messageIds = route.messageIds,
+                    isMerged = route.isMerged,
+                    chats = chats,
+                    currentUserId = auth?.user?.id,
+                    searcher = searcher,
+                    onForward = { users, rooms ->
+                        ForwardApi.forwardMessage(
+                            deps.sdk,
+                            forwardMessageIds = route.messageIds,
+                            forwardUsers = users,
+                            forwardRooms = rooms,
+                            isForwardMerged = route.isMerged,
+                        )
+                    },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        composable<ForwardDetailRoute> { entry ->
+            val route = entry.toRoute<ForwardDetailRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val auth = remember { deps.store.load() }
+                ForwardDetailScreen(
+                    msgDataJson = route.msgDataJson,
+                    title = route.title,
+                    currentUserId = auth?.user?.id,
+                    currentUsername = auth?.user?.username,
+                    serverUrl = serverUrl,
+                    token = auth?.token,
+                    // 附件查看路由（T7 同款）：内层消息附件可点击
+                    onAttachmentNav = { target ->
+                        when (target) {
+                            is AttachmentNav.Images -> nav.navigate(
+                                MediaViewerRoute(
+                                    imagesJson = loginRouteJson.encodeToString(target.images),
+                                    initialIndex = target.initialIndex,
+                                ),
+                            )
+                            is AttachmentNav.Media -> nav.navigate(
+                                MediaPlayerRoute(url = target.url, title = target.title.orEmpty(), isAudio = target.isAudio),
+                            )
+                            is AttachmentNav.Doc -> nav.navigate(
+                                DocPreviewRoute(
+                                    title = target.params.title,
+                                    fileId = target.params.fileId,
+                                    downloadUrl = target.params.downloadUrl,
+                                    fileType = target.params.fileType,
+                                ),
+                            )
+                        }
+                    },
+                    // 内层再嵌合并转发卡片：同样进详情（RN useOpenForwardMergeMessage 任意层导航同义）
+                    onOpenForwardMerge = { msgData, title ->
+                        nav.navigate(ForwardDetailRoute(msgDataJson = msgData, title = title))
+                    },
+                    onBack = { nav.popBackStack() },
                 )
             }
         }

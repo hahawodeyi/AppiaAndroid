@@ -285,6 +285,7 @@
     <string name="feedback_title">Feedback</string>
     <string name="forwardfailed">Forward failed</string>
     <string name="forward_search_placeholder">Search</string>
+    <string name="forward_search_empty">No results found</string>
     <string name="forward_select_hint">Select forward target</string>
     <string name="forward_select_title">Forward to</string>
     <string name="forward_selected_count">{{count}}/{{max}} selected</string>

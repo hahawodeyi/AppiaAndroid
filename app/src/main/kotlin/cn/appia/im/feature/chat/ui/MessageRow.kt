@@ -32,6 +32,8 @@ import cn.appia.im.core.messaging.MessageStatus
 import cn.appia.im.core.messaging.SystemMessageTexts
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.core.util.formatRoomMessageHeaderTime
+import cn.appia.im.feature.chat.forward.ForwardMergeCard
+import cn.appia.im.feature.chat.forward.MERGE_FORWARD_MSG_TYPE
 import coil3.compose.AsyncImage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -288,6 +290,8 @@ fun MessageRow(
     onAttachmentNav: (AttachmentNav) -> Unit = {},
     /** 表情回应 toggle（T8；参数 = shortname。行内反应条点击 + picker 选中共用；长按菜单入口 T11）。 */
     onToggleReaction: (String) -> Unit = {},
+    /** 合并转发卡片点击（T9）：(msgData 原文, 标题) → ForwardDetail 路由。 */
+    onOpenForwardMerge: (String, String) -> Unit = { _, _ -> },
 ) {
     val colors = LocalAppiaColors.current
     val header = remember(message) { buildMessageHeaderDisplay(message) }
@@ -367,20 +371,28 @@ fun MessageRow(
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                         .testTag("qa-room-message-body"),
                 ) {
-                    Text(
-                        text = buildMessageBody(message, currentUsername),
-                        color = colors.bodyText,
-                        fontSize = 15.sp,
-                        lineHeight = 21.sp,
-                    )
-                    MessageAttachmentsNode(
-                        message = message,
-                        currentUserId = currentUserId,
-                        token = token,
-                        serverUrl = serverUrl,
-                        onNav = onAttachmentNav,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
+                    if (message.msg_type == MERGE_FORWARD_MSG_TYPE) {
+                        // 合并转发卡片（T9）：替代正文/附件（RN AppiaMessage msgType 分发同位）
+                        ForwardMergeCard(
+                            msgData = message.msg_data,
+                            onOpen = onOpenForwardMerge,
+                        )
+                    } else {
+                        Text(
+                            text = buildMessageBody(message, currentUsername),
+                            color = colors.bodyText,
+                            fontSize = 15.sp,
+                            lineHeight = 21.sp,
+                        )
+                        MessageAttachmentsNode(
+                            message = message,
+                            currentUserId = currentUserId,
+                            token = token,
+                            serverUrl = serverUrl,
+                            onNav = onAttachmentNav,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
                 StatusBadge(
                     status = message.status?.toInt(),

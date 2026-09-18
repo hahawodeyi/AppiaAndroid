@@ -131,6 +131,8 @@ fun RoomScreen(
     onAttachmentNav: (AttachmentNav) -> Unit = {},
     /** 表情回应 toggle（T8）：(message, emoji=shortname) → 装配处乐观翻转 + chat.react。 */
     onToggleReaction: suspend (MessageEntity, String) -> Unit = { _, _ -> },
+    /** 合并转发卡片点击（T9）：(msgData 原文, 标题) → ForwardDetail 路由。 */
+    onOpenForwardMerge: (String, String) -> Unit = { _, _ -> },
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -224,6 +226,8 @@ fun RoomScreen(
                                         onToggleReaction = { emoji ->
                                             scope.launch { onToggleReaction(item.message, emoji) }
                                         },
+                                        // 合并转发卡片（T9）：点击进 ForwardDetail（装配处导航）
+                                        onOpenForwardMerge = onOpenForwardMerge,
                                     )
                             }
                             is RoomListItem.DateSeparator -> DateSeparator(item.tsMs)
@@ -324,9 +328,9 @@ fun RoomScreen(
     }
 }
 
-/** RN MessageDateSeparator：线 + `yyyy年M月d日` + 线。 */
+/** RN MessageDateSeparator：线 + `yyyy年M月d日` + 线。（T9 起与 ForwardDetailScreen 共用） */
 @Composable
-private fun DateSeparator(tsMs: Long) {
+internal fun DateSeparator(tsMs: Long) {
     val colors = LocalAppiaColors.current
     Row(
         Modifier
