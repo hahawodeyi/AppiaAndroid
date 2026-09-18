@@ -9,6 +9,11 @@
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Appia" />
+        <!-- M3 T7 附件查看走查入口（同上：debug 直启） -->
+        <activity
+            android:name="cn.appia.im.feature.chat.AttachmentViewerSpikeActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Appia" />
     </application>
 
 </manifest>

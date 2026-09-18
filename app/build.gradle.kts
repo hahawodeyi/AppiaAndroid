@@ -92,6 +92,8 @@ dependencies {
     implementation(libs.coil.compose)
     // Coil 网络模块（ServiceLoader 注册 NetworkFetcher，AsyncImage 才能拉远程头像；T3 遗留）
     implementation(libs.coil.network.okhttp)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
     implementation(libs.core.ktx)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.ktx)

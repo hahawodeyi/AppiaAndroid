@@ -127,6 +127,8 @@ fun RoomScreen(
     /** 文件消息（T6）：ready 附件 + 输入文案 → SendOrchestrator.enqueueFileMessage（缺省装配前禁用）。 */
     onSendFiles: suspend (List<cn.appia.im.core.media.LocalFileInput>, String) -> Unit = { _, _ -> },
     onResend: (MessageEntity) -> Unit,
+    /** 附件点击路由（T7：图片/视频/音频/文档 → MainActivity 导航装配）。 */
+    onAttachmentNav: (AttachmentNav) -> Unit = {},
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -215,6 +217,7 @@ fun RoomScreen(
                                         serverUrl = serverUrl,
                                         token = token,
                                         onResend = onResend,
+                                        onAttachmentNav = onAttachmentNav,
                                     )
                             }
                             is RoomListItem.DateSeparator -> DateSeparator(item.tsMs)

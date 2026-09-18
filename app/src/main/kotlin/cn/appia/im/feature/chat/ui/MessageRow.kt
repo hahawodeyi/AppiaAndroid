@@ -284,6 +284,8 @@ fun MessageRow(
     token: String?,
     onResend: (MessageEntity) -> Unit,
     modifier: Modifier = Modifier,
+    /** 附件点击路由（图片/视频/音频/文档；T7）。 */
+    onAttachmentNav: (AttachmentNav) -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
     val header = remember(message) { buildMessageHeaderDisplay(message) }
@@ -354,18 +356,30 @@ fun MessageRow(
             }
 
             Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 6.dp)) {
-                Text(
-                    text = buildMessageBody(message, currentUsername),
-                    color = colors.bodyText,
-                    fontSize = 15.sp,
-                    lineHeight = 21.sp,
-                    modifier = Modifier
+                // 气泡列：正文 + 附件（RN MessageBody：bubble 背景在含附件的容器上）
+                Column(
+                    Modifier
                         .weight(1f, fill = false) // RN messageContainer：随内容收缩、封顶可用宽
                         .clip(RoundedCornerShape(4.dp))
                         .background(if (isOwn) OwnBubbleColor else colors.backgroundColor)
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                         .testTag("qa-room-message-body"),
-                )
+                ) {
+                    Text(
+                        text = buildMessageBody(message, currentUsername),
+                        color = colors.bodyText,
+                        fontSize = 15.sp,
+                        lineHeight = 21.sp,
+                    )
+                    MessageAttachmentsNode(
+                        message = message,
+                        currentUserId = currentUserId,
+                        token = token,
+                        serverUrl = serverUrl,
+                        onNav = onAttachmentNav,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
                 StatusBadge(
                     status = message.status?.toInt(),
                     onResend = { onResend(message) },

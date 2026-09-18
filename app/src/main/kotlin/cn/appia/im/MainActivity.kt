@@ -48,6 +48,12 @@ import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.DraftRepository
 import cn.appia.im.feature.chat.RoomMessagesViewModel
 import cn.appia.im.feature.chat.RoomReadMarker
+import cn.appia.im.feature.chat.ui.AttachmentNav
+import cn.appia.im.feature.chat.ui.AttachmentViewerScreen
+import cn.appia.im.feature.chat.ui.DocPreviewParams
+import cn.appia.im.feature.chat.ui.DocPreviewScreen
+import cn.appia.im.feature.chat.ui.VideoPlayerScreen
+import cn.appia.im.feature.chat.ui.ViewerImage
 import cn.appia.im.feature.chat.ui.RoomScreen
 import cn.appia.im.feature.chat.ui.resolveRoomHeaderTitle
 import cn.appia.im.feature.chatlist.ChatRowActions
@@ -111,6 +117,23 @@ data object MainRoute
 /** RN RoomScreen 路由参数（rid + 标题兜底 + 房间类型，RoomListScreen T11 串联入口）。 */
 @Serializable
 data class RoomRoute(val rid: String, val title: String = "", val roomType: String = "c")
+
+/** 图片预览页路由（T7）：ViewerImage 列表 JSON 串（type-safe nav 不支持 List<自定义>，同 LoginRoute 裁定）。 */
+@Serializable
+data class MediaViewerRoute(val imagesJson: String, val initialIndex: Int = 0)
+
+/** 视频/音频播放页路由（T7）。 */
+@Serializable
+data class MediaPlayerRoute(val url: String, val title: String = "", val isAudio: Boolean = false)
+
+/** 文档预览页路由（T7，RN DocPreviewPage 参数同名）。 */
+@Serializable
+data class DocPreviewRoute(
+    val title: String = "",
+    val fileId: String = "",
+    val downloadUrl: String = "",
+    val fileType: String = "",
+)
 
 /** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
 private typealias LoginStateFactory =
@@ -369,6 +392,66 @@ fun AppiaNavHost(
                     },
                     onBack = { nav.popBackStack() },
                     onLoadEarlier = { vm.loadEarlier() },
+                    // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
+                    onAttachmentNav = { target ->
+                        when (target) {
+                            is AttachmentNav.Images -> nav.navigate(
+                                MediaViewerRoute(
+                                    imagesJson = loginRouteJson.encodeToString(target.images),
+                                    initialIndex = target.initialIndex,
+                                ),
+                            )
+                            is AttachmentNav.Media -> nav.navigate(
+                                MediaPlayerRoute(url = target.url, title = target.title.orEmpty(), isAudio = target.isAudio),
+                            )
+                            is AttachmentNav.Doc -> nav.navigate(
+                                DocPreviewRoute(
+                                    title = target.params.title,
+                                    fileId = target.params.fileId,
+                                    downloadUrl = target.params.downloadUrl,
+                                    fileType = target.params.fileType,
+                                ),
+                            )
+                        }
+                    },
+                )
+            }
+        }
+        composable<MediaViewerRoute> { entry ->
+            val route = entry.toRoute<MediaViewerRoute>()
+            val images = remember(route.imagesJson) {
+                runCatching { loginRouteJson.decodeFromString<List<ViewerImage>>(route.imagesJson) }
+                    .getOrDefault(emptyList())
+            }
+            AttachmentViewerScreen(
+                images = images,
+                initialIndex = route.initialIndex,
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable<MediaPlayerRoute> { entry ->
+            val route = entry.toRoute<MediaPlayerRoute>()
+            VideoPlayerScreen(
+                url = route.url,
+                title = route.title.ifEmpty { null },
+                isAudio = route.isAudio,
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable<DocPreviewRoute> { entry ->
+            val route = entry.toRoute<DocPreviewRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                DocPreviewScreen(
+                    params = DocPreviewParams(
+                        title = route.title,
+                        fileId = route.fileId,
+                        downloadUrl = route.downloadUrl,
+                        fileType = route.fileType,
+                    ),
+                    sdk = deps.sdk,
+                    onBack = { nav.popBackStack() },
                 )
             }
         }
