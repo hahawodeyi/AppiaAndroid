@@ -354,7 +354,19 @@ fun AppiaNavHost(
                     token = auth?.token,
                     draftController = draftController,
                     onSend = { msg -> orchestrator.enqueueTextMessage(route.rid, msg) },
-                    onResend = { m -> orchestrator.resend(m._id, m.rid, m.msg.orEmpty()) },
+                    onSendFiles = { files, msg -> orchestrator.enqueueFileMessage(route.rid, files, msg) },
+                    // 文件行（attachments 非空）走 file 作业重发；md 从行列解析（RN resend snapshot 同参）
+                    onResend = { m ->
+                        orchestrator.resend(
+                            id = m._id,
+                            rid = m.rid,
+                            msg = m.msg.orEmpty(),
+                            attachments = m.attachments,
+                            md = m.md?.let { raw ->
+                                runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) }.getOrNull()
+                            },
+                        )
+                    },
                     onBack = { nav.popBackStack() },
                     onLoadEarlier = { vm.loadEarlier() },
                 )

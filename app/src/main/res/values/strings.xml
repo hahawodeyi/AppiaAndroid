@@ -156,6 +156,8 @@
     <string name="cancel">Cancel</string>
     <string name="changed_room_description">Description changed to: {{description}}</string>
     <string name="chatinput_attachment">Attachment</string>
+    <string name="chatinput_photo">Photo</string>
+    <string name="chatinput_file">File</string>
     <string name="chatinput_attachmentlimit">You can add up to 100 attachments</string>
     <string name="chatinput_attachmentpreparefailed">Could not prepare file</string>
     <string name="chatinput_attachmentrow">Attachment {{name}}</string>

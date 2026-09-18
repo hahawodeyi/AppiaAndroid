@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,12 +42,16 @@ import androidx.compose.ui.unit.sp
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.feature.chat.DraftController
+import cn.appia.im.feature.chat.PendingAttachments
 import cn.appia.im.feature.chat.RoomMessagesUiState
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.core.util.formatMessageDateLabel
 import cn.appia.im.core.util.isSameCalendarDay
+import cn.appia.im.feature.chat.RoomAttachmentButton
+import cn.appia.im.feature.chat.SelectedAttachmentList
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import java.io.File
 
 /** RN messageTypeLoad：load_chunk 渲染 1px 空行。 */
 private val LOAD_CHUNK_TYPES = setOf("load-more-before", "load-more-after")
@@ -119,6 +124,8 @@ fun RoomScreen(
     token: String?,
     draftController: DraftController?,
     onSend: suspend (String) -> Unit,
+    /** 文件消息（T6）：ready 附件 + 输入文案 → SendOrchestrator.enqueueFileMessage（缺省装配前禁用）。 */
+    onSendFiles: suspend (List<cn.appia.im.core.media.LocalFileInput>, String) -> Unit = { _, _ -> },
     onResend: (MessageEntity) -> Unit,
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
@@ -157,6 +164,16 @@ fun RoomScreen(
     DisposableEffect(rid) {
         onDispose { draftController?.flushOnDispose(rid) }
     }
+
+    // 附件（T6）：rid 维度实例（RN usePendingAttachments per-rid 清空同义）+ 附件条状态
+    val pendingAttachments = remember(rid) {
+        PendingAttachments(
+            uploadsDir = File(context.cacheDir, "uploads"),
+            resolver = context.contentResolver,
+            scope = scope,
+        )
+    }
+    val attachments by pendingAttachments.items.collectAsState()
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
         RoomHeader(title = title, onBack = onBack)
@@ -225,6 +242,14 @@ fun RoomScreen(
             }
         }
 
+        // 附件条：输入区上方（RN SelectedAttachmentList 挂位；T11 组装完整形态）
+        if (attachments.isNotEmpty()) {
+            SelectedAttachmentList(
+                items = attachments,
+                onRemove = { pendingAttachments.remove(it) },
+            )
+        }
+
         Row(
             Modifier
                 .fillMaxWidth()
@@ -232,6 +257,7 @@ fun RoomScreen(
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            RoomAttachmentButton(pending = pendingAttachments)
             TextField(
                 value = input,
                 onValueChange = { v ->
@@ -255,16 +281,30 @@ fun RoomScreen(
             )
             Text(
                 "↑",
-                color = if (input.text.isNotBlank()) colors.tintColor else colors.auxiliaryText,
+                color = if (input.text.isNotBlank() || pendingAttachments.readyFiles.isNotEmpty()) {
+                    colors.tintColor
+                } else {
+                    colors.auxiliaryText
+                },
                 fontSize = 22.sp,
                 modifier = Modifier
                     .padding(start = 8.dp)
                     .size(40.dp)
                     .wrapContentSize(Alignment.Center)
-                    .clickable(enabled = input.text.isNotBlank()) {
+                    .clickable(
+                        enabled = input.text.isNotBlank() ||
+                            (pendingAttachments.readyFiles.isNotEmpty() && !pendingAttachments.isPreparing),
+                    ) {
                         val text = input.text
+                        val files = pendingAttachments.readyFiles
                         scope.launch {
-                            onSend(text) // SendOrchestrator.enqueueTextMessage（纯文本）
+                            if (files.isNotEmpty()) {
+                                // 文件消息（T6）：ready 附件 + 输入文案作 msg → enqueueFileMessage
+                                onSendFiles(files, text)
+                                pendingAttachments.clear() // RN ChatInputBar 发送后清附件条
+                            } else {
+                                onSend(text) // SendOrchestrator.enqueueTextMessage（纯文本）
+                            }
                             input = TextFieldValue("") // 发送成功清输入
                             draftController?.clearAfterSend(rid) // 四列清（RN clearDraft）
                         }

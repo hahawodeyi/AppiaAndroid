@@ -156,6 +156,8 @@
     <string name="cancel">取消</string>
     <string name="changed_room_description">描述已改为：{{description}}</string>
     <string name="chatinput_attachment">附件</string>
+    <string name="chatinput_photo">照片</string>
+    <string name="chatinput_file">文件</string>
     <string name="chatinput_attachmentlimit">最多只能添加 100 个附件</string>
     <string name="chatinput_attachmentpreparefailed">文件准备失败</string>
     <string name="chatinput_attachmentrow">附件 {{name}}</string>

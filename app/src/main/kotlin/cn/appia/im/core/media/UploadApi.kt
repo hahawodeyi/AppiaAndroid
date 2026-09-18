@@ -18,7 +18,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okio.BufferedSink
 import java.io.File
-import java.time.Instant
 import kotlin.random.Random
 
 /**
@@ -123,7 +122,8 @@ object UploadApi {
         msg: String? = null,
         md: JsonElement? = null,
         onProgress: ((ratio: Double) -> Unit)? = null,
-        nowIso: () -> String = { Instant.now().toString() },
+        // RN `new Date().toISOString()`：复用 ChatMerger.formatIsoMillis（minSdk 24 无 java.time）
+        nowIso: () -> String = { cn.appia.im.domain.chat.ChatMerger.formatIsoMillis(System.currentTimeMillis()) },
     ): UploadResult = withContext(Dispatchers.IO) {
         val source = File(file.localPath)
         val body = ProgressRequestBody(source, file.type) { written, total ->
