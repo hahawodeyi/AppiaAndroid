@@ -102,7 +102,6 @@ class RoomScreenTest {
                     draftController = draftController,
                     editorController = editor,
                     onSend = { msg, _ ->
-                        println("DEBUG onSend called: $msg")
                         sentTexts += msg
                         val id = "local-${sentTexts.size}"
                         runBlocking { db.messageDao().insert(messageRow(id, msg = msg, status = 1.0, u = """{"_id":"me","username":"me"}""")) }

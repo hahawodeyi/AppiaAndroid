@@ -55,6 +55,7 @@ import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.MessageAction
 import cn.appia.im.feature.chat.MessageActionContext
 import cn.appia.im.feature.chat.MessageMultiSelectStore
+import cn.appia.im.feature.chat.MentionCandidate
 import cn.appia.im.feature.chat.PendingAttachment
 import cn.appia.im.feature.chat.PendingAttachments
 import cn.appia.im.feature.chat.PrepareStatus
@@ -190,10 +191,15 @@ fun RoomScreen(
      * `multiAttachments.replace`（装配处 MessageEditController/UploadReplaceApi）。
      */
     onEditSubmit: suspend (MessageEntity, String, kotlinx.serialization.json.JsonElement?, List<PendingAttachment>?) -> Unit = { _, _, _, _ -> },
-    /** 编辑单文件上传（多附件模式）；fileIds 组装在装配处（buildOrderedFileIds 可单测）。 */
-    onEditUpload: suspend (cn.appia.im.core.media.LocalFileInput) -> String = { "" },
     /** @提及选人页路由（T12 / RN navigation.navigate('MentionSuggestion', {initialQuery})）。 */
     onOpenMentionSuggestion: (String) -> Unit = {},
+    /**
+     * @提及选中结果流（T12 评审 Critical-1 修：savedStateHandle 观察流）。装配处 =
+     * `previousBackStackEntry.savedStateHandle.getStateFlow(MENTION_SELECTED_KEY, emptyList())`
+     * ——Navigation Compose 跨屏结果惯例；缺省空流（无选人页时无事件）。
+     */
+    mentionSelections: kotlinx.coroutines.flow.StateFlow<List<MentionCandidate>> =
+        kotlinx.coroutines.flow.MutableStateFlow(emptyList()),
     /** 编辑器控制器（T12；缺省本组合建——UI 测试注入自有实例驱动内容态）。 */
     editorController: ChatInputBarController = rememberChatInputBarController(),
     /** 转发路由（T11 / RN ForwardSelect isMerged）：(messageIds, 合并?)。单条与多选共用。 */
@@ -721,9 +727,11 @@ fun RoomScreen(
                     cursorPos.hashCode() // no-op（统一 lambda 签名）
                 }
             }
-            // 选人回插（RN DeviceEventEmitter MENTION_SELECTED_EVENT :763-785）+ 回房重新拉起键盘
+            // 选人回插（RN DeviceEventEmitter MENTION_SELECTED_EVENT :763-785）+ 回房重新拉起键盘。
+            // 结果经 savedStateHandle 观察流投递（装配处接 previousBackStackEntry；共享 Flow 在
+            // 选人页打开期间 RoomScreen collector 已取消、tryEmit 即丢，不可用——评审 Critical-1）
             LaunchedEffect(rid, controller) {
-                MentionSelectionBus.events.collect { members ->
+                mentionSelections.collect { members ->
                     controller.applyMentionSelection(members)
                     controller.requestFocus("end")
                 }

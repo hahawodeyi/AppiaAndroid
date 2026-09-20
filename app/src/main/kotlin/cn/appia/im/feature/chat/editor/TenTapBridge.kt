@@ -334,6 +334,10 @@ class EditorAsyncMessages {
         synchronized(subscriptions) { subscriptions.remove(messageId) }?.complete(value)
     }
 
+    /** 超时/取消弃登记（调用方 withTimeoutOrNull 后清，防悬挂 entry 累积——评审 Minor-7）。 */
+    fun forget(deferred: CompletableDeferred<JsonElement>) =
+        synchronized(subscriptions) { subscriptions.values.remove(deferred) }
+
     /** 测试缝：清空在途 RPC。 */
     fun clear() = synchronized(subscriptions) { subscriptions.clear() }
 }

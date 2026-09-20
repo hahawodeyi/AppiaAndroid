@@ -100,14 +100,20 @@ class TenTapEditorBridge(
     suspend fun getText(): String? = rpc { id -> TenTapBridge.getTextAction(id) }
         ?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
 
-    /** 登记配对 → 下发 → 挂起等 send-*-back（超时 null，不悬挂草稿保存链）。 */
-    private suspend fun rpc(build: (String) -> String): JsonElement? =
-        withContext(Dispatchers.Main.immediate) {
+    /** 登记配对 → 下发 → 挂起等 send-*-back（超时 null，不悬挂草稿保存链）。超时/异常即弃登记（评审 Minor-7：不留悬挂 entry）。 */
+    private suspend fun rpc(build: (String) -> String): JsonElement? {
+        val deferred = withContext(Dispatchers.Main.immediate) {
             val id = "rpc-${rpcCounter.incrementAndGet()}"
-            val deferred = async.prepare(id)
+            val d = async.prepare(id)
             dispatch(build(id))
-            deferred
-        }.let { withTimeoutOrNull(RPC_TIMEOUT_MS) { it.await() } }
+            d
+        }
+        return try {
+            withTimeoutOrNull(RPC_TIMEOUT_MS) { deferred.await() }
+        } finally {
+            async.forget(deferred)
+        }
+    }
 
     /** RichText.tsx:83-90：ProseMirror 底部 padding（键盘弹出时留出滚入空间）。 */
     fun setDocBottomPadding(px: Int) {

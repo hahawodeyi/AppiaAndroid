@@ -64,14 +64,13 @@ import cn.appia.im.feature.chat.forward.ForwardDetailScreen
 import cn.appia.im.feature.chat.forward.ForwardSearcher
 import cn.appia.im.feature.chat.forward.ForwardSelectScreen
 import cn.appia.im.core.network.api.ForwardApi
-import cn.appia.im.core.network.api.RecallApi
 import cn.appia.im.core.network.api.ReadReceiptsApi
 import cn.appia.im.core.network.api.RoomsApi
 import cn.appia.im.core.network.api.SpotlightApi
 import cn.appia.im.core.media.UploadApi
+import cn.appia.im.feature.chat.MessageEditController
 import cn.appia.im.feature.chat.MentionCandidate
 import cn.appia.im.feature.chat.OrderedFileIdsResult
-import cn.appia.im.feature.chat.UploadReplaceApi
 import cn.appia.im.feature.chat.agentBotsToCandidates
 import cn.appia.im.feature.chat.buildOrderedFileIds
 import cn.appia.im.feature.chat.filterBotsByClawAgentVisibility
@@ -181,6 +180,9 @@ data class MentionSuggestionRoute(
     val roomType: String = "c",
     val initialQuery: String = "",
 )
+
+/** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
+const val MENTION_SELECTED_KEY = "mention_selected"
 
 /** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
 private typealias LoginStateFactory =
@@ -395,6 +397,8 @@ fun AppiaNavHost(
                 val reactionActions = remember(db) { ReactionActions(deps.sdk, db) }
                 // 撤回（T11）：先快照 original_content 再 POST message.recall / batch.recall
                 val recallActions = remember(db) { RecallActions(deps.sdk, db) }
+                // 编辑提交（T12）：updateMessage / multiAttachments.replace 双路（评审 Important-4 装配）
+                val editController = remember { MessageEditController(deps.sdk) }
 
                 // T9/T10 锚点（进房接线）：进房即读 + 订阅房间流；新消息落库信号 → 已读防抖
                 //（仅当前房间：RoomReadMarker.activeRid 守卫）。DisposableEffect 声明在 RoomScreen
@@ -471,11 +475,10 @@ fun AppiaNavHost(
                     // 批量撤回（T11 多选条）：POST message.batch.recall {ids}（不快照，RN 同）
                     onBatchRecall = { ids -> recallActions.batchRecall(ids) },
                     // 编辑提交（T12 / RN handleSendFiles editing 分支装配）：绕 Orchestrator——
-                    // 附件条空直 updateMessage（RecallApi.editMessage），非空逐文件多附件上传 +
-                    // multiAttachments.replace 整包覆盖
+                    // null 直 updateMessage；非空逐文件多附件上传 + multiAttachments.replace 整包覆盖
                     onEditSubmit = { m, msg, md, items ->
                         if (items == null) {
-                            RecallApi.editMessage(deps.sdk, route.rid, m._id, msg, md)
+                            editController.submit(route.rid, m._id, msg, md, fileIds = null)
                         } else {
                             val ordered = buildOrderedFileIds(items) { file ->
                                 UploadApi.uploadFileForOrchestrator(
@@ -487,11 +490,8 @@ fun AppiaNavHost(
                                 is OrderedFileIdsResult.Failed ->
                                     throw IllegalStateException("edit attachment not ready: ${ordered.failedItemId}")
                             }
-                            UploadReplaceApi.replaceMultiAttachments(deps.sdk, m._id, route.rid, fileIds, msg, md)
+                            editController.submit(route.rid, m._id, msg, md, fileIds = fileIds)
                         }
-                    },
-                    onEditUpload = { file ->
-                        UploadApi.uploadFileForOrchestrator(deps.sdk, route.rid, file, isMultiAttachment = true).fileId
                     },
                     // @提及选人页（T12 / RN MentionSuggestion）：成员 v2 / agent bot 门控装配
                     onOpenMentionSuggestion = { initialQuery ->
@@ -503,6 +503,10 @@ fun AppiaNavHost(
                             ),
                         )
                     },
+                    // 选人结果（T12 评审 Critical-1）：选人页写 previousBackStackEntry（=本 RoomRoute
+                    // entry）的 savedStateHandle，本处观察 StateFlow 回插——Navigation Compose 跨屏
+                    // 结果惯例（共享 Flow 在选人页打开期间本屏 collector 已取消会丢事件）
+                    mentionSelections = entry.savedStateHandle.getStateFlow(MENTION_SELECTED_KEY, emptyList()),
                     // 转发（T11 / RN ForwardSelect）：单条（菜单）与多选（多选条）共用路由
                     onForward = { ids, merged ->
                         nav.navigate(ForwardSelectRoute(messageIds = ids, isMerged = merged))
@@ -644,11 +648,16 @@ fun AppiaNavHost(
                                 }
                         }
                     },
+                    // 结果写 previousBackStackEntry（=RoomRoute）的 savedStateHandle（Critical-1 修）
+                    onSelected = { members ->
+                        nav.previousBackStackEntry?.savedStateHandle?.set(MENTION_SELECTED_KEY, members)
+                    },
                     onBack = { nav.popBackStack() },
                 )
             }
         }
-        composable<ReadReceiptRoute> { entry ->            val route = entry.toRoute<ReadReceiptRoute>()
+        composable<ReadReceiptRoute> { entry ->
+            val route = entry.toRoute<ReadReceiptRoute>()
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {

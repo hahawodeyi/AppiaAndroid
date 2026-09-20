@@ -46,7 +46,8 @@ internal fun reduceFocusScheduler(
  *   覆盖用户输入）。此处 controller 即稳定引用；UI 层 LaunchedEffect 只响应
  *   isReady/editorReadyCount/draft 变化，绝不以 bridge/controller 实例为 key。
  * - **焦点单一调度**（RN useEditorFocusController + editorFocusScheduler）：50ms debounce +
- *   generation 过期丢弃 + 同向去重；blur 立即下发；未就绪挂起待 isReady 再下发。
+ *   generation 过期丢弃 + 同向去重；blur 立即下发；未就绪 focus 记意图挂起，editor-ready
+ *   时重派一次（blur 清挂起——后到意图胜出）。
  * - mention-trigger 链：记 range {from,to}，选中回插 deleteRange+insertMention。
  * - Android IME 预热判定（RN androidImePrime）：从未交互过的 WebView requestFocus 拉不起 IME。
  */
@@ -137,6 +138,9 @@ class ChatInputBarController(
         isReady = true
         editorReadyCount++
         applyPendingIfReady()
+        // 未就绪期挂起的 focus 意图重派一次（RN useEditorFocusController：ready 即补发）
+        heldFocus?.let { scheduleFocus(it) }
+        heldFocus = null
         scheduleContentFetch()
     }
 
@@ -184,21 +188,31 @@ class ChatInputBarController(
         scheduleFocus("focus")
     }
 
-    /** blur 立即下发（RN blur 不 debounce——键盘应即时收起）。 */
+    /** blur 立即下发（RN blur 不 debounce——键盘应即时收起）；同时丢弃未就绪挂起的 focus。 */
     fun requestBlur() {
         focusJob?.cancel()
+        heldFocus = null
         dispatchFocus("blur")
     }
 
+    /**
+     * 就绪前挂起（RN useEditorFocusController：未就绪 focus 不 debounce、记意图，
+     * editor-ready 时重派一次）；blur 清挂起（后到意图胜出）。就绪后走 50ms debounce。
+     */
     private fun scheduleFocus(desired: String) {
         focusJob?.cancel()
+        if (!isReady) {
+            heldFocus = desired
+            return
+        }
         val gen = focusState.generation
         focusJob = scope.launch {
             delay(focusDebounceMs)
-            if (!isReady) return@launch // 未就绪挂起：isReady 翻 true 后由 onEditorReady 重派
             dispatchFocus(desired, gen)
         }
     }
+
+    private var heldFocus: String? = null
 
     private fun dispatchFocus(desired: String, requestGeneration: Int = focusState.generation) {
         val (action, next) = reduceFocusScheduler(focusState, requestGeneration, desired)

@@ -271,4 +271,55 @@ class MessageBodyTest {
         }
         rule.onNodeWithText("hello edited").assertIsDisplayed()
     }
+
+    // ── (edited) 标记两态（评审 Critical-3：有 md 只行内、无 md 只独立，不双渲染）──
+
+    private fun editedEntity(md: String?) = MessageEntity(
+        _id = "m1", rid = "r1", ts = 1.0, u = """{"_id":"u2","username":"bob"}""", alias = "",
+        parse_urls = "[]", _updated_at = 1.0, msg = "body", md = md,
+        edited_by = """{"_id":"u2"}""",
+    )
+
+    private fun setRow(message: MessageEntity) {
+        rule.setContent {
+            AppiaTheme(isDark = false) {
+                MessageRow(
+                    message = message,
+                    currentUserId = "me",
+                    currentUsername = "me",
+                    serverUrl = "https://s1",
+                    token = "tok",
+                    onResend = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `edited with md renders inline tag only`() {
+        setRow(
+            editedEntity(
+                md = """{"blocks":[{"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"body"}]}]}""",
+            ),
+        )
+        // 行内尾随（正文 AnnotatedString 内）且无独立标记
+        rule.onNodeWithText("body (Edited)").assertIsDisplayed()
+        rule.onAllNodesWithTag("qa-message-edited-tag").assertCountEquals(0)
+    }
+
+    @Test
+    fun `edited without md renders standalone tag only`() {
+        setRow(editedEntity(md = null))
+        // 独立标记存在；正文不含行内尾随
+        rule.onAllNodesWithTag("qa-message-edited-tag").assertCountEquals(1)
+        rule.onNodeWithText("body").assertIsDisplayed()
+        rule.onNodeWithText("body (Edited)").assertDoesNotExist()
+    }
+
+    @Test
+    fun `not edited renders no tag in either form`() {
+        setRow(editedEntity(md = null).copy(edited_by = null))
+        rule.onAllNodesWithTag("qa-message-edited-tag").assertCountEquals(0)
+        rule.onNodeWithText("body (Edited)").assertDoesNotExist()
+    }
 }

@@ -450,8 +450,9 @@ fun MessageRow(
                             fontSize = 15.sp,
                             lineHeight = 21.sp,
                         )
-                        // 无 md 且已编辑：独立 (edited) 标记（RN showEditedWithoutMd）
-                        if (isMessageEdited(message)) {
+                        // 无 md 且已编辑：独立 (edited) 标记（RN showEditedWithoutMd = isEdited && !baseMd；
+                        // 有 md 只行内尾随，不双渲染——评审 Critical-3）
+                        if (isMessageEdited(message) && message.md.isNullOrEmpty()) {
                             Text(
                                 context.t("edited"),
                                 color = colors.auxiliaryText,

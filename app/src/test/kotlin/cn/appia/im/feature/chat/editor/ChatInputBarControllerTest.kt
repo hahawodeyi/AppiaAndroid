@@ -184,11 +184,33 @@ class ChatInputBarControllerTest {
         assertEquals(listOf("blur"), bridge.calls)
     }
 
+    /**
+     * 评审 Critical-2：未就绪 focus 不静默丢——记意图挂起，editor-ready 时重派一次
+     * （RN useEditorFocusController 行为；原实现 `if (!isReady) return@launch` 无人重派）。
+     */
     @Test
-    fun `focus request before ready is held and never dispatched`() {
+    fun `focus request before ready is held and dispatched once ready`() {
         controller.requestFocus("end")
         scheduler.advanceTimeBy(200)
-        assertTrue(bridge.calls.none { it.startsWith("focus") }) // 未就绪挂起
+        assertTrue(bridge.calls.none { it.startsWith("focus") }) // 未就绪：挂起不下发
+
+        editorReady()
+        scheduler.advanceTimeBy(50) // 重派走 debounce
+        scheduler.runCurrent()
+        assertEquals(listOf("focus:end"), bridge.calls)
+    }
+
+    /** blur 清挂起意图（后到意图胜出）：挂起 focus 被 blur 覆盖后 ready 也不重派。 */
+    @Test
+    fun `blur before ready clears held focus`() {
+        controller.requestFocus("end")
+        controller.requestBlur()
+        scheduler.runCurrent()
+        assertEquals(listOf("blur"), bridge.calls)
+        editorReady()
+        scheduler.advanceTimeBy(200)
+        scheduler.runCurrent()
+        assertEquals(listOf("blur"), bridge.calls) // 无挂起 focus 被重派
     }
 
     @Test

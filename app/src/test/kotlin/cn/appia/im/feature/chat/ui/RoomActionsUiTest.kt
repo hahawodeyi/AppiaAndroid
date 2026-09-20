@@ -110,7 +110,6 @@ class RoomActionsUiTest {
         rule.onNodeWithTag("qa-reply-preview").assertExists()
         editor.simulateContent(null, "reply!")
         rule.waitForIdle()
-        println("DEBUG plain=|" + editor.plainText + "|")
         rule.onNodeWithTag("qa-room-send").performClick()
         rule.waitForIdle()
         rule.waitUntil(5_000) { sentTexts.isNotEmpty() } // 发送在 recomposer 协程域，异步落

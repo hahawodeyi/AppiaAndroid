@@ -23,7 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,18 +36,7 @@ import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.chat.ALL_MEMBER
 import cn.appia.im.feature.chat.MentionCandidate
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.launch
-
-/**
- * 选中成员事件（RN DeviceEventEmitter MENTION_SELECTED_EVENT 的共享 Flow 等价）：
- * 选人页 emit，输入区收集回插；extraBufferCapacity=1 吸收 emit 时订阅尚未恢复的瞬间。
- */
-object MentionSelectionBus {
-    val events = MutableSharedFlow<List<MentionCandidate>>(extraBufferCapacity = 1)
-
-    suspend fun emit(members: List<MentionCandidate>) = events.emit(members)
-}
+import cn.appia.im.feature.chat.buildMentionCandidates
 
 /**
  * @提及选人页（RN screens/MentionSuggestion 同构）：
@@ -56,13 +44,16 @@ object MentionSelectionBus {
  * - 非 agent 房：`ALL_MEMBER` 写死首项 + 多选切换（底栏计数 + Done）；
  * - agent 房：候选 = `Agent_Bot_List`×`Appia_Claw_Agent_Visibility` 门控的机器人，无 ALL 行、无多选；
  * - 单选即选即退，多选 Done 后携全组退出；候选加载经 [loadCandidates] 注入（装配处接
- *   `GET appia/room/members/v2` / settings 门控，门控纯函数在 MentionSource.kt 单测覆盖）。
+ *   `GET appia/room/members/v2` / settings 门控，门控纯函数在 MentionSource.kt 单测覆盖）；
+ * - 选中结果经 [onSelected] 上抛（装配处 = previousBackStackEntry.savedStateHandle，
+ *   Navigation Compose 跨屏结果惯例——共享 Flow 在选人页打开期间无订阅者会丢事件，不采）。
  */
 @Composable
 fun MentionSuggestionScreen(
     initialQuery: String,
     isAgentRoom: Boolean,
     loadCandidates: suspend (isAgentRoom: Boolean) -> List<MentionCandidate>,
+    onSelected: (List<MentionCandidate>) -> Unit,
     onBack: () -> Unit,
 ) {
     val colors = LocalAppiaColors.current
@@ -72,21 +63,14 @@ fun MentionSuggestionScreen(
     var loading by remember { mutableStateOf(true) }
     var multiSelect by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(isAgentRoom) {
         allMembers = runCatching { loadCandidates(isAgentRoom) }.getOrDefault(emptyList())
         loading = false
     }
 
-    val filtered = remember(allMembers, query) {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) {
-            allMembers
-        } else {
-            allMembers.filter { it.displayName.lowercase().contains(q) || it.username.lowercase().contains(q) }
-        }
-    }
+    // 候选过滤走 buildMentionCandidates（评审 Important-5：与单测钉的同一实现，不再屏内重写）
+    val filtered = remember(allMembers, query) { buildMentionCandidates(allMembers, query, includeAllMember = false) }
     val display = if (isAgentRoom) filtered else listOf(ALL_MEMBER) + filtered
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
@@ -142,11 +126,11 @@ fun MentionSuggestionScreen(
                             .clickable {
                                 if (isAllRow) {
                                     // ALL 行恒单选即退（RN renderHeader onPress）
-                                    scope.launch { emitSelectionAndBack(listOf(member), onBack) }
+                                    emitSelectionAndBack(listOf(member), onSelected, onBack)
                                 } else if (multiSelect) {
                                     selectedIds = if (checked) selectedIds - member.id else selectedIds + member.id
                                 } else {
-                                    scope.launch { emitSelectionAndBack(listOf(member), onBack) }
+                                    emitSelectionAndBack(listOf(member), onSelected, onBack)
                                 }
                             }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -206,7 +190,7 @@ fun MentionSuggestionScreen(
                     modifier = Modifier
                         .clickable(enabled = doneEnabled) {
                             val picked = display.filter { it.id in selectedIds && it !== ALL_MEMBER }
-                            if (picked.isNotEmpty()) scope.launch { emitSelectionAndBack(picked, onBack) }
+                            if (picked.isNotEmpty()) emitSelectionAndBack(picked, onSelected, onBack)
                         }
                         .testTag("qa-mention-done"),
                 )
@@ -215,8 +199,8 @@ fun MentionSuggestionScreen(
     }
 }
 
-/** 选中即退（RN emitAndGoBack）：emit（挂起投递）后 popBack。 */
-private suspend fun emitSelectionAndBack(members: List<MentionCandidate>, onBack: () -> Unit) {
-    MentionSelectionBus.emit(members)
+/** 选中即退（RN emitAndGoBack）：上抛结果后 popBack。 */
+private fun emitSelectionAndBack(members: List<MentionCandidate>, onSelected: (List<MentionCandidate>) -> Unit, onBack: () -> Unit) {
+    onSelected(members)
     onBack()
 }

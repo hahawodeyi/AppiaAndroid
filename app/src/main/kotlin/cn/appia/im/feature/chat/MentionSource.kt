@@ -10,12 +10,13 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
-/** 选中回插 mention 的成员（RN MentionSelectedMember：id==username，displayName=name 回退 username）。 */
+/** 选中回插 mention 的成员（RN MentionSelectedMember：id==username，displayName=name 回退 username）。
+ * java.io.Serializable：savedStateHandle 跨屏结果投递（MENTION_SELECTED_KEY）所需。 */
 data class MentionCandidate(
     val id: String,
     val username: String,
     val displayName: String,
-)
+) : java.io.Serializable
 
 /** RN IRoomMemberRow 子集（mention 候选只用这几列）。 */
 data class RoomMemberRow(
