@@ -228,6 +228,7 @@ class ChatInputBarControllerTest {
 
     @Test
     fun `mention trigger records range and selection applies delete plus inserts`() {
+        editorReady()
         val accepted = mutableListOf<Pair<String, Long>>()
         controller.onMentionNavigate = { query, pos -> accepted += query to pos }
         controller.onRawMessage(
@@ -245,10 +246,57 @@ class ChatInputBarControllerTest {
 
     @Test
     fun `toolbar mention without range inserts at cursor only`() {
+        editorReady()
         controller.applyMentionSelection(
             listOf(cn.appia.im.feature.chat.ALL_MEMBER),
         )
         assertEquals(listOf("mention:all/all"), bridge.calls) // 无 range 不 delete
+    }
+
+    // ── fix round 2：提及选中就绪门控 + WebView 销毁重置 ──
+
+    /** 未就绪到达的选中挂起，ready 后（内容注入之后）补插——生产 = 选人页返回冷 WebView 竞态。 */
+    @Test
+    fun `mention selection before ready is held and applied after content on ready`() {
+        controller.setContentWhenReady(DOC) // 草稿挂起（选人前的编辑器内容）
+        controller.applyMentionSelection(
+            listOf(cn.appia.im.feature.chat.MentionCandidate("u1", "u1", "@Alice")),
+        )
+        scheduler.runCurrent()
+        assertTrue(bridge.calls.isEmpty()) // 未就绪：不 delete 不 insert
+
+        editorReady()
+        scheduler.runCurrent()
+        // 顺序：内容先注入，提及后补发（deleteRange/insertMention 依赖文档就位）
+        assertEquals(listOf("set-content", "mention:u1/@Alice"), bridge.calls)
+    }
+
+    /** 无挂起内容时 ready 即补插提及（空草稿路径）。 */
+    @Test
+    fun `held mention applies on ready without pending content`() {
+        controller.applyMentionSelection(
+            listOf(cn.appia.im.feature.chat.MentionCandidate("u1", "u1", "@Alice")),
+        )
+        editorReady()
+        scheduler.runCurrent()
+        assertEquals(listOf("mention:u1/@Alice"), bridge.calls)
+    }
+
+    /** WebView 离组合：就绪归零 + 桥置空；挂起提及/focus 留存，下个 ready 周期补发。 */
+    @Test
+    fun `web view destroy resets readiness and next ready cycle re flushes held mention`() {
+        editorReady()
+        controller.onWebViewDestroyed()
+        assertFalse(controller.isReady)
+        controller.bridge = bridge // 返回重建：onWebViewReady 重接桥（生产等价时序）
+        controller.applyMentionSelection(
+            listOf(cn.appia.im.feature.chat.MentionCandidate("u1", "u1", "@Alice")),
+        )
+        assertTrue(bridge.calls.none { it.startsWith("mention:") }) // 冷态挂起
+
+        editorReady() // 返回重建：新就绪周期
+        scheduler.runCurrent()
+        assertEquals(1, bridge.calls.count { it == "mention:u1/@Alice" })
     }
 
     // ── IME 预热判定（RN shouldPrimeAndroidIme 逐条）──

@@ -73,6 +73,7 @@ import cn.appia.im.feature.chat.MentionCandidate
 import cn.appia.im.feature.chat.OrderedFileIdsResult
 import cn.appia.im.feature.chat.agentBotsToCandidates
 import cn.appia.im.feature.chat.buildOrderedFileIds
+import cn.appia.im.feature.chat.editor.RoomEditorViewModel
 import cn.appia.im.feature.chat.filterBotsByClawAgentVisibility
 import cn.appia.im.feature.chat.parseAgentBotMentionList
 import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
@@ -399,6 +400,11 @@ fun AppiaNavHost(
                 val recallActions = remember(db) { RecallActions(deps.sdk, db) }
                 // 编辑提交（T12）：updateMessage / multiAttachments.replace 双路（评审 Important-4 装配）
                 val editController = remember { MessageEditController(deps.sdk) }
+                // 编辑器控制器 entry 级宿主（fix round 2 Critical-1）：destination 组合导航选人页
+                // 即销毁（任何 remember 都不存活），entry ViewModelStore 存活到 pop——控制器跨
+                // 选人页往返保住 mentionRange/挂起 focus/挂起提及/内容快照（RN 保留前屏挂载等价）
+                val editorVm: RoomEditorViewModel = viewModel()
+                val editorController = editorVm.controller
 
                 // T9/T10 锚点（进房接线）：进房即读 + 订阅房间流；新消息落库信号 → 已读防抖
                 //（仅当前房间：RoomReadMarker.activeRid 守卫）。DisposableEffect 声明在 RoomScreen
@@ -505,8 +511,16 @@ fun AppiaNavHost(
                     },
                     // 选人结果（T12 评审 Critical-1）：选人页写 previousBackStackEntry（=本 RoomRoute
                     // entry）的 savedStateHandle，本处观察 StateFlow 回插——Navigation Compose 跨屏
-                    // 结果惯例（共享 Flow 在选人页打开期间本屏 collector 已取消会丢事件）
-                    mentionSelections = entry.savedStateHandle.getStateFlow(MENTION_SELECTED_KEY, emptyList()),
+                    // 结果惯例（共享 Flow 在选人页打开期间本屏 collector 已取消会丢事件）。
+                    // 消费后写回空表（fix round 2 Important-2）：getStateFlow 粘性，不清则再次进
+                    // 选人页取消返回/离房回房时旧值重放 → 二次 insertMention。用 set 空表而非
+                    // remove——remove 会把 flows map 项一并清掉，下次 getStateFlow 新建实例，
+                    // 旧 collector 换绑前收不到后续写入（SavedStateHandleImpl.remove:110-115）
+                    mentionSelections = entry.savedStateHandle.getStateFlow(MENTION_SELECTED_KEY, emptyList<MentionCandidate>()),
+                    onMentionSelectionConsumed = {
+                        entry.savedStateHandle.set(MENTION_SELECTED_KEY, emptyList<MentionCandidate>())
+                    },
+                    editorController = editorController,
                     // 转发（T11 / RN ForwardSelect）：单条（菜单）与多选（多选条）共用路由
                     onForward = { ids, merged ->
                         nav.navigate(ForwardSelectRoute(messageIds = ids, isMerged = merged))

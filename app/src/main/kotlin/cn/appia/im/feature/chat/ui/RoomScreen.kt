@@ -200,6 +200,11 @@ fun RoomScreen(
      */
     mentionSelections: kotlinx.coroutines.flow.StateFlow<List<MentionCandidate>> =
         kotlinx.coroutines.flow.MutableStateFlow(emptyList()),
+    /**
+     * 选中结果消费后回调（fix round 2 Important-2）：装配处 remove savedStateHandle 键——
+     * getStateFlow 粘性，不清键则再次进选人页取消返回/离房回房时旧值重放 → 二次 insertMention。
+     */
+    onMentionSelectionConsumed: () -> Unit = {},
     /** 编辑器控制器（T12；缺省本组合建——UI 测试注入自有实例驱动内容态）。 */
     editorController: ChatInputBarController = rememberChatInputBarController(),
     /** 转发路由（T11 / RN ForwardSelect isMerged）：(messageIds, 合并?)。单条与多选共用。 */
@@ -729,11 +734,14 @@ fun RoomScreen(
             }
             // 选人回插（RN DeviceEventEmitter MENTION_SELECTED_EVENT :763-785）+ 回房重新拉起键盘。
             // 结果经 savedStateHandle 观察流投递（装配处接 previousBackStackEntry；共享 Flow 在
-            // 选人页打开期间 RoomScreen collector 已取消、tryEmit 即丢，不可用——评审 Critical-1）
+            // 选人页打开期间 RoomScreen collector 已取消、tryEmit 即丢，不可用——评审 Critical-1）。
+            // 消费即清键（Important-2：防粘性重放二次插入）；回插本体有 controller 就绪门控兜底
             LaunchedEffect(rid, controller) {
                 mentionSelections.collect { members ->
+                    if (members.isEmpty()) return@collect
                     controller.applyMentionSelection(members)
                     controller.requestFocus("end")
+                    onMentionSelectionConsumed()
                 }
             }
 
@@ -761,6 +769,9 @@ fun RoomScreen(
                         controller.bridge = bridge
                         controller.rpcBridge = bridge
                     },
+                    // WebView 离组合（导航选人页/多选态替换）：就绪态重置 + 桥置空（fix round 2）；
+                    // 控制器（entry VM 宿主）存活，返回重建后 ready 门控重注内容/补发挂起提及
+                    onWebViewReleased = { controller.onWebViewDestroyed() },
                 )
             }
             // 工具栏 @ 直跳（RN :1029-1043：非 DM 房显示；range 置空 = 光标处插入）

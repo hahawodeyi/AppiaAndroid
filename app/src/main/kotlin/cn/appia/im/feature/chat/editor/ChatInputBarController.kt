@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -112,13 +113,26 @@ class ChatInputBarController(
     }
 
     private fun applyPendingIfReady() {
-        val content = pendingContent ?: return
         if (!isReady) return
+        val content = pendingContent
+        if (content == null) {
+            // 无挂起内容（空草稿）：提及可直接补发
+            flushPendingMention()
+            return
+        }
         if (appliedContentVersion == contentVersion && appliedReadyCycle == editorReadyCount) return
         appliedContentVersion = contentVersion
         appliedReadyCycle = editorReadyCount
         content.json?.let { bridge?.setContent(it) }
         content.html?.let { bridge?.setContentHtml(it) }
+        // 内容先落再补发挂起提及（deleteRange/insertMention 依赖文档就位，防打空文档）
+        flushPendingMention()
+    }
+
+    /** 补发未就绪期到达的提及选中（一次性；调用点 = 内容注入后或无内容就绪时）。 */
+    private fun flushPendingMention() {
+        pendingMention?.let { applyMentionSelectionNow(it) }
+        pendingMention = null
     }
 
     // ── web→native 消息入口（UI 线程；EditorWebView.onMessage 转接）──
@@ -214,6 +228,9 @@ class ChatInputBarController(
 
     private var heldFocus: String? = null
 
+    /** 未就绪期到达的提及选中（ready 后补插一次）。 */
+    private var pendingMention: List<MentionCandidate>? = null
+
     private fun dispatchFocus(desired: String, requestGeneration: Int = focusState.generation) {
         val (action, next) = reduceFocusScheduler(focusState, requestGeneration, desired)
         focusState = next
@@ -240,12 +257,40 @@ class ChatInputBarController(
         onMentionNavigate?.invoke(query, cursorPos)
     }
 
-    /** 选中成员回插：先删 @query 范围（有 range 时）再逐个 insertMention（RN :766-783）。 */
+    /** 选中成员回插：先删 @query 范围（有 range 时）再逐个 insertMention（RN :766-783）。未就绪挂起，ready 后补发（fix round 2：冷 WebView 时 dispatch 即丢）。 */
     fun applyMentionSelection(members: List<MentionCandidate>) {
+        if (!isReady) {
+            pendingMention = members
+            return
+        }
+        applyMentionSelectionNow(members)
+    }
+
+    private fun applyMentionSelectionNow(members: List<MentionCandidate>) {
         val range = mentionRange
         if (range != null) bridge?.deleteRange(range.first, range.second)
         for (m in members) bridge?.insertMention(m.username, m.displayName)
         mentionRange = null
+    }
+
+    /**
+     * WebView 离组合（导航选人页/进多选态/离房）时重置（fix round 2）：就绪归零、桥置空——
+     * 下次 editor-ready 走新就绪周期（内容重注 + 挂起提及/focus 补发）。挂起态
+     * （heldFocus/pendingMention/mentionRange/pendingContent）与内容快照**不清**：控制器若由
+     * entry 级宿主持有（[RoomEditorViewModel]），跨选人页往返即恢复（RN native-stack 保留前屏
+     * 挂载的等价物）。
+     */
+    fun onWebViewDestroyed() {
+        focusJob?.cancel()
+        isReady = false
+        bridge = null
+        rpcBridge = null
+    }
+
+    /** 宿主销毁（VM onCleared）：取消自持 scope（VM 宿主的 controller 不随组合取消）。 */
+    fun release() {
+        onWebViewDestroyed()
+        scope.cancel()
     }
 
     /**
@@ -291,4 +336,25 @@ fun shouldPrimeAndroidIme(platform: String, isReady: Boolean, isFocused: Boolean
 fun rememberChatInputBarController(): ChatInputBarController {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     return androidx.compose.runtime.remember { ChatInputBarController(scope) }
+}
+
+/**
+ * 编辑器控制器的 entry 级宿主（fix round 2 Critical-1）：Navigation Compose 非 FloatingWindow
+ * 目的地压栈时下层 entry maxLifecycle=CREATED、移出 visibleEntries、内容整体离组合——
+ * destination 内任何 `remember`（含装配处提升）都随组合销毁；entry 的 ViewModelStoreOwner
+ * 存活到 popBackStack。控制器经此存活：选人页往返后 mentionRange/挂起 focus/挂起提及/内容
+ * 快照不丢（RN native-stack 保留前屏挂载的等价物）；WebView 仍随组合销毁重建，就绪态由
+ * [ChatInputBarController.onWebViewDestroyed] 重置、ready 门控补发。
+ */
+class RoomEditorViewModel : androidx.lifecycle.ViewModel() {
+    /** scope 跟随 VM（onCleared 取消）——挂起协程不悬空于销毁的组合。 */
+    val controller: ChatInputBarController = ChatInputBarController(
+        kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate,
+        ),
+    )
+
+    override fun onCleared() {
+        controller.release()
+    }
 }

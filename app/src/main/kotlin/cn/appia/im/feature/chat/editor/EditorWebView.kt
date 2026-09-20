@@ -20,6 +20,8 @@ import cn.appia.im.BuildConfig
  * requestFocus 落点，见 [TenTapEditorBridge]）。
  * Robolectric（JVM 测试，无 Chromium）降级为占位 View：真 WebView 初始化会挂起测试——
  * UI 测试经 controller 测试缝驱动内容态，不依赖本 View。
+ * 离组合（导航上级屏/多选态替换）：[onWebViewReleased] 先行——控制器重置就绪态、桥置空
+ * （fix round 2：返回重建后 stale-ready 会把补发打进死 bridge）。
  */
 @Composable
 fun EditorWebView(
@@ -27,6 +29,8 @@ fun EditorWebView(
     onMessage: (String) -> Unit,
     /** WebView 建成回调：装配 [TenTapEditorBridge] 与生命周期管理（destroy 归调用方）。 */
     onWebViewReady: (WebView, TenTapEditorBridge) -> Unit = { _, _ -> },
+    /** View 离组合（Robolectric 占位 View 同样回调——控制器就绪态与真机同生命周期）。 */
+    onWebViewReleased: () -> Unit = {},
     /** 配置构造器（editable/initialContent 等差异经此传入；缺省可编辑空文档）。 */
     config: String = TenTapBridge.configScript(),
 ) {
@@ -40,7 +44,10 @@ fun EditorWebView(
                 realEditorWebView(context, currentOnMessage, onWebViewReady, config)
             }
         },
-        onRelease = { view -> if (view is WebView) view.destroy() },
+        onRelease = { view ->
+            if (view is WebView) view.destroy()
+            onWebViewReleased()
+        },
     )
 }
 
