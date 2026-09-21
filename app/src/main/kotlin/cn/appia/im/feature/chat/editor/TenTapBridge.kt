@@ -255,6 +255,31 @@ object TenTapBridge {
     fun focusAction(pos: String = "end"): String = actionJson(FOCUS, JsonPrimitive(pos))
     fun blurAction(): String = actionJson(BLUR)
 
+    // ── 工具栏命令（T13 / RN editor.* → 10tap bridge 动作名逐条）──
+    const val TOGGLE_BOLD = "toggle-bold"
+    const val TOGGLE_ITALIC = "toggle-italic"
+    const val TOGGLE_STRIKE = "toggle-strike"
+    const val TOGGLE_ORDERED_LIST = "toggle-orderedList"
+    const val TOGGLE_BULLET_LIST = "toggle-bulletList"
+    const val TOGGLE_HEADING = "toggle-heading"
+    const val SET_COLOR = "set-color"
+    const val UNSET_COLOR = "unset-color"
+    const val SET_FONT_SIZE = "set-font-size"
+    const val UNSET_FONT_SIZE = "unset-font-size"
+    const val UNSET_HIGHLIGHT = "unset-highlight"
+
+    fun toggleBoldAction(): String = actionJson(TOGGLE_BOLD)
+    fun toggleItalicAction(): String = actionJson(TOGGLE_ITALIC)
+    fun toggleStrikeAction(): String = actionJson(TOGGLE_STRIKE)
+    fun toggleOrderedListAction(): String = actionJson(TOGGLE_ORDERED_LIST)
+    fun toggleBulletListAction(): String = actionJson(TOGGLE_BULLET_LIST)
+    fun toggleHeadingAction(level: Int): String = actionJson(TOGGLE_HEADING, JsonPrimitive(level))
+    fun setColorAction(color: String): String = actionJson(SET_COLOR, JsonPrimitive(color))
+    fun unsetColorAction(): String = actionJson(UNSET_COLOR)
+    fun setFontSizeAction(px: String): String = actionJson(SET_FONT_SIZE, JsonPrimitive(px))
+    fun unsetFontSizeAction(): String = actionJson(UNSET_FONT_SIZE)
+    fun unsetHighlightAction(): String = actionJson(UNSET_HIGHLIGHT)
+
     /**
      * evaluateJavascript 注入串：window+document 双 dispatch（useTenTap.tsx 双监听）。
      * data 必须是字符串（web 侧 JSON.parse(event.data)）。

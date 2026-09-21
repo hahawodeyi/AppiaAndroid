@@ -83,13 +83,14 @@ class ReadReceiptUiTest {
         _id: String,
         unread: Boolean?,
         u: String = """{"_id":"me","username":"me","name":"Me"}""",
-    ) = MessageEntity(_id = _id, rid = "r1", ts = 1_757_900_000_000.0, u = u, parse_urls = "[]", alias = "", _updated_at = 0.0, msg = "hi", unread = unread)
+        status: Double? = null,
+    ) = MessageEntity(_id = _id, rid = "r1", ts = 1_757_900_000_000.0, u = u, parse_urls = "[]", alias = "", _updated_at = 0.0, msg = "hi", unread = unread, status = status)
 
-    private fun setRowContent(unread: Boolean?, roomType: String?, u: String = """{"_id":"me","username":"me","name":"Me"}""") {
+    private fun setRowContent(unread: Boolean?, roomType: String?, u: String = """{"_id":"me","username":"me","name":"Me"}""", status: Double? = null) {
         rule.setContent {
             AppiaTheme(isDark = false) {
                 MessageRow(
-                    message = rowEntity("m1", unread, u),
+                    message = rowEntity("m1", unread, u, status),
                     currentUserId = "me",
                     currentUsername = "me",
                     serverUrl = "https://s1",
@@ -149,6 +150,37 @@ class ReadReceiptUiTest {
         setRowContent(unread = null, roomType = "c")
         rule.onAllNodesWithTag("qa-read-receipt-read").assertCountEquals(0)
         rule.onAllNodesWithTag("qa-read-receipt-unread").assertCountEquals(0)
+    }
+
+    // ── T13 组装：isSent 门 + 上传进度环（RN RoomMessageRow:215 / MessageStatusBadge）──
+
+    @Test
+    fun `unsent message renders no receipt even when unread set`() {
+        // QUEUED/SENDING/ERROR 未落服务端谈不上已读（RN isSent 门：status undefined 或 SENT 才渲染）
+        setRowContent(unread = false, roomType = "c", status = 1.0) // 1 = SENDING
+        rule.onAllNodesWithTag("qa-read-receipt-read").assertCountEquals(0)
+        rule.onAllNodesWithTag("qa-read-receipt-unread").assertCountEquals(0)
+    }
+
+    @Test
+    fun `file upload progress renders circular progress instead of spinner`() {
+        // SENDING + FileUploadProgress 有值 → 进度环（RN MessageStatusBadge progress 分支）
+        setRowContent(unread = null, roomType = "c", status = 1.0)
+        cn.appia.im.core.media.FileUploadProgress.emit(
+            "m1",
+            cn.appia.im.core.media.FileUploadProgress.Data(totalFiles = 2, completedFiles = 1, currentFileProgress = 0.5),
+        )
+        rule.waitForIdle()
+        rule.onNodeWithTag("qa-circular-progress").assertExists()
+        rule.onAllNodesWithTag("qa-message-status-loading").assertCountEquals(0)
+        cn.appia.im.core.media.FileUploadProgress.emit("m1", null)
+    }
+
+    @Test
+    fun `text sending without progress keeps indeterminate spinner`() {
+        setRowContent(unread = null, roomType = "c", status = 1.0)
+        rule.onNodeWithTag("qa-message-status-loading").assertExists()
+        rule.onAllNodesWithTag("qa-circular-progress").assertCountEquals(0)
     }
 
     // ── 未读横幅（RoomScreen 挂点）──

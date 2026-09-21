@@ -37,6 +37,9 @@ class ChatInputBarControllerTest {
         override fun insertEmoji(alt: String, title: String, src: String, type: String) { calls += "emoji:$alt" }
         override fun deleteRange(from: Long, to: Long) { calls += "delete:$from-$to" }
         override fun setEditable(editable: Boolean) { calls += "editable:$editable" }
+        override fun sendAction(actionType: String, payload: kotlinx.serialization.json.JsonElement?) {
+            calls += "action:$actionType${payload?.let { ":$it" } ?: ""}"
+        }
         companion object {
             val EMPTY = Json.parseToJsonElement("""{"type":"doc","content":[]}""") as JsonObject
         }
@@ -319,6 +322,110 @@ class ChatInputBarControllerTest {
         assertTrue(bridge.calls.contains("focus:start")) // Android 光标回起点
         assertNull(controller.jsonContent)
         assertEquals("", controller.plainText)
+    }
+
+    // ── T13 工具栏：stateUpdate 活动态解析 + 命令动作序列 ──
+
+    /** stateUpdate → 工具栏活动态（10tap extendEditorState 合并产物直读）。 */
+    @Test
+    fun `state update populates toolbar activity flags`() {
+        controller.onRawMessage(
+            """{"type":"stateUpdate","payload":{"isBoldActive":true,"isItalicActive":false,"isStrikeActive":true,
+               "isOrderedListActive":true,"isBulletListActive":false,"headingLevel":2,
+               "activeColor":"#EF4444","activeFontSize":"16px"}}""",
+        )
+        assertTrue(controller.isBoldActive)
+        assertFalse(controller.isItalicActive)
+        assertTrue(controller.isStrikeActive)
+        assertTrue(controller.isOrderedListActive)
+        assertFalse(controller.isBulletListActive)
+        assertEquals(2, controller.headingLevel)
+        assertEquals("#EF4444", controller.activeColor)
+        assertEquals("16px", controller.activeFontSize)
+        assertFalse(controller.isHighlightActive) // 高亮 = bold+#FF0000+16px 三者同活
+
+        // activeColor null（JS null）→ 清空
+        controller.onRawMessage("""{"type":"stateUpdate","payload":{"activeColor":null}}""")
+        assertNull(controller.activeColor)
+    }
+
+    /** 高亮组合 on：bold + set-color(#FF0000) + set-font-size(16px)（RN :1054-1058）。 */
+    @Test
+    fun `toggle highlight on sends bold color fontsize combo`() {
+        controller.toggleHighlight()
+        val actions = bridge.calls.filter { it.startsWith("action:") }
+        assertEquals(
+            listOf(
+                "action:toggle-bold",
+                "action:set-color:\"#FF0000\"",
+                "action:set-font-size:\"16px\"",
+            ),
+            actions,
+        )
+    }
+
+    /** 高亮 off（三态同活时）：bold + unset-color + unset-font-size（RN :1051-1053）。 */
+    @Test
+    fun `toggle highlight off sends bold unset color fontsize`() {
+        controller.onRawMessage(
+            """{"type":"stateUpdate","payload":{"isBoldActive":true,"activeColor":"#FF0000","activeFontSize":"16px"}}""",
+        )
+        assertTrue(controller.isHighlightActive)
+        controller.toggleHighlight()
+        val actions = bridge.calls.filter { it.startsWith("action:") }
+        assertEquals(
+            listOf("action:toggle-bold", "action:unset-color", "action:unset-font-size"),
+            actions,
+        )
+    }
+
+    /** 颜色（RN handleSetColor）：非空 setColor / 空 unsetColor。 */
+    @Test
+    fun `set color routes to set or unset by nullability`() {
+        controller.setColor("#3B82F6")
+        controller.setColor(null)
+        val actions = bridge.calls.filter { it.startsWith("action:") }
+        assertEquals(listOf("action:set-color:\"#3B82F6\"", "action:unset-color"), actions)
+    }
+
+    /** 清除格式（RN handleClearFormat fallback：web 构建无 clear-nodes 动作 → 逐活动态翻转）。 */
+    @Test
+    fun `clear format toggles only active marks and unsets color`() {
+        controller.onRawMessage(
+            """{"type":"stateUpdate","payload":{"isBoldActive":true,"isItalicActive":true,
+               "isOrderedListActive":true,"headingLevel":3}}""",
+        )
+        controller.clearFormat()
+        val actions = bridge.calls.filter { it.startsWith("action:") }
+        assertEquals(
+            listOf(
+                "action:toggle-heading:3",
+                "action:toggle-orderedList",
+                "action:toggle-bold",
+                "action:toggle-italic",
+                "action:unset-color",
+                "action:unset-font-size",
+                "action:unset-highlight",
+            ),
+            actions,
+        )
+    }
+
+    /** 简单 toggle 命令直发动作名（bold/italic/strike/orderedList/bulletList）。 */
+    @Test
+    fun `simple toggles dispatch matching actions`() {
+        controller.toggleBold()
+        controller.toggleItalic()
+        controller.toggleStrike()
+        controller.toggleOrderedList()
+        controller.toggleBulletList()
+        assertEquals(
+            listOf(
+                "action:toggle-bold", "action:toggle-italic", "action:toggle-strike",
+                "action:toggle-orderedList", "action:toggle-bulletList",
+            ),
+            bridge.calls.filter { it.startsWith("action:") },
+        )
     }
 
     companion object {

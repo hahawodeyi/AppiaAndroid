@@ -31,11 +31,13 @@ class ReactionBarUiTest {
     val rule = createComposeRule()
 
     @Test
-    fun `empty reactions renders no bar`() {
+    fun `empty reactions still renders bar with add entry`() {
+        // T13 组装（T8-T11 窗口缺口）：空条也渲染 ＋，首反应入口不依赖长按菜单
         rule.setContent {
             AppiaTheme(isDark = false) { ReactionBar(reactionsJson = null, currentUsername = "me", onToggle = {}) }
         }
-        rule.onAllNodesWithTag("qa-reaction-bar").assertCountEquals(0)
+        rule.onAllNodesWithTag("qa-reaction-bar").assertCountEquals(1)
+        rule.onAllNodesWithTag("qa-reaction-add").assertCountEquals(1)
     }
 
     @Test

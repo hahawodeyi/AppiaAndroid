@@ -3,6 +3,7 @@ package cn.appia.im.feature.chat
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -73,6 +74,14 @@ fun querySelectedSources(context: Context, uris: List<Uri>, source: String): Lis
 const val SOURCE_PHOTO = "photo"
 const val SOURCE_FILE = "file"
 
+/** RN ChatInputBar :715-718：容量截断（sourceCount > acceptedCount）→ chatinput_attachmentlimit toast。 */
+private fun addWithLimitToast(pending: PendingAttachments, sources: List<SelectedSource>, context: Context) {
+    val result = pending.add(sources)
+    if (result.sourceCount > result.acceptedCount) {
+        Toast.makeText(context, context.t("chatinput_attachmentlimit"), Toast.LENGTH_SHORT).show()
+    }
+}
+
 /**
  * 输入区 + 入口（RN AttachmentPanel 的最小入口形态，T11 组装完整面板）：
  * PhotoPicker 多选（图片/视频 mixed，RN launchImageLibrary mediaType mixed selectionLimit 0 对齐）
@@ -89,12 +98,12 @@ fun RoomAttachmentButton(pending: PendingAttachments) {
     val photoLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(PendingAttachments.MAX_COUNT),
     ) { uris ->
-        if (uris.isNotEmpty()) pending.add(querySelectedSources(context, uris, SOURCE_PHOTO))
+        if (uris.isNotEmpty()) addWithLimitToast(pending, querySelectedSources(context, uris, SOURCE_PHOTO), context)
     }
     val docLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
-        if (uris.isNotEmpty()) pending.add(querySelectedSources(context, uris, SOURCE_FILE))
+        if (uris.isNotEmpty()) addWithLimitToast(pending, querySelectedSources(context, uris, SOURCE_FILE), context)
     }
 
     Box {

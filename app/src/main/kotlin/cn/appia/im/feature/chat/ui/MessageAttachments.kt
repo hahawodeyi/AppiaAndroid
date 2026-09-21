@@ -11,16 +11,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +75,7 @@ internal fun decodeLocalAttachments(raw: String?): List<LocalAttachment> =
 /**
  * 附件分流入口（MessageRow 正文后挂载；RN MessageBody 内 MessageAttachments 挂位）。
  * @param onNav 附件点击路由回调（本地形状不触发）。
+ * @param onRetry 本地附件失败重试（messageId, attachmentId → SendOrchestrator.retryFile）。
  */
 @Composable
 fun MessageAttachmentsNode(
@@ -79,12 +85,13 @@ fun MessageAttachmentsNode(
     serverUrl: String,
     onNav: (AttachmentNav) -> Unit,
     modifier: Modifier = Modifier,
+    onRetry: (messageId: String, attachmentId: String) -> Unit = { _, _ -> },
 ) {
     val raw = message.attachments
     if (raw.isNullOrBlank()) return
 
     if (isLocalAttachmentShape(raw)) {
-        LocalAttachmentRow(decodeLocalAttachments(raw), modifier)
+        LocalAttachmentRow(decodeLocalAttachments(raw), modifier, message._id, onRetry)
         return
     }
 
@@ -307,9 +314,17 @@ private fun FileIconBadge(fileInfo: FileInfo) {
 /** RN Color(string hex) 等价：复用 InlineNodes.parseHexColor（色表常量可信，解析失败回退灰）。 */
 private fun fileIconColor(hex: String): Color = parseHexColor(hex) ?: Color(0xFFC7DADD)
 
-/** 本地上传预览行（RN LocalAttachmentPreviewList：图 80 缩略 / 视频黑块 / 文件卡；无导航）。 */
+/**
+ * 本地上传预览行（RN LocalAttachmentPreviewList：图 80 缩略 / 视频黑块 / 文件卡；无导航）。
+ * 失败项覆盖红色「↻」角标（RN attachmentRetryBadge：#FF4D4F 圆角 10），点击重试后禁用直至状态变化。
+ */
 @Composable
-private fun LocalAttachmentRow(items: List<LocalAttachment>, modifier: Modifier = Modifier) {
+private fun LocalAttachmentRow(
+    items: List<LocalAttachment>,
+    modifier: Modifier = Modifier,
+    messageId: String = "",
+    onRetry: (messageId: String, attachmentId: String) -> Unit = { _, _ -> },
+) {
     Row(
         modifier
             .padding(top = 4.dp)
@@ -319,42 +334,73 @@ private fun LocalAttachmentRow(items: List<LocalAttachment>, modifier: Modifier 
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items.forEach { item ->
-            when {
-                item.type.startsWith("image/") -> AsyncImage(
-                    model = File(item.localPath),
-                    contentDescription = item.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .padding(2.dp)
-                        .size(LocalThumbSize)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFFF0F0F0)),
-                )
+            val retryBadge = item.uploadStatus == "failed" && item.id != null
+            // RN retryRequestedRef：点过即禁用（防重复请求），状态列变化后重置
+            var retryRequested by remember(item.id, item.uploadStatus) { mutableStateOf(false) }
+            val content = @Composable {
+                when {
+                    item.type.startsWith("image/") -> AsyncImage(
+                        model = File(item.localPath),
+                        contentDescription = item.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .padding(2.dp)
+                            .size(LocalThumbSize)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFFF0F0F0)),
+                    )
 
-                item.type.startsWith("video/") -> Box(
-                    Modifier
-                        .padding(4.dp)
-                        .size(width = 200.dp, height = 150.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF333333)),
-                    contentAlignment = Alignment.Center,
-                ) { PlayCircle() }
+                    item.type.startsWith("video/") -> Box(
+                        Modifier
+                            .padding(4.dp)
+                            .size(width = 200.dp, height = 150.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF333333)),
+                        contentAlignment = Alignment.Center,
+                    ) { PlayCircle() }
 
-                else -> Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FileIconBadge(getFileInfo(item.name))
-                    Column(Modifier.padding(start = 10.dp)) {
-                        Text(
-                            item.name,
-                            fontSize = 13.sp,
-                            color = Color(0xFF333333),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        item.size?.takeIf { it > 0 }?.let {
-                            Text(formatFileSize(it.toDouble()), fontSize = 11.sp, color = Color(0xFF888888))
+                    else -> Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FileIconBadge(getFileInfo(item.name))
+                        Column(Modifier.padding(start = 10.dp)) {
+                            Text(
+                                item.name,
+                                fontSize = 13.sp,
+                                color = Color(0xFF333333),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            item.size?.takeIf { it > 0 }?.let {
+                                Text(formatFileSize(it.toDouble()), fontSize = 11.sp, color = Color(0xFF888888))
+                            }
                         }
                     }
                 }
+            }
+            if (retryBadge) {
+                Box {
+                    content()
+                    Text(
+                        "↻",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(2.dp)
+                            .size(18.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFFF4D4F))
+                            .wrapContentSize(Alignment.Center)
+                            .clickable(enabled = !retryRequested) {
+                                if (!retryRequested) {
+                                    retryRequested = true
+                                    onRetry(messageId, item.id!!)
+                                }
+                            }
+                            .testTag("qa-local-attachment-retry-${item.id}"),
+                    )
+                }
+            } else {
+                content()
             }
         }
     }

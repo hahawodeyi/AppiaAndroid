@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import cn.appia.im.core.database.AppiaDatabase
@@ -248,6 +249,10 @@ class RoomScreenTest {
         val day = 86_400_000.0
         val hour = 3_600_000.0
         setContent(listOf(messageRow("a", ts = 10 * day + hour), messageRow("c", ts = 8 * day + hour)))
+        // reverseLayout 列表：最旧分隔条可能初始未组合（行高随 T13 空反应条 ＋ 增加），
+        // 滚到列表顶部（index=末位）再计数
+        rule.onNodeWithTag("qa-room-message-list").performScrollToIndex(3)
+        rule.waitForIdle()
         rule.onAllNodesWithTag("qa-message-date-separator").assertCountEquals(2)
     }
 

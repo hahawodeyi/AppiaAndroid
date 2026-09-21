@@ -89,6 +89,7 @@ class RealtimeSessionManagerTest {
 
     private var subsBody = "{}"
     private var roomsBody = "{}"
+    private var emojiBody: String? = null
 
     private lateinit var host: String
     private lateinit var sdk: RocketSdk
@@ -105,6 +106,9 @@ class RealtimeSessionManagerTest {
                     path.startsWith("/websocket") -> MockResponse().withWebSocketUpgrade(wsListeners.poll()!!)
                     path.startsWith("/api/v1/subscriptions.get") -> MockResponse().setBody(subsBody)
                     path.startsWith("/api/v1/rooms.get") -> MockResponse().setBody(roomsBody)
+                    // T13：emoji-custom.list（syncCustomEmojis）；null → 404（失败仅 warn 分支）
+                    path.startsWith("/api/v1/emoji-custom.list") ->
+                        emojiBody?.let { MockResponse().setBody(it) } ?: MockResponse().setResponseCode(404)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -491,6 +495,50 @@ class RealtimeSessionManagerTest {
         assertEquals(1, syncCalls.get())
         assertNotNull(manager.sessionKeyForTest)
         assertTrue(sdk.hasDdpUserId())
+        awaitCond("subs still done") { ws.subCount() >= 6 }
+    }
+
+    // ---- T13：bootstrap extras 的 custom emojis 同步（RN session.ts:609）----
+
+    @Test
+    fun `bootstrap extras sync custom emojis into active database`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        val dateKey = "\$" + "date"
+        emojiBody = """
+            {"success":true,"emojis":{"update":[
+              {"_id":"e1","name":"appia","aliases":["ap"],"extension":"png","_updatedAt":{"$dateKey":1700000000000}},
+              {"_id":"e2","name":"party","extension":"gif","_updatedAt":{"$dateKey":1700000000001}}
+            ]}}
+        """.trimIndent()
+
+        manager.bootstrap(host, "tok-e", userId = "uid-1")
+
+        val db = dbManager.databaseFor(dbManager.normalizeServer(host))
+        val dao = db.customEmojiDao()
+        // dao 挂起查询：轮询取快照直至 2 行（extras 为 fire-and-forget 后台协程）
+        var all = dao.getAll()
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (all.size != 2 && System.nanoTime() < deadline) {
+            delay(10)
+            all = dao.getAll()
+        }
+        assertEquals(2, all.size)
+        val appia = all.first { it.name == "appia" }
+        assertEquals("png", appia.extension)
+        assertEquals("""["ap"]""", appia.aliases)
+        assertEquals(1700000000.0, appia._updated_at, 0.001)
+        assertNull(all.first { it.name == "party" }.aliases)
+    }
+
+    @Test
+    fun `emoji sync failure is warned not fatal`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        emojiBody = null // 404 → syncCustomEmojis 吞异常
+
+        manager.bootstrap(host, "tok-404", userId = "uid-1")
+
+        assertEquals(1, syncCalls.get())
+        assertNotNull(manager.sessionKeyForTest)
         awaitCond("subs still done") { ws.subCount() >= 6 }
     }
 

@@ -406,6 +406,25 @@ fun AppiaNavHost(
                 val editorVm: RoomEditorViewModel = viewModel()
                 val editorController = editorVm.controller
 
+                // 自定义表情（T13 / RN customEmojisStore.getCustomEmoji）：name+aliases 双键 →
+                // ResolvedEmoji.Custom（同步源 = RealtimeSessionManager bootstrap extras 的
+                // emoji-custom.list upsert）；RoomScreen → MessageRow → InlineEnv 注入
+                val customEmojis by remember(db) { db.customEmojiDao().observe() }
+                    .collectAsState(initial = emptyList())
+                val emojiResolver = remember(customEmojis) {
+                    val byName = buildMap(customEmojis.size * 2) {
+                        customEmojis.forEach { e ->
+                            put(e.name, cn.appia.im.core.messaging.ResolvedEmoji.Custom(e.name, e.extension))
+                            e.aliases?.let { raw ->
+                                runCatching { Json.decodeFromString<List<String>>(raw) }.getOrNull()
+                                    ?.forEach { alias -> put(alias, cn.appia.im.core.messaging.ResolvedEmoji.Custom(e.name, e.extension)) }
+                            }
+                        }
+                    }
+                    val f: (String) -> cn.appia.im.core.messaging.ResolvedEmoji? = { byName[it] }
+                    f
+                }
+
                 // T9/T10 锚点（进房接线）：进房即读 + 订阅房间流；新消息落库信号 → 已读防抖
                 //（仅当前房间：RoomReadMarker.activeRid 守卫）。DisposableEffect 声明在 RoomScreen
                 //（子级）之前：Compose onDispose 逆声明序执行 → 卸载先 flush 草稿（子级）再退订流/清
@@ -524,6 +543,11 @@ fun AppiaNavHost(
                     // 转发（T11 / RN ForwardSelect）：单条（菜单）与多选（多选条）共用路由
                     onForward = { ids, merged ->
                         nav.navigate(ForwardSelectRoute(messageIds = ids, isMerged = merged))
+                    },
+                    // T13：自定义表情（name+aliases 双键查表）+ 本地附件失败重试（retryFile）
+                    getCustomEmoji = emojiResolver,
+                    onRetryAttachment = { messageId, attachmentId ->
+                        orchestrator.retryFile(messageId, attachmentId)
                     },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->

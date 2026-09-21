@@ -582,6 +582,13 @@ private fun escapeHtml(s: String): String {
     return out
 }
 
+/** [escapeHtml] 的逆（顺序反转义；M9：setContentHtmlWhenReady 剥标签后 plainText 还原实体）。 */
+fun unescapeHtml(s: String): String {
+    var out = s
+    for ((raw, escaped) in editContentHtmlEscape.reversedArray()) out = out.replace(escaped, raw)
+    return out
+}
+
 /**
  * 从消息构建可回填编辑器的 Content（mdToTipTap.ts:299-307 buildEditContent）：
  * 有 md → mdToTipTap（mentions 还原 mention 节点）；无 md/坏 md → `<p>{escapeHtml(msg)}</p>`

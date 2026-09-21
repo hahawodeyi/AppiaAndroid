@@ -15,12 +15,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -28,21 +31,20 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.i18n.t
+import cn.appia.im.core.media.FileUploadProgress
 import cn.appia.im.core.messaging.MessageStatus
+import cn.appia.im.core.messaging.MdNode
+import cn.appia.im.core.messaging.ResolvedEmoji
+import cn.appia.im.core.messaging.appendEditedTagToMd
 import cn.appia.im.core.messaging.isMessageEdited
-import cn.appia.im.core.messaging.SystemMessageTexts
+import cn.appia.im.core.messaging.resolveMessageMd
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.core.util.formatRoomMessageHeaderTime
 import cn.appia.im.feature.chat.forward.ForwardMergeCard
@@ -50,7 +52,6 @@ import cn.appia.im.feature.chat.forward.MERGE_FORWARD_MSG_TYPE
 import coil3.compose.AsyncImage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -160,16 +161,9 @@ internal fun buildMessageSenderAvatarUrl(
     return sb.toString()
 }
 
-// ── 正文 span（RN Markdown AtMention 简化：仅 MENTION 节点高亮，无 md 纯文本不高亮）──
+// ── 正文（md 渲染红线：resolveMessageMd 直读 md/msg 列，勿重 parse msg）──
 
 internal data class MentionUser(val _id: String?, val username: String?, val name: String?)
-
-internal sealed class BodySpan {
-    data class Plain(val text: String) : BodySpan()
-
-    /** MENTION 节点（是否命中/如何显示由 [resolveMentionDisplay] 统一判定）。 */
-    data class Mention(val mention: String) : BodySpan()
-}
 
 /** RN parseMentions：mentions JSON 数组 → 用户列表；空/坏 JSON → []。 */
 internal fun parseMentions(raw: String?): List<MentionUser> {
@@ -181,33 +175,6 @@ internal fun parseMentions(raw: String?): List<MentionUser> {
             MentionUser(_id = o.str("_id"), username = o.str("username"), name = o.str("name"))
         }
     }.getOrDefault(emptyList())
-}
-
-internal fun parseBodySpans(msg: String?, md: String?, mentions: List<MentionUser>): List<BodySpan> {
-    if (md.isNullOrBlank()) return listOf(BodySpan.Plain(msg ?: ""))
-    val out = mutableListOf<BodySpan>()
-    runCatching { walkMd(Json.parseToJsonElement(md), out) }
-    return out.ifEmpty { listOf(BodySpan.Plain(msg ?: "")) }
-}
-
-private fun walkMd(el: JsonElement, out: MutableList<BodySpan>) {
-    when (el) {
-        is JsonArray -> el.forEach { walkMd(it, out) }
-        is JsonObject -> when (el.str("type")) {
-            "MENTION_USER", "MENTION_CHANNEL" ->
-                out += BodySpan.Mention(el["value"]?.textContent().orEmpty())
-            "PLAIN_TEXT" -> out += BodySpan.Plain(el["value"]?.textContent() ?: "")
-            // 结构节点（PARAGRAPH 等）按序展开内联 children
-            else -> el["value"]?.let { walkMd(it, out) }
-        }
-        else -> Unit
-    }
-}
-
-private fun JsonElement.textContent(): String = when (this) {
-    is JsonPrimitive -> content
-    is JsonObject -> this["value"]?.textContent().orEmpty()
-    is JsonArray -> joinToString("") { it.textContent() }
 }
 
 // ── MENTION 显示名解析（总纲 §4.3-1：共享纯函数，M3-T5 行内管线复用同一 helper）──
@@ -254,46 +221,22 @@ internal fun resolveMentionDisplay(
 }
 
 /**
- * 正文 AnnotatedString：色别与显示名全部经 [resolveMentionDisplay]（RN AtMention 同款）。
- * 有 md 且已编辑：行内追加 (edited) 标记（RN appendEditedTagToMd 末端内联的平铺渲染等价；
- * 无 md 的独立标记由调用处 [MessageRow] 另行渲染）。
+ * 行内渲染环境装配（RN MessageBody props：mentions/username/baseUrl/getCustomEmoji）。
+ * getCustomEmoji 由 RoomScreen 注入（T3 EmojiResolver 缝）；此处缺省 null 走查表文本。
  */
-@Composable
-internal fun buildMessageBody(message: MessageEntity, currentUsername: String?): AnnotatedString {
-    val colors = LocalAppiaColors.current
-    val context = LocalContext.current
-    val mentions = parseMentions(message.mentions)
-    val spans = parseBodySpans(message.msg, message.md, mentions)
-    // 有 md 才行内追加（RN appendEditedTagToMd 前提 baseMd 非空；无 md 走独立标记）
-    val editedInline = isMessageEdited(message) && !message.md.isNullOrEmpty()
-    return buildAnnotatedString {
-        for (span in spans) {
-            when (span) {
-                is BodySpan.Plain -> append(span.text)
-                is BodySpan.Mention -> {
-                    val d = resolveMentionDisplay(mentions, span.mention, currentUsername)
-                    val color = when (d.kind) {
-                        MentionKind.GROUP -> colors.mentionGroupColor
-                        MentionKind.ME -> colors.mentionMeColor
-                        MentionKind.OTHER -> colors.mentionOtherColor
-                        MentionKind.UNRESOLVED -> null
-                    }
-                    if (color != null) {
-                        withStyle(SpanStyle(color = color, fontWeight = FontWeight.Medium)) { append(d.label) }
-                    } else {
-                        append(d.label)
-                    }
-                }
-            }
-        }
-        if (editedInline && spans.isNotEmpty()) {
-            // 有 md：行内尾随 (edited)（RN appendEditedTagToMd 末端内联；平铺渲染等价）
-            withStyle(SpanStyle(color = colors.auxiliaryText, fontSize = 13.sp)) {
-                append(" ${context.t("edited")}")
-            }
-        }
-    }
-}
+internal fun buildInlineEnv(
+    mentions: List<MentionUser>,
+    currentUsername: String?,
+    baseUrl: String?,
+    getCustomEmoji: ((String) -> ResolvedEmoji?)? = null,
+    onLinkPress: ((String) -> Unit)? = null,
+): InlineEnv = InlineEnv(
+    mentions = mentions,
+    currentUsername = currentUsername,
+    getCustomEmoji = getCustomEmoji,
+    baseUrl = baseUrl,
+    onLinkPress = onLinkPress,
+)
 
 /**
  * 普通消息行（RN RoomMessageRow/index.tsx + RoomMessageRowAuthorHeader）：
@@ -328,6 +271,14 @@ fun MessageRow(
     onClick: (MessageEntity) -> Unit = {},
     /** 多选态选中显示（T11）：null=非多选态不渲染勾选列。 */
     selected: Boolean? = null,
+    /** 自定义表情解析（T13/T3）：InlineEnv.getCustomEmoji 注入；null 走查表文本。 */
+    getCustomEmoji: ((String) -> ResolvedEmoji?)? = null,
+    /** 表格预览点击（T13）：TABLE 段落全屏 overlay 入口。 */
+    onTableOpen: ((List<MdNode>) -> Unit)? = null,
+    /** KaTeX 降级原式点击（T13）：单式查看 overlay 入口。 */
+    onKatexClick: ((String) -> Unit)? = null,
+    /** 附件重试（T13）：失败附件点击 → SendOrchestrator.retryFile。 */
+    onRetryAttachment: (messageId: String, attachmentId: String) -> Unit = { _, _ -> },
 ) {
     val colors = LocalAppiaColors.current
     // pointerInput 捕获的是首个组合的 lambda：经 rememberUpdatedState 每次事件读最新回调，
@@ -444,15 +395,32 @@ fun MessageRow(
                         )
                     } else {
                         val context = LocalContext.current
-                        Text(
-                            text = buildMessageBody(message, currentUsername),
-                            color = colors.bodyText,
-                            fontSize = 15.sp,
-                            lineHeight = 21.sp,
-                        )
+                        // md 渲染红线：resolveMessageMd 直读 md/msg 列（勿重 parse msg）；
+                        // 已编辑且 md 列非空 → appendEditedTagToMd 行内尾随（RN MessageBody :53-59，
+                        // md 列口径判定——resolveMessageMd 在 md 空时回退 parse msg，根非空 ≠ 有 md）
+                        val baseMd = remember(message) { resolveMessageMd(message) }
+                        val md = if (isMessageEdited(message) && !message.md.isNullOrEmpty() && baseMd != null) {
+                            remember(baseMd) { appendEditedTagToMd(baseMd, " ${context.t("edited")}") }
+                        } else {
+                            baseMd
+                        }
+                        val showEditedWithoutMd = isMessageEdited(message) && message.md.isNullOrEmpty()
+                        val mentions = remember(message) { parseMentions(message.mentions) }
+                        val env = remember(message, currentUsername, serverUrl, getCustomEmoji) {
+                            buildInlineEnv(mentions, currentUsername, serverUrl, getCustomEmoji)
+                        }
+                        if (md != null) {
+                            MessageBody(
+                                root = md,
+                                aiCodeBlock = message.msg_type == "ai_response",
+                                onTableOpen = onTableOpen,
+                                onKatexClick = onKatexClick,
+                                env = env,
+                            )
+                        }
                         // 无 md 且已编辑：独立 (edited) 标记（RN showEditedWithoutMd = isEdited && !baseMd；
                         // 有 md 只行内尾随，不双渲染——评审 Critical-3）
-                        if (isMessageEdited(message) && message.md.isNullOrEmpty()) {
+                        if (showEditedWithoutMd) {
                             Text(
                                 context.t("edited"),
                                 color = colors.auxiliaryText,
@@ -466,14 +434,17 @@ fun MessageRow(
                             token = token,
                             serverUrl = serverUrl,
                             onNav = onAttachmentNav,
+                            onRetry = onRetryAttachment,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
                 }
                 // 已读回执挂点（T10 / RN RoomMessageRow:213-229 + MessageReadReceipt）：仅自己消息 +
+                // 已成功发送（T13 组装：QUEUED/SENDING/ERROR 未落服务端谈不上已读，RN isSent 门）+
                 // 服务端 unread 列非空才渲染（本地产物 unread=null 无图标）；false 蓝色已读对勾；
                 // true 可点图标进明细（DM 'd' 不渲染可点图标——绑定裁定#4；系统/公告行无 t 才可能命中）
-                if (isOwn && message.t.isNullOrEmpty() && !roomType.isNullOrEmpty()) {
+                val isSent = message.status?.toInt() == null || message.status?.toInt() == MessageStatus.SENT
+                if (isSent && isOwn && message.t.isNullOrEmpty() && !roomType.isNullOrEmpty()) {
                     when (message.unread) {
                         false -> MessageReadReceiptIcon(
                             read = true,
@@ -491,9 +462,13 @@ fun MessageRow(
                         else -> Unit
                     }
                 }
+                // T13 组装：文件上传进度环（RN useFileUploadProgress + MessageStatusBadge.progress）
+                val uploadProgress by FileUploadProgress.flow(message._id)
+                    .collectAsState(initial = null)
                 StatusBadge(
                     status = message.status?.toInt(),
                     onResend = { onResend(message) },
+                    progress = uploadProgress,
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }
@@ -508,16 +483,28 @@ fun MessageRow(
     }
 }
 
-/** RN MessageStatusBadge：QUEUED/SENDING 菊花、ERROR 红叹号点重发、SENT/null 不渲染。 */
+/**
+ * RN MessageStatusBadge：QUEUED/SENDING（文件上传中 [progress] 有值 → 圆形进度环；
+ * 文本发送中 → 菊花）、ERROR 红叹号点重发、SENT/null 不渲染。
+ */
 @Composable
-private fun StatusBadge(status: Int?, onResend: () -> Unit, modifier: Modifier = Modifier) {
+private fun StatusBadge(
+    status: Int?,
+    onResend: () -> Unit,
+    modifier: Modifier = Modifier,
+    progress: FileUploadProgress.Data? = null,
+) {
     when (status) {
-        MessageStatus.QUEUED, MessageStatus.SENDING -> CircularProgressIndicator(
-            modifier = modifier
-                .size(16.dp)
-                .testTag("qa-message-status-loading"),
-            strokeWidth = 2.dp,
-        )
+        MessageStatus.QUEUED, MessageStatus.SENDING -> if (progress != null) {
+            UploadCircularProgress(percent = computeUploadPercent(progress), modifier = modifier)
+        } else {
+            CircularProgressIndicator(
+                modifier = modifier
+                    .size(16.dp)
+                    .testTag("qa-message-status-loading"),
+                strokeWidth = 2.dp,
+            )
+        }
         MessageStatus.ERROR -> Text(
             "!",
             color = Color(0xFFF5455C),
@@ -529,6 +516,37 @@ private fun StatusBadge(status: Int?, onResend: () -> Unit, modifier: Modifier =
                 .clickable(onClick = onResend),
         )
         else -> Unit
+    }
+}
+
+/** RN computePercent：多文件按完成数+当前进度折算，单文件直取。 */
+internal fun computeUploadPercent(p: FileUploadProgress.Data): Int =
+    if (p.totalFiles > 1) {
+        Math.round((p.completedFiles + p.currentFileProgress) / p.totalFiles * 100).toInt()
+    } else {
+        Math.round(p.currentFileProgress * 100).toInt()
+    }
+
+/**
+ * RN CircularProgress：24dp 环宽 3dp，#007AFF 弧 + #E0E0E0 轨道，从 12 点方向（-90°）顺时针。
+ */
+@Composable
+private fun UploadCircularProgress(percent: Int, modifier: Modifier = Modifier) {
+    val clamped = percent.coerceIn(0, 100)
+    Canvas(modifier.size(24.dp).testTag("qa-circular-progress")) {
+        val stroke = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+        val radius = (size.minDimension - stroke.width) / 2f
+        val center = size.minDimension / 2f
+        drawCircle(color = Color(0xFFE0E0E0), radius = radius, center = Offset(center, center), style = stroke)
+        drawArc(
+            color = Color(0xFF007AFF),
+            startAngle = -90f,
+            sweepAngle = 360f * clamped / 100f,
+            useCenter = false,
+            topLeft = Offset(center - radius, center - radius),
+            size = Size(radius * 2, radius * 2),
+            style = stroke,
+        )
     }
 }
 

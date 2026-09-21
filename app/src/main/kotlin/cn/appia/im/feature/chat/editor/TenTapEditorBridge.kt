@@ -26,6 +26,12 @@ interface EditorBridge {
     fun insertEmoji(alt: String, title: String, src: String, type: String)
     fun deleteRange(from: Long, to: Long)
     fun setEditable(editable: Boolean)
+
+    /**
+     * 工具栏命令通用面（T13）：发任意 10tap bridge 动作（toggle-bold / set-color 等）。
+     * 缺省 no-op——测试 fake 桥无需逐命令实现（行为断言走 [ChatInputBarController] 记录）。
+     */
+    fun sendAction(actionType: String, payload: kotlinx.serialization.json.JsonElement? = null) {}
 }
 
 /**
@@ -90,6 +96,9 @@ class TenTapEditorBridge(
     override fun deleteRange(from: Long, to: Long) = dispatch(TenTapBridge.deleteRangeAction(from, to))
 
     override fun setEditable(editable: Boolean) = dispatch(TenTapBridge.setEditableAction(editable))
+
+    override fun sendAction(actionType: String, payload: JsonElement?) =
+        dispatch(TenTapBridge.actionJson(actionType, payload ?: JsonObject(emptyMap())))
 
     override suspend fun getJson(): JsonObject? = rpc { id -> TenTapBridge.getJsonAction(id) }
         ?.let { runCatching { it.jsonObject }.getOrNull() }

@@ -170,7 +170,7 @@ fun ReactionBar(
 ) {
     val colors = LocalAppiaColors.current
     val reactions = remember(reactionsJson) { parseReactions(reactionsJson) }
-    if (reactions.isEmpty()) return
+    // T13 组装（T8-T11 窗口缺口）：空条也渲染（仅 ＋），首反应入口不依赖长按菜单
     var pickerOpen by remember { mutableStateOf(false) }
 
     Row(

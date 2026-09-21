@@ -1,6 +1,7 @@
 package cn.appia.im.feature.chatlist
 
 import cn.appia.im.core.database.entity.ChatEntity
+import cn.appia.im.core.messaging.resolveMdFromMsgFields
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -156,67 +157,77 @@ private fun formatSpecialMsg(m: LastMessageShape): Special? {
     return null
 }
 
-/** RN parseMd：md 字段为字符串时再解析一层 JSON，解析失败 → null。 */
-private fun parseStoredMd(md: JsonElement?): JsonElement? = when (md) {
-    null, is JsonNull -> null
-    is JsonPrimitive -> if (md.isString) runCatching { Json.parseToJsonElement(md.content) }.getOrNull() else null
-    else -> md
-}
-
-private fun inlineListToText(value: JsonElement?): String {
-    val arr = value as? JsonArray ?: return ""
-    return arr.joinToString("") { inlineToText(it) }
-}
-
 /**
- * inline 展平（对齐 RN plainText 渲染口径）：PLAIN_TEXT → value；EMOJI → unicode；
- * LINK → label 文本；BOLD/ITALIC 等嵌套数组 → 递归拼接；MENTION_* → `@name`；其余 → 空。
+ * 预览行内展平（T13 / RN lastMessagePreviewInlines.ts :20-65 逐分支）：经
+ * [resolveMdFromMsgFields]（md 列直读 + stale 回退 msg 解析——md 渲染红线的共享单点），
+ * 类型化 AST 上取首个「可见」块：
+ * - PARAGRAPH subType=TABLE + 非空 label → label 直出；空白 label → 跳块（RN :24-31）
+ * - PARAGRAPH/BIG_EMOJI → value 内联展平
+ * - UNORDERED_LIST 首项 → `• ` + 首段内联；ORDERED_LIST 首项 → `N) ` + 首段内联
+ * - 可见性（RN hasVisiblePreviewInlines :9-18）：PLAIN_TEXT 非空白 / 非空引用标记 LINK / 其余恒可见
  */
-private fun inlineToText(node: JsonElement): String {
-    if (node is JsonPrimitive) return node.contentOrNull ?: ""
-    val o = node as? JsonObject ?: return ""
-    return when (o["type"]?.let { (it as? JsonPrimitive)?.contentOrNull }) {
-        "PLAIN_TEXT" -> (o["value"] as? JsonPrimitive)?.contentOrNull ?: ""
-        "EMOJI" -> (o["unicode"] as? JsonPrimitive)?.contentOrNull ?: ""
-        "LINK" -> inlineListToText((o["value"] as? JsonObject)?.get("label"))
-        "MENTION_USER", "MENTION_CHANNEL", "MENTION_HERE" ->
-            "@" + ((o["value"] as? JsonObject)?.get("value")?.let { (it as? JsonPrimitive)?.contentOrNull } ?: "")
-        else -> inlineListToText(o["value"])
+internal fun previewInlineText(md: JsonElement?, msg: String?, previewTableLabel: String?): String? {
+    val mdRaw = when (md) {
+        null, is JsonNull -> null
+        // md 存量两种形态（RN parseMd 语义）：字符串化的 JSON 原文，或 AST 数组本体
+        is JsonPrimitive -> if (md.isString) md.content else null
+        else -> md.toString()
     }
-}
-
-/**
- * RN lastMessagePreviewInlines.ts 关键分支的移植（不解析 msg，仅读存量 md AST）。
- * 支持块型：PARAGRAPH（含 subType=TABLE：RN 无 previewTableLabel 时落穿到 PARAGRAPH 分支，
- * 预览取表格 block.value 内联文本；有 label 时整个预览取 label——RN inlinesFromBlock :24-31）、
- * BIG_EMOJI、UNORDERED_LIST（`• ` 首项）、ORDERED_LIST（`N) ` 首项）；其余块型跳过；
- * 全部块不可见/无 md → null，调用方回退纯文本。
- */
-private fun previewInlineText(md: JsonElement?, previewTableLabel: String?): String? {
-    val root = parseStoredMd(md) as? JsonArray ?: return null
-    for (block in root) {
-        val o = block as? JsonObject ?: continue
-        val type = o["type"]?.let { (it as? JsonPrimitive)?.contentOrNull }
-        val subType = o["subType"]?.let { (it as? JsonPrimitive)?.contentOrNull }
-        // RN：TABLE + truthy label → label 直出；truthy 但空白 → hasVisiblePreviewInlines false，跳块
-        if (type == "PARAGRAPH" && subType == "TABLE" && !previewTableLabel.isNullOrEmpty()) {
-            if (previewTableLabel.isNotBlank()) return previewTableLabel
-            continue
+    val root = resolveMdFromMsgFields(mdRaw, msg) ?: return null
+    for (block in root.blocks) {
+        val inlines: List<cn.appia.im.core.messaging.MdInline> = when (block) {
+            is cn.appia.im.core.messaging.Paragraph -> {
+                if (block.subType == "TABLE" && !previewTableLabel.isNullOrEmpty()) {
+                    if (previewTableLabel.isNotBlank()) return previewTableLabel
+                    continue
+                }
+                block.value
+            }
+            is cn.appia.im.core.messaging.BigEmoji -> block.value
+            is cn.appia.im.core.messaging.UnorderedList ->
+                (block.value.firstOrNull() as? cn.appia.im.core.messaging.ListItem)?.let {
+                    listOf(cn.appia.im.core.messaging.PlainText("• ")) + it.value.filterIsInstance<cn.appia.im.core.messaging.MdInline>()
+                } ?: continue
+            is cn.appia.im.core.messaging.OrderedList -> {
+                (block.value.firstOrNull() as? cn.appia.im.core.messaging.ListItem)?.let { first ->
+                    val num = first.number ?: 1
+                    listOf(cn.appia.im.core.messaging.PlainText("$num) ")) + first.value.filterIsInstance<cn.appia.im.core.messaging.MdInline>()
+                } ?: continue
+            }
+            else -> continue
         }
-        val text = when (type) {
-            "PARAGRAPH", "BIG_EMOJI" -> inlineListToText(o["value"])
-            "UNORDERED_LIST" -> (o["value"] as? JsonArray)?.firstOrNull()?.let {
-                "• " + inlineListToText((it as? JsonObject)?.get("value"))
-            }
-            "ORDERED_LIST" -> (o["value"] as? JsonArray)?.firstOrNull()?.let { first ->
-                val num = ((first as? JsonObject)?.get("number") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 1
-                "$num) " + inlineListToText((first as? JsonObject)?.get("value"))
-            }
-            else -> null
-        } ?: continue
-        if (text.isNotBlank()) return text
+        if (hasVisiblePreviewInlines(inlines)) return inlinesToPreviewText(inlines)
     }
     return null
+}
+
+/** RN hasVisiblePreviewInlines :9-18：PLAIN_TEXT 非空白 / LINK 非空引用标记 / 其余可见。 */
+private fun hasVisiblePreviewInlines(inlines: List<cn.appia.im.core.messaging.MdInline>): Boolean =
+    inlines.any { inline ->
+        when (inline) {
+            is cn.appia.im.core.messaging.PlainText -> inline.value.trim().isNotEmpty()
+            is cn.appia.im.core.messaging.Link ->
+                inline.value.label.joinToString("") { inlineToPreviewText(it) }.trim().isNotEmpty()
+            else -> true
+        }
+    }
+
+/** 行内 → 预览文本（RN RoomItemLastMessage plainMode 口径：mention 出 @name，katex 出原文）。 */
+private fun inlinesToPreviewText(inlines: List<cn.appia.im.core.messaging.MdInline>): String =
+    inlines.joinToString("") { inlineToPreviewText(it) }
+
+private fun inlineToPreviewText(node: cn.appia.im.core.messaging.MdInline): String = when (node) {
+    is cn.appia.im.core.messaging.PlainText -> node.value
+    is cn.appia.im.core.messaging.Emoji -> node.unicode ?: node.value?.let { inlineToPreviewText(it) }.orEmpty()
+    is cn.appia.im.core.messaging.Link -> node.value.label.joinToString("") { inlineToPreviewText(it) }
+    is cn.appia.im.core.messaging.MentionUser -> "@" + inlineToPreviewText(node.value)
+    is cn.appia.im.core.messaging.MentionChannel -> "#" + inlineToPreviewText(node.value)
+    is cn.appia.im.core.messaging.InlineCode -> inlineToPreviewText(node.value)
+    is cn.appia.im.core.messaging.InlineKaTeX -> node.value
+    is cn.appia.im.core.messaging.Bold -> node.value.joinToString("") { inlineToPreviewText(it) }
+    is cn.appia.im.core.messaging.Italic -> node.value.joinToString("") { inlineToPreviewText(it) }
+    is cn.appia.im.core.messaging.Strike -> node.value.joinToString("") { inlineToPreviewText(it) }
+    cn.appia.im.core.messaging.LineBreak -> ""
 }
 
 /**
@@ -224,8 +235,9 @@ private fun previewInlineText(md: JsonElement?, previewTableLabel: String?): Str
  * 1. 草稿优先（plain 非空取 plain，否则 draft_message）
  * 2. 无 lastMessage / 无 `u` → roomItem_noMessage
  * 3. 特殊消息（pinned/jitsi/attachments/docCloud/oncall/meeting_room/forwardMergeMessage）
- * 4. 普通消息：发送人前缀（自己/rollback 无前缀）+ md 首个可见 block（M2 简化：无 md 走 `msg` 纯文本，
- *    换行替换为空格）；前后缀拼空 → roomItem_noMessage
+ * 4. 普通消息：发送人前缀（自己/rollback 无前缀）+ md 首个可见 block（RN inlinesFromFirstBlock
+ *    语义：多行 msg 解析为多段，预览只取首段）；md 全程不可见时回退 `msg` 纯文本（换行替换为空格）；
+ *    前后缀拼空 → roomItem_noMessage
  *
  * @param currentUserId RN 语义为 `user.username`（RoomListScreenInner.tsx:55，前缀按 username 判自己）；
  *   与分段/助手的 `user.id` 判定（ChatListViewModel）不是同一个值，UI 接线时注意分开取。
@@ -257,7 +269,8 @@ fun resolveLastMessagePreview(
     }
 
     val prefix = senderPrefixFor(lastMessage, currentUserId)
-    val mdText = previewInlineText(lastMessage.md, previewTableLabel)
+    // T13：预览走 resolveMdFromMsgFields（md 列直读 + stale 回退 msg 解析）+ RN 展平分支
+    val mdText = previewInlineText(lastMessage.md, lastMessage.msg, previewTableLabel)
     if (mdText != null) return PreviewResult.Text(prefix + mdText)
 
     val body = lastMessage.msg?.replace("\n", " ") ?: ""

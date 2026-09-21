@@ -25,10 +25,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
@@ -373,13 +379,52 @@ class RealtimeSessionManager(
      * RN :596-629 后台 fire-and-forget（public settings / emojis / permissions / user roles）。
      * M1 占位：保留 per-step generation 检查骨架 + 日志，各 sync 实现归 M5。
      * 句柄登记（授权顺手项）：teardown 取消，防 M5 前的幽灵同步残留。
+     * T13：custom emojis 步实现（RN session.ts:609 syncCustomEmojis → emoji-custom.list →
+     * DAO upsert；RoomScreen → MessageRow → InlineEnv / buildEditContent 查表消费）。
      */
     private fun launchBootstrapExtras(generationAtStart: Long) {
         extrasJob = scope.launch {
             for (step in listOf("public settings", "custom emojis", "permissions", "user roles")) {
                 if (bootstrapGeneration.get() != generationAtStart) return@launch
-                Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
+                if (step == "custom emojis") {
+                    syncCustomEmojis()
+                } else {
+                    Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
+                }
             }
+        }
+    }
+
+    /** RN syncCustomEmojis（services/emoji/syncCustomEmojis.ts）：GET emoji-custom.list → update 集 upsert。 */
+    private suspend fun syncCustomEmojis() {
+        try {
+            val res = sdk.get("emoji-custom.list") as? JsonObject ?: return
+            if (res["success"]?.jsonPrimitive?.booleanOrNull != true) return
+            val update = ((res["emojis"] as? JsonObject)?.get("update") as? JsonArray) ?: return
+            val dao = dbManager.active.customEmojiDao()
+            update.forEach { el ->
+                val emoji = el as? JsonObject ?: return@forEach
+                val name = emoji["name"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                val extension = emoji["extension"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                val aliases = (emoji["aliases"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { Json.encodeToString(it) }
+                dao.insert(
+                    cn.appia.im.core.database.entity.CustomEmojiEntity(
+                        name = name,
+                        aliases = aliases,
+                        extension = extension,
+                        // $date 为 ms epoch；RN Watermelon 存原 number，本表列语义取秒（幂等 REPLACE 即可）
+                        _updated_at = (emoji["_updatedAt"]?.let { (it as? JsonObject)?.get("\$date")?.jsonPrimitive?.doubleOrNull }
+                            ?: (System.currentTimeMillis() / 1000.0 * 1000)) / 1000.0,
+                    ),
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "sync custom emojis failed", e) // RN console.error 不阻断
         }
     }
 

@@ -70,6 +70,20 @@ class ChatInputBarController(
     var isFocused by mutableStateOf(false); private set
     var contentHeightDp by mutableDoubleStateOf(DEFAULT_HEIGHT_DP); private set
 
+    // ── 工具栏活动态（T13 / stateUpdate 的 bridge state 键；RN es?.* 同一来源）──
+    var isBoldActive by mutableStateOf(false); private set
+    var isItalicActive by mutableStateOf(false); private set
+    var isStrikeActive by mutableStateOf(false); private set
+    var isOrderedListActive by mutableStateOf(false); private set
+    var isBulletListActive by mutableStateOf(false); private set
+    var headingLevel by mutableStateOf(0); private set
+    var activeColor by mutableStateOf<String?>(null); private set
+    var activeFontSize by mutableStateOf<String?>(null); private set
+
+    /** 高亮组合态（RN isHighlightActive：bold + color #FF0000 + fontSize 16px 三者同活）。 */
+    val isHighlightActive: Boolean
+        get() = isBoldActive && activeColor == HIGHLIGHT_COLOR && activeFontSize == HIGHLIGHT_FONT_SIZE
+
     /** 最新 TipTap JSON（draft 保存/发送 md 源）；null=编辑器空或未拉到。 */
     var jsonContent by mutableStateOf<JsonObject?>(null); private set
 
@@ -104,11 +118,11 @@ class ChatInputBarController(
         applyPendingIfReady()
     }
 
-    /** HTML 形态（buildEditContent 无 md 回退 `<p>..</p>`）。 */
+    /** HTML 形态（buildEditContent 无 md 回退 `<p>..</p>`）。plainText 反转义（M9 rider：实体还原）。 */
     fun setContentHtmlWhenReady(html: String?) {
         pendingContent = PendingContent(json = null, html = html)
         contentVersion++
-        plainText = html?.replace(Regex("<[^>]*>"), "").orEmpty()
+        plainText = html?.replace(Regex("<[^>]*>"), "")?.let { cn.appia.im.core.messaging.unescapeHtml(it) } ?: ""
         applyPendingIfReady()
     }
 
@@ -161,6 +175,16 @@ class ChatInputBarController(
     private fun onStateUpdate(payload: JsonObject) {
         payload["isFocused"]?.jsonPrimitive?.let { isFocused = it.content == "true" }
         payload["contentHeight"]?.jsonPrimitive?.doubleOrNull?.let { contentHeightDp = it }
+        // 工具栏活动态（T13）：bridge state 键直读（10tap extendEditorState 逐 bridge 合并产物）
+        payload["isBoldActive"]?.jsonPrimitive?.let { isBoldActive = it.content == "true" }
+        payload["isItalicActive"]?.jsonPrimitive?.let { isItalicActive = it.content == "true" }
+        payload["isStrikeActive"]?.jsonPrimitive?.let { isStrikeActive = it.content == "true" }
+        payload["isOrderedListActive"]?.jsonPrimitive?.let { isOrderedListActive = it.content == "true" }
+        payload["isBulletListActive"]?.jsonPrimitive?.let { isBulletListActive = it.content == "true" }
+        payload["headingLevel"]?.jsonPrimitive?.let { headingLevel = it.content.toIntOrNull() ?: 0 }
+        // activeColor/activeFontSize：JS undefined → 键缺席保持 null；null → 清空
+        payload["activeColor"]?.jsonPrimitive?.let { activeColor = if (it is kotlinx.serialization.json.JsonNull) null else it.content }
+        payload["activeFontSize"]?.jsonPrimitive?.let { activeFontSize = if (it is kotlinx.serialization.json.JsonNull) null else it.content }
         // 编辑器状态更新后拉一次内容（RN useEditorContent 订阅 stateUpdate → debounce 拉取同义）
         scheduleContentFetch()
     }
@@ -305,12 +329,75 @@ class ChatInputBarController(
         plainText = ""
     }
 
+    // ── 工具栏命令（T13 / RN editorAction：动作后 50ms 重聚焦编辑器）──
+
+    /** 动作 + 50ms 重聚焦（RN editorAction :980-986 setTimeout(focus,50) 同构）。 */
+    private fun editorAction(action: () -> Unit) {
+        action()
+        scope.launch {
+            delay(REFOCUS_DELAY_MS)
+            dispatchFocus("focus")
+        }
+    }
+
+    fun toggleBold() = editorAction { bridge?.sendAction(TenTapBridge.TOGGLE_BOLD) }
+    fun toggleItalic() = editorAction { bridge?.sendAction(TenTapBridge.TOGGLE_ITALIC) }
+    fun toggleStrike() = editorAction { bridge?.sendAction(TenTapBridge.TOGGLE_STRIKE) }
+    fun toggleOrderedList() = editorAction { bridge?.sendAction(TenTapBridge.TOGGLE_ORDERED_LIST) }
+    fun toggleBulletList() = editorAction { bridge?.sendAction(TenTapBridge.TOGGLE_BULLET_LIST) }
+
+    /** 颜色（RN handleSetColor :971-978）：非空 setColor / 空 unsetColor，50ms 重聚焦。 */
+    fun setColor(color: String?) = editorAction {
+        if (color != null) bridge?.sendAction(TenTapBridge.SET_COLOR, kotlinx.serialization.json.JsonPrimitive(color))
+        else bridge?.sendAction(TenTapBridge.UNSET_COLOR)
+    }
+
+    /**
+     * 高亮组合（RN Highlight ToolBtn :1044-1061）：on = bold+color(#FF0000)+fontSize(16px)；
+     * off = bold+unsetColor+unsetFontSize。活动态见 [isHighlightActive]。
+     */
+    fun toggleHighlight() = editorAction {
+        val b = bridge ?: return@editorAction
+        if (isHighlightActive) {
+            b.sendAction(TenTapBridge.TOGGLE_BOLD)
+            b.sendAction(TenTapBridge.UNSET_COLOR)
+            b.sendAction(TenTapBridge.UNSET_FONT_SIZE)
+        } else {
+            b.sendAction(TenTapBridge.TOGGLE_BOLD)
+            b.sendAction(TenTapBridge.SET_COLOR, kotlinx.serialization.json.JsonPrimitive(HIGHLIGHT_COLOR))
+            b.sendAction(TenTapBridge.SET_FONT_SIZE, kotlinx.serialization.json.JsonPrimitive(HIGHLIGHT_FONT_SIZE))
+        }
+    }
+
+    /**
+     * 清除格式（RN handleClearFormat :988-1018）：web 构建无 clear-nodes/unset-all-marks 动作
+     * （已核查 bundle 的 onBridgeMessage 白名单）→ 恒走 RN 的 fallback：逐活动 mark/node 翻转 +
+     * unsetColor/unsetFontSize；标题/列表按当前活动态翻转。
+     */
+    fun clearFormat() = editorAction {
+        val b = bridge ?: return@editorAction
+        if (headingLevel > 0) b.sendAction(TenTapBridge.TOGGLE_HEADING, kotlinx.serialization.json.JsonPrimitive(headingLevel))
+        if (isOrderedListActive) b.sendAction(TenTapBridge.TOGGLE_ORDERED_LIST)
+        if (isBulletListActive) b.sendAction(TenTapBridge.TOGGLE_BULLET_LIST)
+        if (isBoldActive) b.sendAction(TenTapBridge.TOGGLE_BOLD)
+        if (isItalicActive) b.sendAction(TenTapBridge.TOGGLE_ITALIC)
+        if (isStrikeActive) b.sendAction(TenTapBridge.TOGGLE_STRIKE)
+        b.sendAction(TenTapBridge.UNSET_COLOR)
+        b.sendAction(TenTapBridge.UNSET_FONT_SIZE)
+        b.sendAction(TenTapBridge.UNSET_HIGHLIGHT)
+    }
+
     companion object {
         const val FOCUS_DEBOUNCE_MS = 50L
         const val CONTENT_FETCH_DEBOUNCE_MS = 10L
         const val DEFAULT_HEIGHT_DP = 38.0
         const val MIN_HEIGHT_DP = 38.0
         const val MAX_HEIGHT_DP = 150.0
+        const val REFOCUS_DELAY_MS = 50L
+
+        /** RN ChatInputBar :1044-1061 高亮组合常量：#FF0000 + 16px。 */
+        const val HIGHLIGHT_COLOR = "#FF0000"
+        const val HIGHLIGHT_FONT_SIZE = "16px"
 
         /** RN compact 行：Math.min(Math.max(contentHeight, 38), 150)。 */
         fun clampHeight(h: Double): Double = h.coerceIn(MIN_HEIGHT_DP, MAX_HEIGHT_DP)

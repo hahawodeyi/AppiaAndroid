@@ -187,15 +187,16 @@ class LastMessagePreviewTest {
 
     @Test
     fun `md unordered list uses bullet prefix`() {
+        // 真实 AST 列表项带 LIST_ITEM 判别符（RN quoteLinkListLastMessage fixture 同款）
         val lm = """{"u":{"username":"bob"},"md":[
-            {"type":"UNORDERED_LIST","value":[{"value":[{"type":"PLAIN_TEXT","value":"item1"}]}]}]}"""
+            {"type":"UNORDERED_LIST","value":[{"type":"LIST_ITEM","value":[{"type":"PLAIN_TEXT","value":"item1"}]}]}]}"""
         assertEquals("bob：• item1", text(resolve(lm.replace("\n", ""))))
     }
 
     @Test
     fun `md ordered list uses number prefix`() {
         val lm = """{"u":{"username":"bob"},"md":[
-            {"type":"ORDERED_LIST","value":[{"number":3,"value":[{"type":"PLAIN_TEXT","value":"third"}]}]}]}"""
+            {"type":"ORDERED_LIST","value":[{"type":"LIST_ITEM","number":3,"value":[{"type":"PLAIN_TEXT","value":"third"}]}]}]}"""
         assertEquals("bob：3) third", text(resolve(lm.replace("\n", ""))))
     }
 
@@ -235,14 +236,17 @@ class LastMessagePreviewTest {
 
     @Test
     fun `md with unknown block only falls back to plain text`() {
+        // RN message-parser 实测：多行 msg → 多 PARAGRAPH → 首个可见块 "plain"（首块预览语义）
         val lm = """{"msg":"plain\nfallback","u":{"username":"bob"},"md":[
             {"type":"CODE","value":[{"type":"PLAIN_TEXT","value":"code"}]}]}"""
-        assertEquals("bob：plain fallback", text(resolve(lm.replace("\n", ""))))
+        assertEquals("bob：plain", text(resolve(lm.replace("\n", ""))))
     }
 
     @Test
-    fun `no md replaces newlines with spaces`() {
-        assertEquals("bob：a b", text(resolve("""{"msg":"a\nb","u":{"username":"bob"}}""")))
+    fun `no md shows first paragraph block only`() {
+        // RN parse('a\nb') 实测出两个 PARAGRAPH → inlinesFromFirstBlock 取 "a"；
+        // 换行拍平为空格仅发生在 md 全程不可见时的兜底文案路径
+        assertEquals("bob：a", text(resolve("""{"msg":"a\nb","u":{"username":"bob"}}""")))
     }
 
     @Test

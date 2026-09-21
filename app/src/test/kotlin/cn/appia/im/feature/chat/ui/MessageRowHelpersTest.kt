@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * MessageRow 纯函数测试：u JSON 解析、发送者名/头像 URL（鉴权参数）、
- * 正文 span（md MENTION 节点 + mentions 匹配、无 md 纯文本）。
+ * MENTION 显示名解析（md 行内管线共用 helper）。
  */
 class MessageRowHelpersTest {
 
@@ -67,39 +67,12 @@ class MessageRowHelpersTest {
         assertEquals("me", parseMessageUser(m.u)._id)
     }
 
-    // ── 正文 span（RN AtMention 数据源语义）──
+    // ── MENTION 显示名解析（resolveMentionDisplay，总纲 §4.3-1；T5 行内管线共用）──
 
     private val mentions = listOf(
         MentionUser(_id = "u2", username = "bob", name = "Bob"),
         MentionUser(_id = "u3", username = "carol", name = null),
     )
-
-    @Test
-    fun `no md falls back to plain msg`() {
-        assertEquals(listOf<BodySpan>(BodySpan.Plain("hi")), parseBodySpans("hi", null, mentions))
-    }
-
-    @Test
-    fun `mention node matched by username from mentions array`() {
-        val md = """[{"type":"PARAGRAPH","value":[
-            {"type":"PLAIN_TEXT","value":"hi "},
-            {"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"bob"}},
-            {"type":"PLAIN_TEXT","value":" and "},
-            {"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"zed"}}
-        ]}]"""
-        val spans = parseBodySpans("hi @bob and @zed", md, mentions)
-        assertEquals(
-            listOf(
-                BodySpan.Plain("hi "),
-                BodySpan.Mention("bob"),
-                BodySpan.Plain(" and "),
-                BodySpan.Mention("zed"), // 未命中 → 由 resolver 判 UNRESOLVED
-            ),
-            spans,
-        )
-    }
-
-    // ── MENTION 显示名解析（resolveMentionDisplay，总纲 §4.3-1；T5 行内管线共用）──
 
     @Test
     fun `mention all and here keep group color with raw label`() {
@@ -137,9 +110,10 @@ class MessageRowHelpersTest {
     }
 
     @Test
-    fun `bad md json degrades to plain msg`() {
-        val spans = parseBodySpans("plain", "{oops", mentions)
-        assertEquals(listOf<BodySpan>(BodySpan.Plain("plain")), spans)
+    fun `bad md json degrades via resolver to msg parse`() {
+        // md 列坏 JSON → resolveMdFromMsgFields 返回 null（渲染层走无 md 独立 edited 标记），
+        // 不再重 parse msg（md 渲染红线）
+        assertNull(cn.appia.im.core.messaging.resolveMdFromMsgFields("{oops", "plain"))
     }
 
     @Test
@@ -148,5 +122,30 @@ class MessageRowHelpersTest {
         assertTrue(parseMentions("").isEmpty())
         assertTrue(parseMentions("{oops").isEmpty())
         assertEquals("bob", parseMentions("""[{"_id":"u2","username":"bob","name":"Bob"}]""")[0].username)
+    }
+
+    // ── T13 组装：上传进度百分比（RN computePercent 逐条）──
+
+    @Test
+    fun `upload percent single file takes current progress`() {
+        val p = cn.appia.im.core.media.FileUploadProgress.Data(
+            totalFiles = 1, completedFiles = 0, currentFileProgress = 0.47,
+        )
+        assertEquals(47, computeUploadPercent(p))
+    }
+
+    @Test
+    fun `upload percent multi file folds completed count`() {
+        val p = cn.appia.im.core.media.FileUploadProgress.Data(
+            totalFiles = 3, completedFiles = 2, currentFileProgress = 0.5,
+        )
+        assertEquals(83, computeUploadPercent(p)) // (2+0.5)/3 = 83%
+    }
+
+    // ── T13 组装：HTML 反转义（M9 rider）──
+
+    @Test
+    fun `unescape html inverts edit content escape table`() {
+        assertEquals("a<b>&\"'c", cn.appia.im.core.messaging.unescapeHtml("a&lt;b&gt;&amp;&quot;&#39;c"))
     }
 }

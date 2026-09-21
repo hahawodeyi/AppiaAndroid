@@ -1,7 +1,9 @@
 package cn.appia.im.feature.chat.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onGloballyPositioned
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.i18n.t
+import cn.appia.im.core.messaging.EmojiResolver
 import cn.appia.im.core.messaging.buildEditContent
 import cn.appia.im.core.messaging.convertTipTapJsonToMessageParserRoot
 import cn.appia.im.core.messaging.isMessageEdited
@@ -209,6 +213,10 @@ fun RoomScreen(
     editorController: ChatInputBarController = rememberChatInputBarController(),
     /** 转发路由（T11 / RN ForwardSelect isMerged）：(messageIds, 合并?)。单条与多选共用。 */
     onForward: (List<String>, Boolean) -> Unit = { _, _ -> },
+    /** 自定义表情解析（T13 / RN getCustomEmoji）：shortname → resolver 命中；null 走查表文本。 */
+    getCustomEmoji: ((String) -> cn.appia.im.core.messaging.ResolvedEmoji?)? = null,
+    /** 本地附件失败重试（T13 / RN retryFile）：(messageId, attachmentId) → SendOrchestrator.retryFile。 */
+    onRetryAttachment: suspend (String, String) -> Unit = { _, _ -> },
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -311,11 +319,22 @@ fun RoomScreen(
     val multiSelect = remember(rid) { MessageMultiSelectStore() }
     val multiState by multiSelect.state.collectAsState()
 
+    // ── T13：表格全屏 overlay / KaTeX 公式查看 overlay（RN MarkdownTableScreen 路由的懒 overlay 等价）──
+    var tableOverlayRows by remember(rid) { mutableStateOf<List<cn.appia.im.core.messaging.MdNode>?>(null) }
+    var katexOverlayFormula by remember(rid) { mutableStateOf<String?>(null) }
+
     // ── 编辑模式（T12 / RN EditContext editingMessage + stashedEditingDraftRef）──
     /** 编辑态 stash（RN stashedEditingDraftRef：pending 附件 + 当前编辑器 JSON，退出恢复）。 */
     data class EditStash(val items: List<PendingAttachment>, val json: JsonObject?)
     var editingMessage by remember(rid) { mutableStateOf<MessageEntity?>(null) }
     var editStash by remember(rid) { mutableStateOf<EditStash?>(null) }
+
+    // Aa 工具栏（T13 / RN AicState L2 toolbar：hidden|visible|colorSubPanel）
+    var showToolbar by remember(rid) { mutableStateOf(false) }
+    var showColorPicker by remember(rid) { mutableStateOf(false) }
+
+    // T13：buildEditContent 用 resolver（EmojiResolver 接口适配 getCustomEmoji lambda）
+    val emojiResolver = getCustomEmoji?.let { f -> EmojiResolver { code -> f(code) } }
 
     /** buildEditContent 产物分流（TipTap JSON / 无 md 的 HTML 串）。 */
     fun applyEditContent(content: kotlinx.serialization.json.JsonElement) {
@@ -334,7 +353,8 @@ fun RoomScreen(
             val serverFiles = serverMessageToEditableFiles(m)
             if (serverFiles.isNotEmpty()) pendingAttachments.hydrate(serverFiles)
         }
-        applyEditContent(buildEditContent(m))
+        // T13：自定义表情 resolver（:colon: 名字回填编辑器需查表，RN getCustomEmoji 同义）
+        applyEditContent(buildEditContent(m, emojiResolver, serverUrl.takeIf { it.isNotBlank() }))
         controller.requestFocus("end")
         editingMessage = m
         replyTo = null // RN setEditing :1421 setReplyingMessage(null)
@@ -401,6 +421,8 @@ fun RoomScreen(
                         mentions = restored.mentions,
                         tmid = restored.tmid,
                     ),
+                    emojiResolver, // T13：自定义表情回填（同 enterEdit）
+                    serverUrl.takeIf { it.isNotBlank() },
                 ),
             )
             replyTo = if (!restored.tmid.isNullOrEmpty()) m else null
@@ -562,6 +584,22 @@ fun RoomScreen(
                                             item.message._id in multiState.selectedIds
                                         } else {
                                             null
+                                        },
+                                        // T13：自定义表情进 InlineEnv / 表格·公式 overlay 入口 / 附件重试
+                                        getCustomEmoji = getCustomEmoji,
+                                        onTableOpen = { rows -> tableOverlayRows = rows },
+                                        onKatexClick = { formula -> katexOverlayFormula = formula },
+                                        onRetryAttachment = { messageId, attachmentId ->
+                                            scope.launch {
+                                                try {
+                                                    onRetryAttachment(messageId, attachmentId)
+                                                } catch (e: CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    Log.w(ROOM_TAG, "retry attachment failed id=$messageId", e)
+                                                    Toast.makeText(context, context.t("send_file_failed"), Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
                                         },
                                     )
                             }
@@ -815,6 +853,126 @@ fun RoomScreen(
                     .testTag("qa-room-send"),
             )
             }
+
+            // ── Aa 格式工具栏（T13 / RN ChatInputBar :1020-1146）──
+            // Aa 切换（RN handleToggleToolbar；compact 态显示/隐藏工具栏）
+            Text(
+                "Aa",
+                color = if (showToolbar) colors.tintColor else colors.auxiliaryText,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(36.dp)
+                    .wrapContentSize(Alignment.Center)
+                    .clickable { showToolbar = !showToolbar }
+                    .testTag("qa-room-toolbar-toggle"),
+            )
+        }
+
+        // 工具栏行（RN toolbarJSX：@/高亮/字色/加粗/斜体/删除线/清除格式/有序/无序列表）
+        if (showToolbar) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.messageboxBackground)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                    .testTag("qa-room-toolbar"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ToolbarTextButton("@", active = false, tag = "qa-toolbar-mention") {
+                    controller.mentionRange = null
+                    onOpenMentionSuggestion("")
+                }
+                ToolbarTextButton(
+                    context.t("chatinput_highlight"),
+                    active = controller.isHighlightActive,
+                    tag = "qa-toolbar-highlight",
+                ) { controller.toggleHighlight() }
+                ToolbarTextButton(
+                    context.t("chatinput_fontcolor"),
+                    active = showColorPicker,
+                    tag = "qa-toolbar-fontcolor",
+                ) {
+                    showColorPicker = !showColorPicker
+                    controller.requestFocus("end")
+                }
+                ToolbarTextButton(
+                    context.t("chatinput_bold"),
+                    active = controller.isBoldActive,
+                    tag = "qa-toolbar-bold",
+                ) { controller.toggleBold() }
+                ToolbarTextButton(
+                    context.t("chatinput_italic"),
+                    active = controller.isItalicActive,
+                    tag = "qa-toolbar-italic",
+                ) { controller.toggleItalic() }
+                ToolbarTextButton(
+                    context.t("chatinput_strike"),
+                    active = controller.isStrikeActive,
+                    tag = "qa-toolbar-strike",
+                ) { controller.toggleStrike() }
+                ToolbarTextButton(
+                    context.t("chatinput_clearformat"),
+                    active = false,
+                    tag = "qa-toolbar-clearformat",
+                ) { controller.clearFormat() }
+                ToolbarTextButton(
+                    context.t("chatinput_orderedlist"),
+                    active = controller.isOrderedListActive,
+                    tag = "qa-toolbar-orderedlist",
+                ) { controller.toggleOrderedList() }
+                ToolbarTextButton(
+                    context.t("chatinput_bulletlist"),
+                    active = controller.isBulletListActive,
+                    tag = "qa-toolbar-bulletlist",
+                ) { controller.toggleBulletList() }
+            }
+        }
+
+        // 颜色行（RN colorRowJSX / PRESET_COLORS :152-164：null=默认色 + 10 预设）
+        if (showToolbar && showColorPicker) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.messageboxBackground)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .testTag("qa-room-color-row"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PRESET_COLORS.forEach { (labelKey, value) ->
+                    val isActive = if (value == null) controller.activeColor == null else controller.activeColor == value
+                    Box(
+                        Modifier
+                            .padding(end = 10.dp)
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(
+                                when {
+                                    value != null -> parseColorOrNull(value) ?: colors.tintColor
+                                    else -> colors.backgroundColor
+                                },
+                            )
+                            .border(
+                                width = if (isActive) 2.dp else 1.dp,
+                                color = if (isActive) colors.tintColor else colors.borderColor,
+                            )
+                            .clickable {
+                                controller.setColor(value)
+                                showColorPicker = false
+                            }
+                            .testTag("qa-color-${labelKey.substringAfter('_')}"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (value == null) {
+                            Text("A", color = colors.bodyText, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
         }
 
         // 长按菜单（T11）：getOptions 判定 → Sheet 分发
@@ -852,8 +1010,15 @@ fun RoomScreen(
                 onDismiss = { batchRecallConfirm = false },
             )
         }
+
+        // T13 overlay：表格全屏 / KaTeX 公式查看（消息列表之上、整屏 scrim）
+        tableOverlayRows?.let { rows ->
+            MarkdownTableOverlay(rows = rows, onClose = { tableOverlayRows = null })
+        }
+        katexOverlayFormula?.let { formula ->
+            KatexFormulaOverlay(math = formula, onClose = { katexOverlayFormula = null })
+        }
     }
-}
 
 /** RN MessageDateSeparator：线 + `yyyy年M月d日` + 线。（T9 起与 ForwardDetailScreen 共用） */
 @Composable
@@ -875,6 +1040,51 @@ internal fun DateSeparator(tsMs: Long) {
         )
         Box(Modifier.weight(1f).height(1.dp).background(colors.borderColor))
     }
+}
+
+// ── Aa 工具栏（T13 / RN ChatInputBar PRESET_COLORS :152-164 + ToolBtn）──
+
+/** RN PRESET_COLORS：label i18n 键 + 色值（null = 默认色）。 */
+internal val PRESET_COLORS: List<Pair<String, String?>> = listOf(
+    "chatinput_colordefault" to null,
+    "chatinput_colorblack" to "#1A1A1A",
+    "chatinput_colordarkgray" to "#6B7280",
+    "chatinput_colorred" to "#EF4444",
+    "chatinput_colororange" to "#F97316",
+    "chatinput_coloryellow" to "#EAB308",
+    "chatinput_colorgreen" to "#22C55E",
+    "chatinput_colorcyan" to "#06B6D4",
+    "chatinput_colorblue" to "#3B82F6",
+    "chatinput_colorpurple" to "#A855F7",
+    "chatinput_colorpink" to "#EC4899",
+)
+
+/** #RRGGBB 解析（坏值 null；UI 兜底 tintColor）。 */
+internal fun parseColorOrNull(hex: String): Color? = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrNull()
+
+/** 工具栏文本按钮（RN ToolBtn：active 高亮色 + 同一回调形态）。 */
+@Composable
+private fun ToolbarTextButton(
+    label: String,
+    active: Boolean,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    val colors = LocalAppiaColors.current
+    Text(
+        label,
+        color = if (active) colors.tintColor else colors.auxiliaryText,
+        fontSize = 13.sp,
+        fontWeight = if (active) FontWeight.SemiBold else null,
+        maxLines = 1,
+        modifier = Modifier
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (active) colors.chatComponentBackground else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp)
+            .testTag(tag),
+    )
 }
 
 /**
