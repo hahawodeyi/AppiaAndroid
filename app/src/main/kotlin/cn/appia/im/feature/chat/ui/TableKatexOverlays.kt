@@ -170,8 +170,9 @@ private fun Modifier.drawRightBorder(unless: Boolean): Modifier =
 
 /**
  * 公式渲染 overlay：assets/mathview（react-native-math-view 的 Android web 构建产物拷贝——
- * MathJax 2.7 typeset-to-SVG bundle，与 RN 端同一渲染器）。协议（App.web.tsx）：
- * window message `{data: math}` → typeset → `ReactNativeWebView.postMessage(JSON.stringify({svg,...}))`。
+ * MathJax 2.7 typeset-to-SVG bundle，与 RN 端同一渲染器）。协议（RN MathJaxProvider.java:95）：
+ * `evaluateJavascript("window.MathJaxProvider({math})")` → typeset → 对象信封
+ * `ReactNativeWebView.postMessage(JSON.stringify({svg,...}))`。
  * Android 侧以 `addJavascriptInterface("ReactNativeWebView")` 接收 SVG 回传，注入可见容器
  * （tint 正文色）——RN MathView 渲染 SVG 本体的等价落法。
  */
@@ -298,9 +299,12 @@ private fun KatexMathWebView(
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     addJavascriptInterface(
                         object : Any() {
+                            // RN JavaScriptUtility.WebViewBridge.postMessage（java:56-62）：
+                            // @JavascriptInterface 在 JS 桥线程回调，写 Compose 状态须回主线程
                             @android.webkit.JavascriptInterface
                             fun postMessage(raw: String) {
-                                parseKatexSvgMessage(raw)?.let(onSvg)
+                                val parsed = parseKatexSvgMessage(raw)
+                                if (parsed != null) post { onSvg(parsed) }
                             }
                         },
                         "ReactNativeWebView",
@@ -317,12 +321,12 @@ private fun KatexMathWebView(
                     loadDataWithBaseURL("https://appia.local/", styled, "text/html", "utf-8", null)
                     webViewClient = object : android.webkit.WebViewClient() {
                         override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
-                            // math-view App.web.tsx 消息协议：{data: math} → MathJax typeset
-                            val payload = org.json.JSONObject().put("data", math).toString()
-                            view?.evaluateJavascript(
-                                "window.dispatchEvent(new MessageEvent('message',{data:${kotlinx.serialization.json.JsonPrimitive(payload)}}));",
-                                null,
-                            )
+                            // RN MathJaxProvider.postRequest（java:95）：evaluateJavascript(
+                            // "window.MathJaxProvider({math:...})")——Provider 路径产**对象**信封
+                            // （mathjax(config).then(App.postMessage)）；window-message 监听路径
+                            // 会包 Promise.all 产数组信封，故不走 dispatchEvent
+                            val payload = org.json.JSONObject().put("math", math).toString()
+                            view?.evaluateJavascript("window.MathJaxProvider($payload)", null)
                         }
                     }
                 }
@@ -331,9 +335,20 @@ private fun KatexMathWebView(
     )
 }
 
-/** bundle 回传解析：`JSON.stringify({svg, width, height...})` → svg 串（坏 JSON/无 svg → null）。 */
-internal fun parseKatexSvgMessage(raw: String): String? =
-    runCatching { org.json.JSONObject(raw).optString("svg") }.getOrNull()?.takeIf { it.isNotEmpty() }
+/**
+ * bundle 回传解析：`JSON.stringify({svg, width, height...})` → svg 串（坏 JSON/无 svg → null）。
+ * 信封双形态兼容：MathJaxProvider 路径产**对象**（本实现派发路径）；window-message 监听路径
+ * 产**数组**（`Promise.all(...).then(App.postMessage)`，bundle addMessageListener——数组首元素）。
+ * error 恒对象（App.postError）。
+ */
+internal fun parseKatexSvgMessage(raw: String): String? = runCatching {
+    val obj = if (raw.startsWith("[")) {
+        org.json.JSONArray(raw).optJSONObject(0)
+    } else {
+        org.json.JSONObject(raw)
+    }
+    obj?.optString("svg")
+}.getOrNull()?.takeIf { it.isNotEmpty() }
 
 private var cachedMathviewBundle: String? = null
 

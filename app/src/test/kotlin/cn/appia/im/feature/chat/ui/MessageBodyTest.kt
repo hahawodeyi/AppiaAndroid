@@ -302,8 +302,8 @@ class MessageBodyTest {
                 md = """{"blocks":[{"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"body"}]}]}""",
             ),
         )
-        // 行内尾随（正文 AnnotatedString 内）且无独立标记
-        rule.onNodeWithText("body (Edited)").assertIsDisplayed()
+        // 行内尾随（正文 AnnotatedString 内）且无独立标记——RN 无前导空格（Minor-1）
+        rule.onNodeWithText("body(Edited)").assertIsDisplayed()
         rule.onAllNodesWithTag("qa-message-edited-tag").assertCountEquals(0)
     }
 
@@ -313,13 +313,13 @@ class MessageBodyTest {
         // 独立标记存在；正文不含行内尾随
         rule.onAllNodesWithTag("qa-message-edited-tag").assertCountEquals(1)
         rule.onNodeWithText("body").assertIsDisplayed()
-        rule.onNodeWithText("body (Edited)").assertDoesNotExist()
+        rule.onNodeWithText("body(Edited)").assertDoesNotExist()
     }
 
     @Test
     fun `not edited renders no tag in either form`() {
         setRow(editedEntity(md = null).copy(edited_by = null))
         rule.onAllNodesWithTag("qa-message-edited-tag").assertCountEquals(0)
-        rule.onNodeWithText("body (Edited)").assertDoesNotExist()
+        rule.onNodeWithText("body(Edited)").assertDoesNotExist()
     }
 }

@@ -29,19 +29,28 @@ class OverlayUiTest {
     @get:Rule
     val rule = createComposeRule()
 
-    // ── KaTeX SVG 回传解析（bundle 协议 JSON.stringify({svg, width, height, ...})）──
+    // ── KaTeX SVG 回传解析（信封双形态：Provider 派发产对象 / window-message 监听产数组）──
 
+    /** Provider 路径（本实现派发方式，RN MathJaxProvider.java:95）：对象信封。 */
     @Test
-    fun `parse katex svg message extracts svg string`() {
+    fun `parse katex svg message extracts svg string from provider object envelope`() {
         val raw = """{"svg":"<svg xmlns=\"http://www.w3.org/2000/svg\">E=mc^2</svg>","width":"10ex","height":"2ex"}"""
         assertEquals("<svg xmlns=\"http://www.w3.org/2000/svg\">E=mc^2</svg>", parseKatexSvgMessage(raw))
+    }
+
+    /** window-message 监听路径（bundle addMessageListener：Promise.all → App.postMessage）：数组信封首元素。 */
+    @Test
+    fun `parse katex svg message extracts svg from listener array envelope`() {
+        val raw = """[{"svg":"<svg>a</svg>","width":"10ex"}]"""
+        assertEquals("<svg>a</svg>", parseKatexSvgMessage(raw))
     }
 
     @Test
     fun `parse katex svg message rejects broken json empty svg or error payload`() {
         assertNull(parseKatexSvgMessage("{oops"))
         assertNull(parseKatexSvgMessage("""{"svg":""}"""))
-        assertNull(parseKatexSvgMessage("""{"error":{"message":"math error"}}"""))
+        assertNull(parseKatexSvgMessage("""{"error":{"message":"math error"}}""")) // postError 恒对象
+        assertNull(parseKatexSvgMessage("""[{"error":{"message":"math error"}}]"""))
     }
 
     // ── scrim 关闭链（Important-3：内容区消费点击不透传）──

@@ -400,7 +400,8 @@ fun MessageRow(
                         // md 列口径判定——resolveMessageMd 在 md 空时回退 parse msg，根非空 ≠ 有 md）
                         val baseMd = remember(message) { resolveMessageMd(message) }
                         val md = if (isMessageEdited(message) && !message.md.isNullOrEmpty() && baseMd != null) {
-                            remember(baseMd) { appendEditedTagToMd(baseMd, " ${context.t("edited")}") }
+                            // RN MessageBody/index.tsx:58 传 t('edited') 无前导空格（评审 Minor-1）
+                            remember(baseMd) { appendEditedTagToMd(baseMd, context.t("edited")) }
                         } else {
                             baseMd
                         }
