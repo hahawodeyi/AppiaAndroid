@@ -56,12 +56,28 @@ class EditedTagTest {
         val quotePara = (outQ.blocks.single() as Quote).value.single() as Paragraph
         assertEquals(2, quotePara.value.size)
 
-        // 列表项段落同样可追加
-        val list = root(UnorderedList(value = listOf(ListItem(value = listOf(para(PlainText("item")))))))
+        // 列表项内联直挂（生产者形态：parseInlines/convertListItem 无 Paragraph 包裹）
+        val list = root(UnorderedList(value = listOf(ListItem(value = listOf(PlainText("item"))))))
         val outL = appendEditedTagToMd(list, "(edited)")
-        val itemPara = ((outL.blocks.single() as UnorderedList).value.single() as ListItem)
-            .value.single() as Paragraph
-        assertEquals(2, itemPara.value.size)
+        val itemValue = ((outL.blocks.single() as UnorderedList).value.single() as ListItem).value
+        assertEquals(2, itemValue.size)
+        assertTrue(isEditedTagToken(itemValue[1]))
+    }
+
+    @Test
+    fun `edited tag lands after last item when message ends with list`() {
+        // Critical-3 回归：列表结尾消息的 (edited) 必须落末项 value 内，
+        // 不得回退到更早段落（正文中间灰标）
+        val md = root(
+            para(PlainText("intro")),
+            UnorderedList(value = listOf(ListItem(value = listOf(PlainText("one"))))),
+        )
+        val out = appendEditedTagToMd(md, "(edited)")
+        val para = out.blocks[0] as Paragraph
+        assertEquals(1, para.value.size) // 段落不动
+        val itemValue = ((out.blocks[1] as UnorderedList).value.single() as ListItem).value
+        assertEquals(2, itemValue.size)
+        assertTrue(isEditedTagToken(itemValue[1]))
     }
 
     @Test
@@ -82,13 +98,16 @@ class EditedTagTest {
     }
 
     @Test
-    fun `nested bold with color or size is leaf not descend target`() {
-        // FontColor/FontSize 形态 BOLD（带 color/size）是叶子：注入点停在其父级数组
+    fun `nested bold with color or size descends target like rn`() {
+        // RN NESTED_INLINE_TYPES 只看 type：FontColor/FontSize 形态 BOLD（带 color/size）同递归，
+        // 注入点落其 value 数组内部（红色 BOLD 内），非段落级
         val md = root(para(Bold(value = listOf(PlainText("styled")), color = "#ff0000")))
         val out = appendEditedTagToMd(md, "(edited)")
         val value = (out.blocks.single() as Paragraph).value
-        assertEquals(2, value.size) // 追加在段落层，不进 BOLD 内部
-        assertTrue(isEditedTagToken(value[1]))
+        assertEquals(1, value.size) // 段落层不追加
+        val bold = value[0] as Bold
+        assertEquals(2, bold.value.size) // 进 BOLD 内部
+        assertTrue(isEditedTagToken(bold.value[1]))
     }
 
     // ── buildEditContent ──

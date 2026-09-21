@@ -881,9 +881,12 @@ fun RoomScreen(
                     .testTag("qa-room-toolbar"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ToolbarTextButton("@", active = false, tag = "qa-toolbar-mention") {
-                    controller.mentionRange = null
-                    onOpenMentionSuggestion("")
+                // @ 门控（RN :1031 `chatType !== 'd' || fromAgent`——DM 无提及；fromAgent 域 M4/M5）
+                if (state.roomType != "d") {
+                    ToolbarTextButton("@", active = false, tag = "qa-toolbar-mention") {
+                        controller.mentionRange = null
+                        onOpenMentionSuggestion("")
+                    }
                 }
                 ToolbarTextButton(
                     context.t("chatinput_highlight"),

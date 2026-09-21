@@ -175,16 +175,18 @@ class ChatInputBarController(
     private fun onStateUpdate(payload: JsonObject) {
         payload["isFocused"]?.jsonPrimitive?.let { isFocused = it.content == "true" }
         payload["contentHeight"]?.jsonPrimitive?.doubleOrNull?.let { contentHeightDp = it }
-        // 工具栏活动态（T13）：bridge state 键直读（10tap extendEditorState 逐 bridge 合并产物）
-        payload["isBoldActive"]?.jsonPrimitive?.let { isBoldActive = it.content == "true" }
-        payload["isItalicActive"]?.jsonPrimitive?.let { isItalicActive = it.content == "true" }
-        payload["isStrikeActive"]?.jsonPrimitive?.let { isStrikeActive = it.content == "true" }
-        payload["isOrderedListActive"]?.jsonPrimitive?.let { isOrderedListActive = it.content == "true" }
-        payload["isBulletListActive"]?.jsonPrimitive?.let { isBulletListActive = it.content == "true" }
-        payload["headingLevel"]?.jsonPrimitive?.let { headingLevel = it.content.toIntOrNull() ?: 0 }
-        // activeColor/activeFontSize：JS undefined → 键缺席保持 null；null → 清空
-        payload["activeColor"]?.jsonPrimitive?.let { activeColor = if (it is kotlinx.serialization.json.JsonNull) null else it.content }
-        payload["activeFontSize"]?.jsonPrimitive?.let { activeFontSize = if (it is kotlinx.serialization.json.JsonNull) null else it.content }
+        // 工具栏活动态（T13）：RN useBridgeState 是整体替换（每 stateUpdate 全量重建 payload
+        // 且 JS undefined 键在 JSON 化即消失）——缺席键重置默认，防清除标题/字色后假亮滞留
+        isBoldActive = payload["isBoldActive"]?.jsonPrimitive?.content == "true"
+        isItalicActive = payload["isItalicActive"]?.jsonPrimitive?.content == "true"
+        isStrikeActive = payload["isStrikeActive"]?.jsonPrimitive?.content == "true"
+        isOrderedListActive = payload["isOrderedListActive"]?.jsonPrimitive?.content == "true"
+        isBulletListActive = payload["isBulletListActive"]?.jsonPrimitive?.content == "true"
+        headingLevel = payload["headingLevel"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+        activeColor = payload["activeColor"]?.jsonPrimitive
+            ?.takeIf { it !is kotlinx.serialization.json.JsonNull && it.isString }?.content
+        activeFontSize = payload["activeFontSize"]?.jsonPrimitive
+            ?.takeIf { it !is kotlinx.serialization.json.JsonNull && it.isString }?.content
         // 编辑器状态更新后拉一次内容（RN useEditorContent 订阅 stateUpdate → debounce 拉取同义）
         scheduleContentFetch()
     }

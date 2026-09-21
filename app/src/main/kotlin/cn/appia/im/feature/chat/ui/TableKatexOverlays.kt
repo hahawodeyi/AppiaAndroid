@@ -17,6 +17,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -124,7 +128,7 @@ private fun TableGridFull(rows: List<MdNode>) {
     }
 }
 
-/** 全屏 scrim：点击空白关闭（键盘/系统栏避让）。 */
+/** 全屏 scrim：点击空白关闭（键盘/系统栏避让）；内容区消费点击不透传关闭。 */
 @Composable
 internal fun FullScreenOverlayScrim(
     onClose: () -> Unit,
@@ -140,7 +144,8 @@ internal fun FullScreenOverlayScrim(
         Box(
             Modifier
                 .fillMaxSize()
-                .clickable(enabled = false) {}, // 内容区不透传关闭
+                // 消费点击：clickable(enabled=false) 不拦截指针事件，点内容会透传 scrim 关闭
+                .clickable(enabled = true, onClick = {}),
         ) {
             content()
         }
@@ -167,7 +172,8 @@ private fun Modifier.drawRightBorder(unless: Boolean): Modifier =
  * 公式渲染 overlay：assets/mathview（react-native-math-view 的 Android web 构建产物拷贝——
  * MathJax 2.7 typeset-to-SVG bundle，与 RN 端同一渲染器）。协议（App.web.tsx）：
  * window message `{data: math}` → typeset → `ReactNativeWebView.postMessage(JSON.stringify({svg,...}))`。
- * RN MathView 渲染 SVG 本体；此处同源取 svg 注入（tint 正文色）。
+ * Android 侧以 `addJavascriptInterface("ReactNativeWebView")` 接收 SVG 回传，注入可见容器
+ * （tint 正文色）——RN MathView 渲染 SVG 本体的等价落法。
  */
 @Composable
 internal fun KatexFormulaOverlay(
@@ -175,6 +181,7 @@ internal fun KatexFormulaOverlay(
     onClose: () -> Unit,
 ) {
     val colors = LocalAppiaColors.current
+    var svg by remember(math) { mutableStateOf<String?>(null) }
     FullScreenOverlayScrim(onClose = onClose) {
         Column(
             Modifier
@@ -206,23 +213,78 @@ internal fun KatexFormulaOverlay(
                         .testTag("qa-katex-overlay-close"),
                 )
             }
-            KatexMathWebView(
-                math = math,
-                textColor = colors.bodyText,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            )
+            // SVG 回传后可见容器（tint 正文色）；typeset WebView 退居 0 高度
+            val currentSvg = svg
+            if (currentSvg != null) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .testTag("qa-katex-svg-ready"),
+                ) {
+                    KatexSvgHost(
+                        svg = currentSvg,
+                        textColor = colors.bodyText,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            if (currentSvg == null) {
+                KatexMathWebView(
+                    math = math,
+                    textColor = colors.bodyText,
+                    onSvg = { svg = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                )
+            }
         }
     }
 }
 
-/** mathview WebView 宿主（Robolectric 占位 View——渲染断言归真机走查）。 */
+/** SVG 宿主：MathJax 产出的 svg 串经 WebView loadData 直渲染（tint 正文色）。 */
+@Composable
+private fun KatexSvgHost(
+    svg: String,
+    textColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            if ("robolectric".equals(android.os.Build.FINGERPRINT, ignoreCase = true)) {
+                android.view.View(context)
+            } else {
+                android.webkit.WebView(context).apply {
+                    settings.javaScriptEnabled = false
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    val tint = Integer.toHexString(textColor.toArgb()).takeLast(6)
+                    loadDataWithBaseURL(
+                        null,
+                        "<style>svg{color:#$tint;max-width:100%;height:auto}</style>$svg",
+                        "text/html",
+                        "utf-8",
+                        null,
+                    )
+                }
+            }
+        },
+    )
+}
+
+/**
+ * mathview WebView 宿主：typeset 请求 + SVG 回传桥（`ReactNativeWebView` JS 接口——
+ * bundle `ReactNativeWebView.postMessage(JSON.stringify(data))` 的接收端）。
+ * Robolectric 占位 View——SVG 回传解析逻辑抽 [parseKatexSvgMessage] 纯函数单测覆盖。
+ */
 @Composable
 private fun KatexMathWebView(
     math: String,
     textColor: Color,
+    onSvg: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
@@ -234,6 +296,15 @@ private fun KatexMathWebView(
                 android.webkit.WebView(context).apply {
                     settings.javaScriptEnabled = true
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    addJavascriptInterface(
+                        object : Any() {
+                            @android.webkit.JavascriptInterface
+                            fun postMessage(raw: String) {
+                                parseKatexSvgMessage(raw)?.let(onSvg)
+                            }
+                        },
+                        "ReactNativeWebView",
+                    )
                     val tint = Integer.toHexString(textColor.toArgb()).takeLast(6)
                     // data URI 免 file 访问（allowFileAccess=false 红线）：bundle 以绝对路径互引，
                     // base64 内联 dist/bundle.js 后整页 loadData
@@ -259,6 +330,10 @@ private fun KatexMathWebView(
         },
     )
 }
+
+/** bundle 回传解析：`JSON.stringify({svg, width, height...})` → svg 串（坏 JSON/无 svg → null）。 */
+internal fun parseKatexSvgMessage(raw: String): String? =
+    runCatching { org.json.JSONObject(raw).optString("svg") }.getOrNull()?.takeIf { it.isNotEmpty() }
 
 private var cachedMathviewBundle: String? = null
 

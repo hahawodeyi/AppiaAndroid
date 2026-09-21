@@ -349,6 +349,20 @@ class ChatInputBarControllerTest {
         assertNull(controller.activeColor)
     }
 
+    /** RN useBridgeState 整体替换：缺席键重置默认（清除标题/字色后不假亮滞留）。 */
+    @Test
+    fun `absent state keys reset to defaults instead of retaining`() {
+        controller.onRawMessage(
+            """{"type":"stateUpdate","payload":{"isBoldActive":true,"headingLevel":2,
+               "activeColor":"#EF4444","activeFontSize":"16px"}}""",
+        )
+        controller.onRawMessage("""{"type":"stateUpdate","payload":{"isFocused":true}}""")
+        assertFalse(controller.isBoldActive)
+        assertEquals(0, controller.headingLevel)
+        assertNull(controller.activeColor)
+        assertNull(controller.activeFontSize)
+    }
+
     /** 高亮组合 on：bold + set-color(#FF0000) + set-font-size(16px)（RN :1054-1058）。 */
     @Test
     fun `toggle highlight on sends bold color fontsize combo`() {

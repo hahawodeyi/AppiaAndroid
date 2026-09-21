@@ -417,7 +417,7 @@ class RealtimeSessionManager(
                         extension = extension,
                         // $date 为 ms epoch；RN Watermelon 存原 number，本表列语义取秒（幂等 REPLACE 即可）
                         _updated_at = (emoji["_updatedAt"]?.let { (it as? JsonObject)?.get("\$date")?.jsonPrimitive?.doubleOrNull }
-                            ?: (System.currentTimeMillis() / 1000.0 * 1000)) / 1000.0,
+                            ?: System.currentTimeMillis().toDouble()) / 1000.0,
                     ),
                 )
             }

@@ -86,12 +86,8 @@ private fun rebuildBlock(block: MdBlock, target: AppendTarget, token: Bold): MdB
 
 private fun rebuildNode(node: MdNode, target: AppendTarget, token: Bold): MdNode = when (node) {
     is MdBlock -> rebuildBlock(node, target, token)
-    is ListItem -> if (target == AppendTarget.ListItemParagraph(node)) {
-        node.copy(
-            value = node.value.map { child ->
-                if (child is Paragraph) child.copy(value = child.value + token) else child
-            },
-        )
+    is ListItem -> if (target == AppendTarget.ListItemValue(node)) {
+        node.copy(value = node.value + token)
     } else {
         node.copy(value = node.value.map { rebuildNode(it, target, token) })
     }
@@ -123,8 +119,8 @@ internal sealed interface AppendTarget {
     /** Bold/Italic/Strike 容器 value 数组。 */
     data class Container(val node: MdInline) : AppendTarget
 
-    /** ListItem 内首个 Paragraph。 */
-    data class ListItemParagraph(val item: ListItem) : AppendTarget
+    /** ListItem 的 value 数组（生产者形态：内联直挂，无 Paragraph 包裹）。 */
+    data class ListItemValue(val item: ListItem) : AppendTarget
 }
 
 /** 文档序深度优先记录最后一个目标（RN findLastInlineArray :78-155 逐分支）。 */
@@ -135,21 +131,21 @@ internal fun findLastInlineTarget(blocks: List<MdBlock>): AppendTarget? {
         if (inlines.isEmpty()) return
         for (node in inlines) {
             when (node) {
-                // RN NESTED_INLINE_TYPES = BOLD/ITALIC/STRIKE：非叶子才递归；FontColor/FontSize
-                // 形态 BOLD（带 color/size）是叶子，注入点停在其父级数组
-                is Bold -> if (node.color == null && node.size == null) {
+                // RN NESTED_INLINE_TYPES 只看 type：FontColor/FontSize 形态 BOLD（带 color/size）
+                // 同样递归，注入点落其 value 数组内部
+                is Bold -> {
                     last = AppendTarget.Container(node)
-                    visitInlines(node.value)
+                    visitInlines(node.value.filterIsInstance<MdInline>())
                 }
 
                 is Italic -> {
                     last = AppendTarget.Container(node)
-                    visitInlines(node.value)
+                    visitInlines(node.value.filterIsInstance<MdInline>())
                 }
 
                 is Strike -> {
                     last = AppendTarget.Container(node)
-                    visitInlines(node.value)
+                    visitInlines(node.value.filterIsInstance<MdInline>())
                 }
 
                 else -> Unit // 叶子（LINK/INLINE_CODE/MENTION/EMOJI/INLINE_KATEX）停在父级
@@ -169,11 +165,19 @@ internal fun findLastInlineTarget(blocks: List<MdBlock>): AppendTarget? {
                 visitListItems(first.value)
                 continue
             }
-            // ListItem.value 首元素恒 paragraph（mdToTipTap/editorJson 两向构造保证）
-            val paragraph = item.value.filterIsInstance<Paragraph>().firstOrNull()
-            if (paragraph != null) {
-                last = AppendTarget.ListItemParagraph(item)
-                visitInlines(paragraph.value)
+            // 生产者形态（MessageMdResolver parseInlines / TipTapJsonConverter convertListItem）：
+            // ListItem.value 直挂内联，无 Paragraph 包裹——RN visitListItem 直访 inlines 同义
+            val inlines = item.value.filterIsInstance<MdInline>()
+            if (inlines.isNotEmpty()) {
+                last = AppendTarget.ListItemValue(item)
+                visitInlines(inlines)
+            } else {
+                // 兼容意外 Paragraph 包裹形态（服务端不产，防御直读）
+                val paragraph = item.value.filterIsInstance<Paragraph>().firstOrNull()
+                if (paragraph != null) {
+                    last = AppendTarget.ListItemValue(item)
+                    visitInlines(paragraph.value)
+                }
             }
         }
     }
