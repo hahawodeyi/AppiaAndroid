@@ -126,6 +126,18 @@ cn.appia.im/
 
 **已裁决维持现状**（勿再重开）：update/removed 500ms 竞态（RN 同款）；T7 失败 null/0 区分（修正 RN 真实缺陷，优于基线）；分页机件在公开 UiState（收窄仅为形式）；T8 mentions="[]"（echo 归一无行为）。
 
+## 4.4 M3 遗留与 M4 前置任务（2026-09-21 M3 终审裁定，不得静默丢失）
+
+**M4 计划必须列为显式任务行**：
+1. 组织树转发 tab（M3-T9 占位最近会话；M4 联系人域补全）+ 预览 mention 显示名（ChatEntity 无 mentions 列的结构缺口——评估加列或运行时补）
+2. 表情 DAO 清退（RN 整表替换语义 vs Android 逐名 REPLACE 永驻）
+3. **流程纪律（M3 终审教训入册）**：接缝处「参数新增」任务必须列出所有下游消费者（签名/wire/测试断言三层）——C1/C2/C3 就是漏了 wire 层；旧 wire 断言测试必须随新参数重审
+4. parked 项承接纪律：parked 任务必须有具名里程碑任务行——T1 teardown ANR 项曾因「排 T10」归属错位静默丢失（M3 终审修复波已以 1s withTimeoutOrNull 兜底修复，纪律条款留 M4 起）
+
+**可带走**（M3 终审 triage）：终审报告 Minor 1-5（ToggleHighlight 三连语义边界/ReadReceipt idx- 键/PdfPager 2x/EmojiResolver lambda 重组/双 JSON 栈）+ 各任务 deferred minors 见 progress.md；全部低风险有归属。
+
+**用户验收项（非代码）**：编辑器真机中文输入法复测（含 Gboard Inline composing OFF 场景）——协议第八节保留。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
