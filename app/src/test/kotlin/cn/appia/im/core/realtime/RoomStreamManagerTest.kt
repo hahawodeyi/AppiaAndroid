@@ -376,9 +376,33 @@ class RoomStreamManagerTest {
         assertEquals(subsBefore, holding.frames.count { parse(it)?.s("msg") == "sub" })
     }
 
-    // ---- 同房快速退/进：sub/unsub 串行化（M2-T11 评审 Minor-1）----
-
+    /**
+     * M3 终审 T1（主线程 ANR 上界）：锁被在途 subscribe 长期持有时，teardown 1s 超时**返回**
+     * 而非无界阻塞——登出主线程不被 DDP 25s 订阅超时窗拖至 ANR。清场跳过由随后的
+     * disconnect 服务端全量退订兜底（终态一致）。
+     */
     @Test
+    fun `teardown returns within timeout when lock is held by in-flight subscribe`() = runBlocking {
+        val holding = HoldingWsServer().also { wsListeners.add(it) }
+        sdk.connect() // sub 的 ready 被扣住 → subscribeRoom 悬在 opMutex 锁内
+
+        val subscribeJob = launch(Dispatchers.IO) { runCatching { manager.subscribeRoom("rid-x") } }
+        awaitCond("subscribe holds opMutex") {
+            holding.frames.count { parse(it)?.s("msg") == "sub" } >= 3 && !subscribeJob.isCompleted
+        }
+
+        val start = System.nanoTime()
+        manager.onSessionTornDown() // 无主线程可用（测试直调）：必须 1s 上界内返回
+        val elapsedMs = (System.nanoTime() - start) / 1_000_000
+        assertTrue("teardown must return within ${RoomStreamManager.TEARDOWN_LOCK_TIMEOUT_MS}ms, took ${elapsedMs}ms",
+            elapsedMs < RoomStreamManager.TEARDOWN_LOCK_TIMEOUT_MS + 2_000)
+        assertTrue(!subscribeJob.isCompleted) // 锁仍在 subscribe 手里（teardown 未插队）
+
+        holding.releaseHeld()
+        awaitCond("subscribe settled after release") { subscribeJob.isCompleted }
+    }
+
+    // ---- 同房快速退/进：sub/unsub 串行化（M2-T11 评审 Minor-1）----    @Test
     fun `interleaved subscribe and unsubscribe serialize and stay balanced`() = runBlocking {
         val ws = RoomWsServer().also { wsListeners.add(it) }
         sdk.connect()

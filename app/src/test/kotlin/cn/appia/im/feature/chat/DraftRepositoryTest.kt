@@ -135,6 +135,19 @@ class DraftRepositoryTest {
     }
 
     @Test
+    fun `empty content saves empty draft json not doc json`() {
+        // RN useDraft.ts:77 `plainText ? JSON.stringify(jsonContent) : ''`——清空编辑器后
+        // 列表预览不得显示 JSON 串；回房 loadDraftJson 返回 null 不重注入空 doc
+        controller.onTextChanged("r1", DOC_JSON, "")
+        dispatcher.scheduler.advanceTimeBy(1_000)
+        dispatcher.scheduler.runCurrent()
+        awaitCond("empty content writes empty json") { chat()?.draft_message?.isEmpty() == true }
+        assertEquals("", chat()?.draft_message)
+        assertEquals("", chat()?.draft_message_plain)
+        runBlocking { assertNull(repo.loadDraftJson("r1")) }
+    }
+
+    @Test
     fun `missing chat row silently skips and loads null`() = runBlocking {
         assertNull(repo.loadDraftJson("ghost")) // 行不存在静默
         controller.onTextChanged("r1", DOC_JSON, "x")

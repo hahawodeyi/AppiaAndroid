@@ -28,6 +28,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -181,7 +182,7 @@ class SendOrchestratorTest {
         frozen.shutdown()
     }
 
-    // ---- wire：POST /api/v1/chat.sendMessage {message:{_id,rid,msg}}，md 省略 ----
+    // ---- wire：POST /api/v1/chat.sendMessage {message:{_id,rid,msg[,md]}} ----
 
     @Test
     fun `request body is RN chat sendMessage with md omitted`() = runBlocking {
@@ -192,6 +193,23 @@ class SendOrchestratorTest {
         assertEquals("/api/v1/chat.sendMessage", req.path)
         assertEquals("POST", req.method)
         assertEquals("""{"message":{"_id":"$id","rid":"r1","msg":"hello"}}""", req.body.readUtf8())
+    }
+
+    /** M3 终审 C1+C2：md 上 wire 为**裸数组**（RN Root = Array；`{"blocks":...}` 包裹会让 RN 端不渲染）。 */
+    @Test
+    fun `md goes on wire as bare array when provided`() = runBlocking {
+        val md = Json.parseToJsonElement(
+            """[{"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"hello"}]}]""",
+        )
+        val id = orchestrator.enqueueTextMessage(rid(), "hello", md)
+        awaitStatus(id, SENT.toDouble())
+
+        val req = server.takeRequest()
+        val sent = Json.parseToJsonElement(req.body.readUtf8()).jsonObject["message"]!!.jsonObject
+        assertEquals(md, sent["md"]) // 数组本体原样上 wire
+        assertEquals(id, (sent["_id"] as? JsonPrimitive)?.contentOrNull)
+        assertEquals(rid(), (sent["rid"] as? JsonPrimitive)?.contentOrNull)
+        assertEquals("hello", (sent["msg"] as? JsonPrimitive)?.contentOrNull)
     }
 
     // ---- happy path：QUEUED→SENDING→SENT（同 id echo） ----

@@ -21,9 +21,15 @@ class DraftRepository(private val db: AppiaDatabase) {
         return chat.draft_message?.takeIf { it.isNotEmpty() }
     }
 
+    /** RN useDraft.ts:77 `plainText ? JSON.stringify(jsonContent) : ''`：空内容存空串（列表预览不显 JSON）。 */
     suspend fun saveDraft(rid: String, json: String, plain: String) {
         val chat = db.chatDao().getById(rid) ?: return
-        db.chatDao().update(chat.copy(draft_message = json, draft_message_plain = plain))
+        db.chatDao().update(
+            chat.copy(
+                draft_message = if (plain.isNotEmpty()) json else "",
+                draft_message_plain = plain,
+            ),
+        )
     }
 
     suspend fun clearDraft(rid: String) {

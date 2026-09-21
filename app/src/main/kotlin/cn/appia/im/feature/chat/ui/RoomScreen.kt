@@ -170,8 +170,12 @@ fun RoomScreen(
     token: String?,
     draftController: DraftController?,
     onSend: suspend (String, kotlinx.serialization.json.JsonElement?) -> Unit,
-    /** 文件消息（T6）：ready 附件 + 输入文案 → SendOrchestrator.enqueueFileMessage（缺省装配前禁用）。 */
-    onSendFiles: suspend (List<cn.appia.im.core.media.LocalFileInput>, String) -> Unit = { _, _ -> },
+    /**
+     * 文件消息（T6）：ready 附件 + 输入文案 + md → SendOrchestrator.enqueueFileMessage
+     * （缺省装配前禁用）。md 对齐 RN ChatInputBar sendReadyAttachments：`plainText.trim() && jsonContent`
+     * 才发——纯附件无文案不发 md。
+     */
+    onSendFiles: suspend (List<cn.appia.im.core.media.LocalFileInput>, String, kotlinx.serialization.json.JsonElement?) -> Unit = { _, _, _ -> },
     onResend: (MessageEntity) -> Unit,
     /** 附件点击路由（T7：图片/视频/音频/文档 → MainActivity 导航装配）。 */
     onAttachmentNav: (AttachmentNav) -> Unit = {},
@@ -254,7 +258,13 @@ fun RoomScreen(
     var firstUnread by remember(rid) { mutableStateOf<cn.appia.im.core.network.api.FirstUnread?>(null) }
     var bannerDismissed by remember(rid) { mutableStateOf(false) }
     LaunchedEffect(rid) {
-        firstUnread = runCatching { loadFirstUnread(rid) }.getOrNull()?.takeIf { it.success }
+        firstUnread = try {
+            loadFirstUnread(rid)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }?.takeIf { it.success }
     }
     val bannerMsgId = firstUnread?.messageId
     val bannerCount = firstUnread?.unread ?: 0
@@ -482,6 +492,8 @@ fun RoomScreen(
         }
         val files = pendingAttachments.readyFiles
         if (files.isNotEmpty()) {
+            // RN sendReadyAttachments :807-810：`plainText.trim() && jsonContent` 才发 md——纯附件无文案不发
+            val fileMd = plain.trim().takeIf { it.isNotEmpty() }?.let { md }
             val finalMsg = composeQuotedMessageText(
                 plainText = plain,
                 replyingMessage = replyTo,
@@ -490,7 +502,7 @@ fun RoomScreen(
                 roomType = state.roomType.ifEmpty { null },
                 authUserId = currentUserId,
             )
-            onSendFiles(files, finalMsg)
+            onSendFiles(files, finalMsg, fileMd)
             pendingAttachments.clear()
             controller.clearEditor()
             draftController?.clearAfterSend(rid)

@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 import java.util.Locale
 
@@ -617,6 +618,16 @@ fun buildEditContent(
     return JsonPrimitive("<p>${escapeHtml(message.msg.orEmpty())}</p>")
 }
 
-/** 编辑器产物 md（AST Root）→ wire JSON（`{"blocks":[...]}`；SendOrchestrator `md?.toString()` 同形态）。 */
+/**
+ * 编辑器产物 md（AST Root）→ wire JSON：**裸数组**（RN `Root = Array`，发送/编辑/上传三出口
+ * 同形态；`{"blocks":[...]}` 包裹对象会让 RN 端 filterVisuallyEmptyMarkdown 判 undefined →
+ * 正文整体不渲染）。encodeDefaults/explicitNulls 关闭对齐 RN `JSON.stringify` 丢 undefined 键。
+ * 本地 DB md 列与 DDP 回推双形态兼容（parseMdJson/buildEditContent 均收数组或包裹），无需迁移。
+ */
+private val mdWireJson = Json { encodeDefaults = false; explicitNulls = false }
+
 fun rootToJsonElement(root: Root): JsonElement =
-    kotlinx.serialization.json.Json.encodeToJsonElement(MarkdownRoot.serializer(), root)
+    mdWireJson.encodeToJsonElement(
+        kotlinx.serialization.builtins.ListSerializer(MdBlock.serializer()),
+        root.blocks,
+    )

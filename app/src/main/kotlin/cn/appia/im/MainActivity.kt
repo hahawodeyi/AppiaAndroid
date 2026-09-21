@@ -457,7 +457,7 @@ fun AppiaNavHost(
                     token = auth?.token,
                     draftController = draftController,
                     onSend = { msg, md -> orchestrator.enqueueTextMessage(route.rid, msg, md) },
-                    onSendFiles = { files, msg -> orchestrator.enqueueFileMessage(route.rid, files, msg) },
+                    onSendFiles = { files, msg, md -> orchestrator.enqueueFileMessage(route.rid, files, msg, md) },
                     // 文件行（attachments 非空）走 file 作业重发；md 从行列解析（RN resend snapshot 同参）
                     onResend = { m ->
                         orchestrator.resend(
@@ -473,8 +473,13 @@ fun AppiaNavHost(
                     onBack = { nav.popBackStack() },
                     onLoadEarlier = { vm.loadEarlier() },
                     onToggleReaction = { m, emoji ->
-                        runCatching { reactionActions.toggle(m._id, emoji, auth?.user?.username) }
-                            .onFailure { Log.w(NAV_TAG, "toggle reaction failed id=${m._id}", it) }
+                        try {
+                            reactionActions.toggle(m._id, emoji, auth?.user?.username)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w(NAV_TAG, "toggle reaction failed id=${m._id}", e)
+                        }
                     },
                     // 合并转发卡片（T9）：点击进 ForwardDetail
                     onOpenForwardMerge = { msgData, title ->

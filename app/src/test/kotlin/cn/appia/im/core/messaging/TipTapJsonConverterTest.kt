@@ -10,6 +10,8 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -746,5 +748,38 @@ class TipTapJsonConverterTest {
     @Test
     fun extractPlainTextTrimsOuterWhitespace() {
         assertEquals("x", extractPlainTextFromTipTapJson(doc(ttParagraph(ttText("  x  ")))))
+    }
+
+    // ══ M3 终审 C2：wire md 裸数组形态 round-trip（TipTap → Root → md 数组 → parseMdJson 回读）══
+
+    @Test
+    fun wireMdIsBareArrayAndRoundTripsThroughParseMdJson() {
+        val original = doc(
+            ttParagraph(ttText("hello "), ttText("world", ttMark("bold"))),
+            ttList(
+                "orderedList",
+                ttListItem(ttParagraph(ttText("one"))),
+                ttListItem(ttParagraph(ttText("two"))),
+            ),
+        )
+
+        // 发送链产物：rootToJsonElement 必须是**裸数组**（RN Root = Array；`{"blocks":...}` 包裹
+        // 会让 RN filterVisuallyEmptyMarkdown 判 undefined → 该消息正文整体不渲染）
+        val mdWire = rootToJsonElement(convertTipTapJsonToMessageParserRoot(original))
+        assertTrue("md on wire must be a JsonArray, got ${mdWire::class.simpleName}", mdWire is JsonArray)
+
+        // wire 串回读（本地 DB md 列 / DDP 回推同口径）：形态与渲染内容双断言
+        val root = parseMdJson(mdWire.toString())
+        assertNotNull(root)
+        assertEquals(
+            listOf(
+                astParagraph(plain("hello "), bold(plain("world"))),
+                orderedList(listItem(listOf(plain("one")), 1), listItem(listOf(plain("two")), 2)),
+            ),
+            root!!.blocks,
+        )
+        // md 非过期（msg = plain）→ 渲染直用 md
+        val resolved = resolveMdFromMsgFields(mdWire.toString(), "hello world\none\ntwo")
+        assertEquals(root.blocks, resolved!!.blocks)
     }
 }

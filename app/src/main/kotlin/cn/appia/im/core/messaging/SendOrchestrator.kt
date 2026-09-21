@@ -258,7 +258,7 @@ class SendOrchestrator(
         var attempt = 0
         while (true) {
             try {
-                val obj = MessagesApi.sendTextMessage(sdk, job.rid, job.msg, job.id) as? JsonObject
+                val obj = MessagesApi.sendTextMessage(sdk, job.rid, job.msg, job.id, job.md) as? JsonObject
                 // RN :288-292 success:false → 业务拒绝直败
                 if ((obj?.get("success") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == false) {
                     markStatus(job.id, ERROR)
@@ -539,5 +539,6 @@ fun resetSendOrchestrator() {
     synchronized(singletonLock) {
         singleton?.shutdown()
         singleton = null
+        cn.appia.im.core.media.FileUploadProgress.clear() // 进度单例同寿：旧 tempId 流不跨会话残留
     }
 }

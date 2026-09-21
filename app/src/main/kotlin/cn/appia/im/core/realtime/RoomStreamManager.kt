@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -131,17 +132,22 @@ class RoomStreamManager(
      *
      * 摘表必须与 sub/unsub 互斥（总纲 §4.3-4 陈旧条目复活竞态）：否则 teardown 恰好落在
      * subscribeRoom 的「已订网、未落表」窗口内时清的是空表，subscribe 随后落表复活旧会话条目，
-     * 重连收尾即重订已拆会话的房间流。teardown hook 非 suspend：经 runBlocking 进 [opMutex]
-     * ——锁持有者只做 DDP sub/unsub 网络 IO（不反向依赖 teardown 线程，最长等一次在途操作，
-     * 随后的 disconnect 兜底），teardown 属登出/换组织终态操作，短暂阻塞可接受。
+     * 重连收尾即重订已拆会话的房间流。teardown hook 非 suspend：经 runBlocking 进 [opMutex]。
+     *
+     * **主线程 ANR 上界（M3 终审 T1）**：logout 由主线程触发（MainActivity/ChatListScreen），
+     * 锁持有者只做 DDP sub/unsub 网络 IO——若恰有在途操作卡在 DDP 25s 订阅超时窗内，
+     * 无界 runBlocking 即主线程阻塞至 ANR。故 1s 超时跳过：等不到锁则清场放弃，紧随的
+     * disconnect 兜底（服务端全量退订）；该竞态窗口（订阅中途登出）本就终态一致。
      */
     fun onSessionTornDown() {
         runBlocking {
-            opMutex.withLock {
-                for (entry in activeByRid.values) {
-                    entry.streamStops.forEach { runCatching { it.stop() } }
+            withTimeoutOrNull(TEARDOWN_LOCK_TIMEOUT_MS) {
+                opMutex.withLock {
+                    for (entry in activeByRid.values) {
+                        entry.streamStops.forEach { runCatching { it.stop() } }
+                    }
+                    activeByRid.clear()
                 }
-                activeByRid.clear()
             }
         }
     }
@@ -164,6 +170,9 @@ class RoomStreamManager(
 
     companion object {
         private const val TAG = "roomStreams"
+
+        /** 主线程 teardown 等锁上界（远小于 5s ANR 阈值；超时跳过清场由 disconnect 兜底）。 */
+        internal const val TEARDOWN_LOCK_TIMEOUT_MS = 1_000L
 
         /** RN parseNotifyRoomRid :32-38：`{rid}/{event}` 取首段（此滤波路径 RN 有非数组回退，:43-45）。 */
         internal fun parseNotifyRoomRid(ddpMessage: JsonElement): String? {

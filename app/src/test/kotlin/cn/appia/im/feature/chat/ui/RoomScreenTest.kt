@@ -55,6 +55,7 @@ class RoomScreenTest {
 
     private var messages by mutableStateOf(listOf<MessageEntity>())
     private val sentTexts = mutableListOf<String>()
+    private val sentMds = mutableListOf<kotlinx.serialization.json.JsonElement?>()
     private val draftScheduler = TestCoroutineScheduler()
     private val draftScope = CoroutineScope(StandardTestDispatcher(draftScheduler))
     private val draftController = DraftController(DraftRepository(db), draftScope)
@@ -102,8 +103,9 @@ class RoomScreenTest {
                     token = "tok",
                     draftController = draftController,
                     editorController = editor,
-                    onSend = { msg, _ ->
+                    onSend = { msg, md ->
                         sentTexts += msg
+                        sentMds += md
                         val id = "local-${sentTexts.size}"
                         runBlocking { db.messageDao().insert(messageRow(id, msg = msg, status = 1.0, u = """{"_id":"me","username":"me"}""")) }
                         messages = messages + messageRow(id, msg = msg, status = 1.0, u = """{"_id":"me","username":"me"}""")
@@ -148,6 +150,16 @@ class RoomScreenTest {
         rule.waitForIdle()
 
         assertEquals(listOf("hello"), sentTexts)
+        // M3 终审 C1+C2：编辑器内容 → md 上 onSend 为**裸数组**（RN Root = Array，非 {"blocks":...} 包裹）
+        assertEquals(1, sentMds.size)
+        val mdEl = sentMds.single()
+        assertEquals(
+            true,
+            (mdEl as? kotlinx.serialization.json.JsonArray)?.let { arr ->
+                arr.size == 1 && ((arr[0] as? kotlinx.serialization.json.JsonObject)
+                    ?.get("type") as? kotlinx.serialization.json.JsonPrimitive)?.content == "PARAGRAPH"
+            },
+        )
         rule.onNodeWithText("hello").assertExists() // QUEUED 行已上屏
         rule.onNodeWithTag("qa-message-status-loading").assertExists()
 
