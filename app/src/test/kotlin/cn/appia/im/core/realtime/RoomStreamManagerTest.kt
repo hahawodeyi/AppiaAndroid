@@ -402,7 +402,8 @@ class RoomStreamManagerTest {
         awaitCond("subscribe settled after release") { subscribeJob.isCompleted }
     }
 
-    // ---- 同房快速退/进：sub/unsub 串行化（M2-T11 评审 Minor-1）----    @Test
+    // ---- 同房快速退/进：sub/unsub 串行化（M2-T11 评审 Minor-1）----
+    @Test
     fun `interleaved subscribe and unsubscribe serialize and stay balanced`() = runBlocking {
         val ws = RoomWsServer().also { wsListeners.add(it) }
         sdk.connect()
