@@ -163,10 +163,10 @@ internal fun buildMessageSenderAvatarUrl(
 
 // ── 正文（md 渲染红线：resolveMessageMd 直读 md/msg 列，勿重 parse msg）──
 
-internal data class MentionUser(val _id: String?, val username: String?, val name: String?)
+data class MentionUser(val _id: String?, val username: String?, val name: String?)
 
 /** RN parseMentions：mentions JSON 数组 → 用户列表；空/坏 JSON → []。 */
-internal fun parseMentions(raw: String?): List<MentionUser> {
+fun parseMentions(raw: String?): List<MentionUser> {
     if (raw.isNullOrBlank()) return emptyList()
     return runCatching {
         val el = Json.parseToJsonElement(raw) as? JsonArray ?: return emptyList()
@@ -177,10 +177,11 @@ internal fun parseMentions(raw: String?): List<MentionUser> {
     }.getOrDefault(emptyList())
 }
 
-// ── MENTION 显示名解析（总纲 §4.3-1：共享纯函数，M3-T5 行内管线复用同一 helper）──
+// ── MENTION 显示名解析（总纲 §4.3-1：共享纯函数，下游 = MessageRow 正文、M3-T5 行内管线
+//    InlineNodes、chatlist 预览 LastMessagePreview——三处共用，勿另写一份）──
 
 /** 提及渲染色别（RN AtMention 数据源分支）。 */
-internal enum class MentionKind {
+enum class MentionKind {
     /** @all/@here → mentionGroupColor。 */
     GROUP,
 
@@ -195,7 +196,7 @@ internal enum class MentionKind {
 }
 
 /** 提及渲染判定产物：[label] 为显示文本（命中的显示名不带 @）。 */
-internal data class MentionDisplay(val kind: MentionKind, val label: String)
+data class MentionDisplay(val kind: MentionKind, val label: String)
 
 /**
  * RN AtMention 数据源语义：@all/@here → 群色、label 原样；mentions 数组按 username 命中 →
@@ -203,7 +204,7 @@ internal data class MentionDisplay(val kind: MentionKind, val label: String)
  * 否则 mentionOtherColor；未命中 → `@mention` 普通正文（空 mention 渲染为空）。
  * 纯函数、无 Compose 依赖：MessageRow 正文与 M3-T5 新行内管线共用，勿另写一份。
  */
-internal fun resolveMentionDisplay(
+fun resolveMentionDisplay(
     mentions: List<MentionUser>,
     mention: String,
     currentUsername: String?,

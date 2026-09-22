@@ -2,6 +2,9 @@ package cn.appia.im.feature.chatlist
 
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.messaging.resolveMdFromMsgFields
+import cn.appia.im.feature.chat.ui.MentionKind
+import cn.appia.im.feature.chat.ui.resolveMentionDisplay
+import cn.appia.im.feature.chat.ui.MentionUser as MentionUserInfo
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -31,6 +34,8 @@ data class LastMessageShape(
     val hasAttachments: Boolean = false,
     val firstAttachmentIsImage: Boolean = false,
     val msgType: String? = null,
+    /** RN lastMessageTypes `LastMessageMention[]`（_id/username/name）。 */
+    val mentions: List<MentionUserInfo> = emptyList(),
 )
 
 /** RN parseLastMessageField.ts：lastMessage JSON 列 → shape；空白/坏 JSON/非对象 → null。 */
@@ -69,6 +74,16 @@ fun parseLastMessageField(raw: String?): LastMessageShape? {
         hasAttachments = hasAttachments,
         firstAttachmentIsImage = firstIsImage,
         msgType = str("msgType"),
+        // RN RoomItemLastMessage :54 直接读 lastMessage.mentions（chats 表无该列，免迁移）
+        mentions = (obj["mentions"] as? JsonArray)?.mapNotNull { el ->
+            (el as? JsonObject)?.let {
+                MentionUserInfo(
+                    _id = (it["_id"] as? JsonPrimitive)?.contentOrNull,
+                    username = (it["username"] as? JsonPrimitive)?.contentOrNull,
+                    name = (it["name"] as? JsonPrimitive)?.contentOrNull,
+                )
+            }
+        } ?: emptyList(),
     )
 }
 
@@ -165,8 +180,15 @@ private fun formatSpecialMsg(m: LastMessageShape): Special? {
  * - PARAGRAPH/BIG_EMOJI → value 内联展平
  * - UNORDERED_LIST 首项 → `• ` + 首段内联；ORDERED_LIST 首项 → `N) ` + 首段内联
  * - 可见性（RN hasVisiblePreviewInlines :9-18）：PLAIN_TEXT 非空白 / 非空引用标记 LINK / 其余恒可见
+ * M4（总纲 §4.4-1）：mentions 参与 MentionUser 展平——命中显示 `@name||username`、
+ * @all/@here 裸文本、未命中 `@token`（RN AtMention plainMode 语义）。
  */
-internal fun previewInlineText(md: JsonElement?, msg: String?, previewTableLabel: String?): String? {
+internal fun previewInlineText(
+    md: JsonElement?,
+    msg: String?,
+    previewTableLabel: String?,
+    mentions: List<MentionUserInfo> = emptyList(),
+): String? {
     val mdRaw = when (md) {
         null, is JsonNull -> null
         // md 存量两种形态（RN parseMd 语义）：字符串化的 JSON 原文，或 AST 数组本体
@@ -196,37 +218,48 @@ internal fun previewInlineText(md: JsonElement?, msg: String?, previewTableLabel
             }
             else -> continue
         }
-        if (hasVisiblePreviewInlines(inlines)) return inlinesToPreviewText(inlines)
+        if (hasVisiblePreviewInlines(inlines, mentions)) return inlinesToPreviewText(inlines, mentions)
     }
     return null
 }
 
 /** RN hasVisiblePreviewInlines :9-18：PLAIN_TEXT 非空白 / LINK 非空引用标记 / 其余可见。 */
-private fun hasVisiblePreviewInlines(inlines: List<cn.appia.im.core.messaging.MdInline>): Boolean =
+private fun hasVisiblePreviewInlines(
+    inlines: List<cn.appia.im.core.messaging.MdInline>,
+    mentions: List<MentionUserInfo>,
+): Boolean =
     inlines.any { inline ->
         when (inline) {
             is cn.appia.im.core.messaging.PlainText -> inline.value.trim().isNotEmpty()
             is cn.appia.im.core.messaging.Link ->
-                inline.value.label.joinToString("") { inlineToPreviewText(it) }.trim().isNotEmpty()
+                inline.value.label.joinToString("") { inlineToPreviewText(it, mentions) }.trim().isNotEmpty()
             else -> true
         }
     }
 
 /** 行内 → 预览文本（RN RoomItemLastMessage plainMode 口径：mention 出 @name，katex 出原文）。 */
-private fun inlinesToPreviewText(inlines: List<cn.appia.im.core.messaging.MdInline>): String =
-    inlines.joinToString("") { inlineToPreviewText(it) }
+private fun inlinesToPreviewText(inlines: List<cn.appia.im.core.messaging.MdInline>, mentions: List<MentionUserInfo>): String =
+    inlines.joinToString("") { inlineToPreviewText(it, mentions) }
 
-private fun inlineToPreviewText(node: cn.appia.im.core.messaging.MdInline): String = when (node) {
+private fun inlineToPreviewText(node: cn.appia.im.core.messaging.MdInline, mentions: List<MentionUserInfo>): String = when (node) {
     is cn.appia.im.core.messaging.PlainText -> node.value
-    is cn.appia.im.core.messaging.Emoji -> node.unicode ?: node.value?.let { inlineToPreviewText(it) }.orEmpty()
-    is cn.appia.im.core.messaging.Link -> node.value.label.joinToString("") { inlineToPreviewText(it) }
-    is cn.appia.im.core.messaging.MentionUser -> "@" + inlineToPreviewText(node.value)
-    is cn.appia.im.core.messaging.MentionChannel -> "#" + inlineToPreviewText(node.value)
-    is cn.appia.im.core.messaging.InlineCode -> inlineToPreviewText(node.value)
+    is cn.appia.im.core.messaging.Emoji -> node.unicode ?: node.value?.let { inlineToPreviewText(it, mentions) }.orEmpty()
+    is cn.appia.im.core.messaging.Link -> node.value.label.joinToString("") { inlineToPreviewText(it, mentions) }
+    // RN AtMention plainMode：命中 → @+显示名（resolveMentionDisplay 共享 helper，勿另写）；
+    // UNRESOLVED 的 label 已带 @；@all/@here（GROUP）裸文本无 @ 前缀
+    is cn.appia.im.core.messaging.MentionUser -> {
+        val d = resolveMentionDisplay(mentions, (node.value as? cn.appia.im.core.messaging.PlainText)?.value.orEmpty(), null)
+        when (d.kind) {
+            MentionKind.GROUP, MentionKind.UNRESOLVED -> d.label
+            else -> "@${d.label}"
+        }
+    }
+    is cn.appia.im.core.messaging.MentionChannel -> "#" + inlineToPreviewText(node.value, mentions)
+    is cn.appia.im.core.messaging.InlineCode -> inlineToPreviewText(node.value, mentions)
     is cn.appia.im.core.messaging.InlineKaTeX -> node.value
-    is cn.appia.im.core.messaging.Bold -> node.value.joinToString("") { inlineToPreviewText(it) }
-    is cn.appia.im.core.messaging.Italic -> node.value.joinToString("") { inlineToPreviewText(it) }
-    is cn.appia.im.core.messaging.Strike -> node.value.joinToString("") { inlineToPreviewText(it) }
+    is cn.appia.im.core.messaging.Bold -> node.value.joinToString("") { inlineToPreviewText(it, mentions) }
+    is cn.appia.im.core.messaging.Italic -> node.value.joinToString("") { inlineToPreviewText(it, mentions) }
+    is cn.appia.im.core.messaging.Strike -> node.value.joinToString("") { inlineToPreviewText(it, mentions) }
     cn.appia.im.core.messaging.LineBreak -> ""
 }
 
@@ -270,7 +303,7 @@ fun resolveLastMessagePreview(
 
     val prefix = senderPrefixFor(lastMessage, currentUserId)
     // T13：预览走 resolveMdFromMsgFields（md 列直读 + stale 回退 msg 解析）+ RN 展平分支
-    val mdText = previewInlineText(lastMessage.md, lastMessage.msg, previewTableLabel)
+    val mdText = previewInlineText(lastMessage.md, lastMessage.msg, previewTableLabel, lastMessage.mentions)
     if (mdText != null) return PreviewResult.Text(prefix + mdText)
 
     val body = lastMessage.msg?.replace("\n", " ") ?: ""

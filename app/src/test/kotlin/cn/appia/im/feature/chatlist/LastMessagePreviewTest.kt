@@ -254,4 +254,60 @@ class LastMessagePreviewTest {
         val lm = """{"u":{"username":"bob"},"md":"[{\"type\":\"PARAGRAPH\",\"value\":[{\"type\":\"PLAIN_TEXT\",\"value\":\"str\"}]}]"}"""
         assertEquals("bob：str", text(resolve(lm)))
     }
+
+    // ---------- mention 显示名（总纲 §4.4-1；RN RoomItemLastMessage :54 lastMessage.mentions） ----------
+    // RN AtMention plainMode：命中 → `@${name||username}`；未命中 → `@token`；@all/@here 裸文本。
+    // 真实载荷 md+msg 并存：纯 mention md 的 plainTextFromMd 为空 → resolveMdFromMsgFields
+    // 落 msg 回退（MENTION_TOKEN 解析）；文本+mention md 走 AST 直读——两条路径都覆盖。
+
+    @Test
+    fun `mention resolves display name from lastMessage mentions`() {
+        // lastMessage JSON 内含 mentions（RN chats 表无该列，免迁移直接解析）
+        val lm = """{"msg":"@alice hi","u":{"username":"bob"},"mentions":[{"_id":"u1","username":"alice","name":"Alice"}],
+            "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"alice"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        assertEquals("bob：@Alice hi", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `mention in msg fallback resolves display name without md`() {
+        val lm = """{"msg":"@alice hello","u":{"username":"bob"},"mentions":[{"_id":"u1","username":"alice","name":"Alice"}]}"""
+        assertEquals("bob：@Alice hello", text(resolve(lm)))
+    }
+
+    @Test
+    fun `mention falls back to username when name missing`() {
+        val lm = """{"msg":"@alice hi","u":{"username":"bob"},"mentions":[{"_id":"u1","username":"alice"}],
+            "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"alice"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        assertEquals("bob：@alice hi", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `unresolved mention keeps at-token`() {
+        // mentions 数组未命中（RN AtMention 兜底 @mention）
+        val lm = """{"msg":"@zed hi","u":{"username":"bob"},"mentions":[{"_id":"u1","username":"alice","name":"Alice"}],
+            "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"zed"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        assertEquals("bob：@zed hi", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `all and here mentions render bare like RN`() {
+        // RN AtMention all/here 分支：plainMode 也无 @ 前缀
+        val lm = """{"msg":"@all hi","u":{"username":"bob"},"mentions":[],
+            "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"all"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        assertEquals("bob：all hi", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `mention inside bold resolves display name`() {
+        val lm = """{"msg":"@alice hi","u":{"username":"bob"},"mentions":[{"_id":"u1","username":"alice","name":"Alice"}],
+            "md":[{"type":"PARAGRAPH","value":[{"type":"BOLD","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"alice"}}]},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        assertEquals("bob：@Alice hi", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `bad mentions array is ignored`() {
+        val lm = """{"msg":"@alice hi","u":{"username":"bob"},"mentions":"not-an-array",
+            "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"alice"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        assertEquals("bob：@alice hi", text(resolve(lm.replace("\n", ""))))
+    }
 }

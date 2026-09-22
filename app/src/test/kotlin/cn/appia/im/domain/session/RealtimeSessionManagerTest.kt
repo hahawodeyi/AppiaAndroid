@@ -542,6 +542,44 @@ class RealtimeSessionManagerTest {
         awaitCond("subs still done") { ws.subCount() >= 6 }
     }
 
+    @Test
+    fun `emoji resync removes emojis deleted on server`() = runBlocking {
+        // 总纲 §4.4-2：整表替换——服务端删的表情不永驻
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        val dateKey = "\$" + "date"
+        emojiBody = """
+            {"success":true,"emojis":{"update":[
+              {"_id":"e1","name":"appia","aliases":["ap"],"extension":"png","_updatedAt":{"$dateKey":1700000000000}},
+              {"_id":"e2","name":"party","extension":"gif","_updatedAt":{"$dateKey":1700000000001}}
+            ]}}
+        """.trimIndent()
+
+        manager.bootstrap(host, "tok-del-1", userId = "uid-1")
+        val dao = dbManager.databaseFor(dbManager.normalizeServer(host)).customEmojiDao()
+        pollDao("initial 2 emojis") { it.size == 2 }
+
+        // 服务端只剩 party：重同步后 appia 行被清退（换 token 避开同 key 短路）
+        emojiBody = """
+            {"success":true,"emojis":{"update":[
+              {"_id":"e2","name":"party","extension":"gif","_updatedAt":{"$dateKey":1700000000002}}
+            ]}}
+        """.trimIndent()
+        manager.bootstrap(host, "tok-del-2", userId = "uid-1")
+        pollDao("stale emoji purged") { it.map { e -> e.name } == listOf("party") }
+    }
+
+    /** dao 挂起查询轮询（extras 为 fire-and-forget 后台协程；同 T13 测试口径）。 */
+    private suspend fun pollDao(desc: String, cond: (List<cn.appia.im.core.database.entity.CustomEmojiEntity>) -> Boolean) {
+        val dao = dbManager.databaseFor(dbManager.normalizeServer(host)).customEmojiDao()
+        var all = dao.getAll()
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (!cond(all) && System.nanoTime() < deadline) {
+            delay(10)
+            all = dao.getAll()
+        }
+        assertTrue(desc, cond(all))
+    }
+
     // ---- prepareSocketConnection 收敛点（T4 预检裁定：AuthApi 未来复用） ----
 
     @Test

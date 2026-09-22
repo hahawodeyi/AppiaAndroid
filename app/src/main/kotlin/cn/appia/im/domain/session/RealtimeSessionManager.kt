@@ -380,7 +380,7 @@ class RealtimeSessionManager(
      * M1 占位：保留 per-step generation 检查骨架 + 日志，各 sync 实现归 M5。
      * 句柄登记（授权顺手项）：teardown 取消，防 M5 前的幽灵同步残留。
      * T13：custom emojis 步实现（RN session.ts:609 syncCustomEmojis → emoji-custom.list →
-     * DAO upsert；RoomScreen → MessageRow → InlineEnv / buildEditContent 查表消费）。
+     * DAO 整表替换；RoomScreen → MessageRow → InlineEnv / buildEditContent 查表消费）。
      */
     private fun launchBootstrapExtras(generationAtStart: Long) {
         extrasJob = scope.launch {
@@ -395,32 +395,35 @@ class RealtimeSessionManager(
         }
     }
 
-    /** RN syncCustomEmojis（services/emoji/syncCustomEmojis.ts）：GET emoji-custom.list → update 集 upsert。 */
+    /**
+     * RN syncCustomEmojis（services/emoji/syncCustomEmojis.ts）：GET emoji-custom.list →
+     * 整表替换（setCustomEmojis 语义；总纲 §4.4-2）——服务端删的表情不永驻。
+     * 单次事务 replaceAll：observe() 不闪断（见 DAO KDoc）。
+     */
     private suspend fun syncCustomEmojis() {
         try {
             val res = sdk.get("emoji-custom.list") as? JsonObject ?: return
             if (res["success"]?.jsonPrimitive?.booleanOrNull != true) return
             val update = ((res["emojis"] as? JsonObject)?.get("update") as? JsonArray) ?: return
             val dao = dbManager.active.customEmojiDao()
-            update.forEach { el ->
-                val emoji = el as? JsonObject ?: return@forEach
-                val name = emoji["name"]?.jsonPrimitive?.contentOrNull ?: return@forEach
-                val extension = emoji["extension"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+            val entities = update.mapNotNull { el ->
+                val emoji = el as? JsonObject ?: return@mapNotNull null
+                val name = emoji["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val extension = emoji["extension"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                 val aliases = (emoji["aliases"] as? JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { Json.encodeToString(it) }
-                dao.insert(
-                    cn.appia.im.core.database.entity.CustomEmojiEntity(
-                        name = name,
-                        aliases = aliases,
-                        extension = extension,
-                        // $date 为 ms epoch；RN Watermelon 存原 number，本表列语义取秒（幂等 REPLACE 即可）
-                        _updated_at = (emoji["_updatedAt"]?.let { (it as? JsonObject)?.get("\$date")?.jsonPrimitive?.doubleOrNull }
-                            ?: System.currentTimeMillis().toDouble()) / 1000.0,
-                    ),
+                cn.appia.im.core.database.entity.CustomEmojiEntity(
+                    name = name,
+                    aliases = aliases,
+                    extension = extension,
+                    // $date 为 ms epoch；RN Watermelon 存原 number，本表列语义取秒（整表替换无需幂等）
+                    _updated_at = (emoji["_updatedAt"]?.let { (it as? JsonObject)?.get("\$date")?.jsonPrimitive?.doubleOrNull }
+                        ?: System.currentTimeMillis().toDouble()) / 1000.0,
                 )
             }
+            dao.replaceAll(entities)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -475,6 +475,28 @@ class SchemaParityTest {
     }
 
     @Test
+    fun `custom emoji replaceAll removes stale rows`() = runTest {
+        // 总纲 §4.4-2：RN setCustomEmojis 整表替换语义——服务端删的表情不得永驻
+        val dao = db.customEmojiDao()
+        dao.insertAll(
+            listOf(
+                CustomEmojiEntity("old1", null, "png", 1.0),
+                CustomEmojiEntity("keep", null, "gif", 2.0),
+            ),
+        )
+        dao.replaceAll(listOf(CustomEmojiEntity("keep", null, "gif", 3.0)))
+        assertEquals(listOf(CustomEmojiEntity("keep", null, "gif", 3.0)), dao.getAll())
+    }
+
+    @Test
+    fun `custom emoji replaceAll with empty list clears table`() = runTest {
+        val dao = db.customEmojiDao()
+        dao.insert(CustomEmojiEntity("gone", null, "png", 1.0))
+        dao.replaceAll(emptyList())
+        assertTrue(dao.getAll().isEmpty())
+    }
+
+    @Test
     fun `dao update delete and observe work`() = runTest {
         val dao = db.subscriptionDao()
         val e = sampleSubscription()
