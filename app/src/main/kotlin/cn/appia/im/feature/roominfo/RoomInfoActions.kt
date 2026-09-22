@@ -131,7 +131,7 @@ fun parseRoomRoles(raw: String?): List<String> {
  * mapping 传入，否则传 null 触发 [cn.appia.im.core.permissions.getDefaultPermissionMapping]
  * 兜底（[owner,moderator,admin]），**不传非空 store map**（避免空 roles 键命中 isNullOrEmpty 提前 false）。
  * RN 侧 getEditRoomAllowedRoles 的 permissions.listAll 兜底同步归 [cn.appia.im.core.network.api.PermissionsApi.syncPermissions]
- * （进入页面时装配处调用一次，RN useFocusEffect 同位）。
+ * （RoomInfoRoute 装配处 LaunchedEffect 进页调用一次，RN useFocusEffect 同位；登录 bootstrap 亦调一次）。
  */
 fun canEditRoomSettings(
     chat: cn.appia.im.core.database.entity.ChatEntity?,

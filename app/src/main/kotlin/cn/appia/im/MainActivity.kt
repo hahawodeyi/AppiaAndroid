@@ -64,6 +64,7 @@ import cn.appia.im.feature.chat.forward.ForwardDetailScreen
 import cn.appia.im.feature.chat.forward.ForwardSearcher
 import cn.appia.im.feature.chat.forward.ForwardSelectScreen
 import cn.appia.im.core.network.api.ForwardApi
+import cn.appia.im.core.network.api.PermissionsApi
 import cn.appia.im.core.network.api.ReadReceiptsApi
 import cn.appia.im.core.network.api.RoomsApi
 import cn.appia.im.core.network.api.SpotlightApi
@@ -770,6 +771,8 @@ fun AppiaNavHost(
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 val actions = remember(db) { RoomInfoActions(deps.sdk, db) }
+                // RN useFocusEffect 同位：进页兜底 sync permissions.listAll（登录 bootstrap 失败仅 warn，此处补拉）
+                LaunchedEffect(Unit) { runCatching { PermissionsApi.syncPermissions(deps.sdk) } }
                 RoomInfoScreen(
                     rid = route.rid,
                     roomType = route.roomType,
