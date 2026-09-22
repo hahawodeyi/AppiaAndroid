@@ -80,6 +80,8 @@ import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
 import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
+import cn.appia.im.feature.roominfo.RoomInfoActions
+import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
 import cn.appia.im.feature.login.AuthApi
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.LoginAreaCodeOption
@@ -181,6 +183,40 @@ data class MentionSuggestionRoute(
     val roomType: String = "c",
     val initialQuery: String = "",
 )
+
+/** 房间信息页路由（M4-T4，RN navigate('RoomInfo', {rid, t})）。 */
+@Serializable
+data class RoomInfoRoute(val rid: String, val roomType: String = "c")
+
+/**
+ * T5/T6/T7/T8 目标屏占位路由（binding ②）：RoomInfoScreen 的导航目标。各任务落地后替换
+ * 本占位 composable 为真屏接线（路由参数已按 RN navigate 调用方钉死，落地时零改动迁移）。
+ */
+// TODO(T5): RoomMembersScreen（RN navigate('RoomMembers', {rid, t, mode?})：remove 模式/默认 list）
+@Serializable
+data class RoomMembersRoute(val rid: String, val roomType: String = "c", val mode: String = "list")
+
+// TODO(T6): RoomAnnouncementScreen（RN navigate('RoomAnnouncement', {rid, t})）
+@Serializable
+data class RoomAnnouncementRoute(val rid: String, val roomType: String = "c")
+
+// TODO(T7): RoomChannelNameEditScreen（RN navigate('RoomChannelNameEdit', {rid, t})）
+@Serializable
+data class RoomChannelNameEditRoute(val rid: String, val roomType: String = "c")
+
+// TODO(T8): CreateChannelMembersScreen（RN navigate('CreateChannelMembers', {intent, rid?, t?, existingMemberUsernames?, preselectedUsernames?})）
+@Serializable
+data class CreateChannelMembersRoute(
+    val intent: String,
+    val rid: String? = null,
+    val roomType: String? = null,
+    val existingMemberUsernames: List<String> = emptyList(),
+    val preselectedUsernames: List<String> = emptyList(),
+)
+
+// TODO(T9): MemberProfileScreen（RN navigate('MemberProfile', {username})）
+@Serializable
+data class MemberProfileRoute(val username: String)
 
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
 const val MENTION_SELECTED_KEY = "mention_selected"
@@ -554,6 +590,8 @@ fun AppiaNavHost(
                     onRetryAttachment = { messageId, attachmentId ->
                         orchestrator.retryFile(messageId, attachmentId)
                     },
+                    // 房间信息页入口（M4-T4 / RN openRoomInfo：标题点击）
+                    onOpenRoomInfo = { nav.navigate(RoomInfoRoute(rid = route.rid, roomType = route.roomType)) },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->
                         when (target) {
@@ -717,6 +755,73 @@ fun AppiaNavHost(
                 )
             }
         }
+        // 房间信息页（M4-T4）：chats 行实时跟随（标题/公告/usage/静音置顶态）+ 权限门 + 乐观 toggle。
+        // T5/T6/T7/T8 目标暂为占位屏（路由参数已钉，各任务落地替换）。
+        composable<RoomInfoRoute> { entry ->
+            val route = entry.toRoute<RoomInfoRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
+                    .collectAsState(initial = null)
+                val actions = remember(db) { RoomInfoActions(deps.sdk, db) }
+                RoomInfoScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    chat = chatRow,
+                    currentUserId = auth?.user?.id,
+                    globalRoles = auth?.user?.roles.orEmpty(),
+                    serverUrl = serverUrl,
+                    token = auth?.token,
+                    actions = actions,
+                    onBack = { nav.popBackStack() },
+                    onAddMembers = { existing ->
+                        nav.navigate(
+                            CreateChannelMembersRoute(
+                                intent = "addToRoom",
+                                rid = route.rid,
+                                roomType = route.roomType,
+                                existingMemberUsernames = existing,
+                            ),
+                        )
+                    },
+                    onRemoveMembers = {
+                        nav.navigate(RoomMembersRoute(rid = route.rid, roomType = route.roomType, mode = "remove"))
+                    },
+                    onMoreMembers = {
+                        nav.navigate(RoomMembersRoute(rid = route.rid, roomType = route.roomType))
+                    },
+                    onEditChannelName = {
+                        nav.navigate(RoomChannelNameEditRoute(rid = route.rid, roomType = route.roomType))
+                    },
+                    onOpenAnnouncement = {
+                        nav.navigate(RoomAnnouncementRoute(rid = route.rid, roomType = route.roomType))
+                    },
+                    onOpenMemberProfile = { username ->
+                        nav.navigate(MemberProfileRoute(username = username))
+                    },
+                    onDirectAddChannel = { peer ->
+                        nav.navigate(
+                            CreateChannelMembersRoute(
+                                intent = "create",
+                                preselectedUsernames = listOfNotNull(peer?.takeIf { it.isNotEmpty() }),
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+        // T5/T6/T7/T8/T9 占位屏（binding ②）：RoomInfo 导航目标，各任务落地替换。
+        composable<RoomMembersRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        composable<RoomAnnouncementRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        composable<RoomChannelNameEditRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        composable<CreateChannelMembersRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        composable<MemberProfileRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         composable<MediaViewerRoute> { entry ->
             val route = entry.toRoute<MediaViewerRoute>()
             val images = remember(route.imagesJson) {

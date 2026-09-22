@@ -32,13 +32,14 @@ internal fun resolveRoomHeaderTitle(routeTitle: String?, chat: ChatEntity?): Str
     }
 }
 
-/** 房间头部（RN StackHeaderBack + 标题）：返回键 + 居中标题。 */
+/** 房间头部（RN StackHeaderBack + 标题）：返回键 + 居中标题（可点 → 房间信息页，RN openRoomInfo）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomHeader(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onTitleClick: (() -> Unit)? = null,
 ) {
     val colors = LocalAppiaColors.current
     Column(modifier = modifier.fillMaxWidth()) {
@@ -51,7 +52,9 @@ fun RoomHeader(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("qa-room-header-title"),
+                    modifier = Modifier
+                        .let { m -> if (onTitleClick != null) m.clickable(onClick = onTitleClick) else m }
+                        .testTag("qa-room-header-title"),
                 )
             },
             navigationIcon = {

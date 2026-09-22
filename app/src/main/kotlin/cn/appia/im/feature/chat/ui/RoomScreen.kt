@@ -221,6 +221,8 @@ fun RoomScreen(
     getCustomEmoji: ((String) -> cn.appia.im.core.messaging.ResolvedEmoji?)? = null,
     /** 本地附件失败重试（T13 / RN retryFile）：(messageId, attachmentId) → SendOrchestrator.retryFile。 */
     onRetryAttachment: suspend (String, String) -> Unit = { _, _ -> },
+    /** 房间信息页入口（M4-T4 / RN openRoomInfo：标题点击 + 更多钮）——装配处 navigate(RoomInfoRoute)。 */
+    onOpenRoomInfo: (() -> Unit)? = null,
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -525,7 +527,7 @@ fun RoomScreen(
     }
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
-        RoomHeader(title = title, onBack = onBack)
+        RoomHeader(title = title, onBack = onBack, onTitleClick = onOpenRoomInfo)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (state.messages.isEmpty()) {
