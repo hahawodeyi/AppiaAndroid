@@ -83,6 +83,7 @@ import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.roominfo.RoomInfoActions
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
+import cn.appia.im.feature.roominfo.ui.RoomMembersScreen
 import cn.appia.im.feature.login.AuthApi
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.LoginAreaCodeOption
@@ -819,8 +820,32 @@ fun AppiaNavHost(
                 )
             }
         }
-        // T5/T6/T7/T8/T9 占位屏（binding ②）：RoomInfo 导航目标，各任务落地替换。
-        composable<RoomMembersRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        // T5 成员管理页（binding ②）：list/remove 双模式；T6/T7/T8/T9 仍占位。
+        composable<RoomMembersRoute> { entry ->
+            val route = entry.toRoute<RoomMembersRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val auth = remember { deps.store.load() }
+                RoomMembersScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    mode = route.mode,
+                    sdk = deps.sdk,
+                    currentUserId = auth?.user?.id,
+                    globalRoles = auth?.user?.roles.orEmpty(),
+                    serverUrl = serverUrl,
+                    token = auth?.token,
+                    onBack = { nav.popBackStack() },
+                    onOpenMemberProfile = { username ->
+                        nav.navigate(MemberProfileRoute(username = username))
+                    },
+                    // 发消息动作（openDirectMessage 链）归 T9 接线——本任务回调参数化
+                    onSendMessage = { _, _ -> },
+                )
+            }
+        }
         composable<RoomAnnouncementRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         composable<RoomChannelNameEditRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         composable<CreateChannelMembersRoute> { Text(LocalContext.current.t("feature_not_implemented")) }

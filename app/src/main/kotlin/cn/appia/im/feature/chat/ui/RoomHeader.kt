@@ -32,7 +32,8 @@ internal fun resolveRoomHeaderTitle(routeTitle: String?, chat: ChatEntity?): Str
     }
 }
 
-/** 房间头部（RN StackHeaderBack + 标题）：返回键 + 居中标题（可点 → 房间信息页，RN openRoomInfo）。 */
+/** 房间头部（RN StackHeaderBack + 标题）：返回键 + 居中标题（可点 → 房间信息页，RN openRoomInfo）
+ *  + 右侧动作槽（RN navigation.setOptions headerRight——T5 成员页 remove 模式移除钮首用）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomHeader(
@@ -40,6 +41,7 @@ fun RoomHeader(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onTitleClick: (() -> Unit)? = null,
+    headerAction: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalAppiaColors.current
     Column(modifier = modifier.fillMaxWidth()) {
@@ -70,6 +72,9 @@ fun RoomHeader(
                         .clickable(onClick = onBack)
                         .testTag("qa-room-header-back"),
                 )
+            },
+            actions = {
+                headerAction?.invoke()
             },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = colors.headerBackground,
