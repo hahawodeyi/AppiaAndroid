@@ -211,6 +211,33 @@ class RoomMemberActionsTest {
         assertEquals(emptyList<String>(), findRoomMemberRoles(null, "u1"))
     }
 
+    /**
+     * 评审 Bug-1 证明：canRemoveFromRoom 派生链（findRoomMemberRoles → hasRoomPermission）
+     * 在角色异步到达前后重算——进页时 raw=null（角色在途）→ false；raw 到达含 owner → true。
+     * 屏内为派生值直算（无 effect 快照），本用例钉死该纯函数链的时序行为。
+     */
+    @Test
+    fun `derived canRemove recomputes when roles arrive async`() {
+        val currentUserId = "me"
+        val globalRoles = emptyList<String>()
+        val mapping: Map<String, List<String>>? = null // store 键未命中 → null 兜底
+
+        // 阶段 1：getRoomRoles 在途（raw=null）→ 空角色 → remove-user 兜底映射不命中 → false
+        val rolesInFlight = findRoomMemberRoles(null, currentUserId)
+        assertFalse(
+            cn.appia.im.core.permissions.hasRoomPermission("remove-user", rolesInFlight, globalRoles, mapping),
+        )
+
+        // 阶段 2：角色到达（me=owner）→ 同链重算 → true（部门行移除动作出现）
+        val arrived = Json.parseToJsonElement(
+            """{"roles":[{"u":{"_id":"me"},"roles":["owner"]}]}""",
+        )
+        val rolesArrived = findRoomMemberRoles(arrived, currentUserId)
+        assertTrue(
+            cn.appia.im.core.permissions.hasRoomPermission("remove-user", rolesArrived, globalRoles, mapping),
+        )
+    }
+
     // ---- bulkRemove wire（并行 per-user kick + 单次 removeDepartment）----
 
     @Test

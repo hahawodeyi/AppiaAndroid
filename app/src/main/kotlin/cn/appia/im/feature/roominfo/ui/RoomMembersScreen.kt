@@ -1,6 +1,7 @@
 package cn.appia.im.feature.roominfo.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -73,7 +74,7 @@ private fun memberAvatarUrl(serverUrl: String, username: String, userId: String?
     if (serverUrl.isBlank() || username.isBlank()) return null
     return buildString {
         append(serverUrl.trimEnd('/')).append("/avatar/").append(username)
-        append("?version=1&format=png&size=88")
+        append("?version=1&format=png&size=80") // RN index.tsx:79 size 80
         if (!userId.isNullOrEmpty() && !token.isNullOrEmpty()) {
             append("&rc_token=").append(token).append("&rc_uid=").append(userId)
         }
@@ -155,22 +156,14 @@ fun RoomMembersScreen(
     fun memberRolesOf(memberId: String): List<String> = findRoomMemberRoles(roomRolesRaw, memberId)
     val currentUserRoles = memberRolesOf(currentUserId.orEmpty())
 
-    // 服务端权限判定（RN useCanRemoveRoomMember：getRoomRoles + remove-user；失败 false）
-    var canRemoveFromRoom by remember(rid, roomType) { mutableStateOf(false) }
-    LaunchedEffect(rid, roomType, currentUserId, sdk) {
-        canRemoveFromRoom = if (sdk == null || currentUserId.isNullOrEmpty()) {
-            false
-        } else {
-            runCatching {
-                cn.appia.im.core.permissions.hasRoomPermission(
-                    "remove-user",
-                    memberRolesOf(currentUserId),
-                    globalRoles,
-                    permissions["remove-user"]?.takeIf { it.isNotEmpty() }?.let { mapOf("remove-user" to it) },
-                )
-            }.getOrDefault(false)
-        }
-    }
+    // 服务端权限判定（RN useCanRemoveRoomMember）：hasRoomPermission 纯函数 → 派生值直算，
+    // roomRolesRaw 异步到达后自动重算（effect+state 会读进页时的过期空角色，评审 Bug-1）
+    val canRemoveFromRoom = !currentUserId.isNullOrEmpty() && cn.appia.im.core.permissions.hasRoomPermission(
+        "remove-user",
+        currentUserRoles,
+        globalRoles,
+        permissions["remove-user"]?.takeIf { it.isNotEmpty() }?.let { mapOf("remove-user" to it) },
+    )
 
     var actionSheet by remember { mutableStateOf<List<Pair<String, () -> Unit>>?>(null) }
     var alert by remember { mutableStateOf<String?>(null) }
@@ -518,21 +511,16 @@ private fun MemberItem(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (removeMode && showCheckbox) {
+            // RN removeCheckbox：22dp 圆角 4 + 1.5px 边框 #c6c6c8；选中蓝底白勾
             Box(
                 Modifier
                     .size(22.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (checked) CheckboxBlue else Color.Transparent)
-                    .clickable(onClick = onCheckboxPress)
-                    .padding(1.5.dp),
+                    .border(1.5.dp, CheckboxDisabled, RoundedCornerShape(4.dp))
+                    .clickable(onClick = onCheckboxPress),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (checked) CheckboxBlue else Color.Transparent),
-                )
                 if (checked) Text("✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
@@ -545,7 +533,7 @@ private fun MemberItem(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                (member.name ?: member.username ?: "?").trim().take(1).uppercase().ifEmpty { "?" },
+                (member.name?.takeIf { it.isNotBlank() } ?: member.username ?: "?").trim().take(1).uppercase().ifEmpty { "?" },
                 color = AuxGray,
                 fontSize = 18.sp,
             )
@@ -562,7 +550,7 @@ private fun MemberItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                member.name ?: member.username ?: "Unknown",
+                member.name?.takeIf { it.isNotBlank() } ?: member.username ?: "Unknown",
                 color = MemberNameDark,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
@@ -603,22 +591,17 @@ private fun DepartmentGroup(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (removeMode) {
+                // RN checkboxBox：同成员行复选框（22dp/1.5px 边框/蓝底白勾）
                 Box(
                     Modifier
                         .padding(horizontal = 16.dp)
                         .size(22.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(if (checked) CheckboxBlue else Color.Transparent)
-                        .clickable(onClick = onDepartmentCheckboxPress)
-                        .padding(1.5.dp),
+                        .border(1.5.dp, CheckboxDisabled, RoundedCornerShape(4.dp))
+                        .clickable(onClick = onDepartmentCheckboxPress),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (checked) CheckboxBlue else Color.Transparent),
-                    )
                     if (checked) Text("✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
