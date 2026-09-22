@@ -377,21 +377,33 @@ class RealtimeSessionManager(
 
     /**
      * RN :596-629 后台 fire-and-forget（public settings / emojis / permissions / user roles）。
-     * M1 占位：保留 per-step generation 检查骨架 + 日志，各 sync 实现归 M5。
      * 句柄登记（授权顺手项）：teardown 取消，防 M5 前的幽灵同步残留。
      * T13：custom emojis 步实现（RN session.ts:609 syncCustomEmojis → emoji-custom.list →
      * DAO 整表替换；RoomScreen → MessageRow → InlineEnv / buildEditContent 查表消费）。
+     * M4-T2：permissions 步实现（RN session.ts:617 syncPermissionsFromServer → permissions.listAll →
+     * PermissionsStore；消费侧 hasRoomPermission/canEditRoomSettings 走 store + 默认映射兜底）。
      */
     private fun launchBootstrapExtras(generationAtStart: Long) {
         extrasJob = scope.launch {
             for (step in listOf("public settings", "custom emojis", "permissions", "user roles")) {
                 if (bootstrapGeneration.get() != generationAtStart) return@launch
-                if (step == "custom emojis") {
-                    syncCustomEmojis()
-                } else {
-                    Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
+                when (step) {
+                    "custom emojis" -> syncCustomEmojis()
+                    "permissions" -> syncPermissions()
+                    else -> Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
                 }
             }
+        }
+    }
+
+    /** RN session.ts:617 syncPermissionsFromServer（M4-T2；失败仅 warn 不阻断，RN :618-620 同）。 */
+    private suspend fun syncPermissions() {
+        try {
+            cn.appia.im.core.network.api.PermissionsApi.syncPermissions(sdk)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "permissions sync skipped or failed", e)
         }
     }
 

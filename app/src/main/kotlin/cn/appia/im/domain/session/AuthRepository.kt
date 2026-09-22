@@ -103,6 +103,7 @@ class AuthRepository @Inject constructor(
         orgCache.clearAll() // RN :143
         LoginSwitchCandidatesCache(kv).clear(prevUsername) // RN :144-146
         prevServer?.let { RoomsSyncCursor(kv).clear(it) } // RN :148-150 clearRoomsUpdatedAt
+        cn.appia.im.core.permissions.PermissionsStore.reset() // RN :147 usePermissionsStore.reset()
         teardownRealtime() // RN :152
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
         store.clear() // RN :157
@@ -196,6 +197,12 @@ object SessionModule {
             unsubscribeRoom = { rid -> roomStreams.unsubscribeRoom(rid) },
         )
         manager.setStreamHandler(StreamNames.NOTIFY_USER, notifyUser::handleStreamNotifyUser)
+        // M4-T2：permissions-changed 流消费（RN session.ts:107-126 handleStreamNotifyLogged）——
+        // M1 分发注册表第一个权限级 handler，接口零改动（NotifyUserPersistence 先例）
+        manager.setStreamHandler(
+            StreamNames.NOTIFY_LOGGED,
+            cn.appia.im.core.permissions.PermissionsStore::applyPermissionsChangedFrame,
+        )
         // T6 重连收尾：全局流恢复后重订全部活跃房间流（RN session.ts:162）
         manager.addReconnectTail { roomStreams.resubscribeAllActiveRoomStreams() }
         // T6 teardown：清活跃房间流表 + notify-user 待 flush 队列（RN :676-677；网络退订随 disconnect）

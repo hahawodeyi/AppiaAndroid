@@ -90,6 +90,7 @@ class RealtimeSessionManagerTest {
     private var subsBody = "{}"
     private var roomsBody = "{}"
     private var emojiBody: String? = null
+    private var permissionsBody: String? = null
 
     private lateinit var host: String
     private lateinit var sdk: RocketSdk
@@ -109,6 +110,9 @@ class RealtimeSessionManagerTest {
                     // T13：emoji-custom.list（syncCustomEmojis）；null → 404（失败仅 warn 分支）
                     path.startsWith("/api/v1/emoji-custom.list") ->
                         emojiBody?.let { MockResponse().setBody(it) } ?: MockResponse().setResponseCode(404)
+                    // M4-T2：permissions.listAll（syncPermissions）；null → 404
+                    path.startsWith("/api/v1/permissions.listAll") ->
+                        permissionsBody?.let { MockResponse().setBody(it) } ?: MockResponse().setResponseCode(404)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -578,6 +582,49 @@ class RealtimeSessionManagerTest {
             all = dao.getAll()
         }
         assertTrue(desc, cond(all))
+    }
+
+    // ---- M4-T2：bootstrap extras 的 permissions 同步（RN session.ts:617）----
+
+    @Test
+    fun `bootstrap extras sync permissions into store and stream patches apply`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        permissionsBody = """
+            {"success":true,"update":[
+              {"_id":"edit-room","roles":["owner","moderator"]},
+              {"_id":"untracked","roles":["admin"]}
+            ]}
+        """.trimIndent()
+
+        try {
+            manager.bootstrap(host, "tok-perm", userId = "uid-1")
+
+            // extras 为 fire-and-forget：轮询 store 直至 tracked 条目落位（untracked 被清单过滤）
+            val store = cn.appia.im.core.permissions.PermissionsStore
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (store.getPermissionRoles("edit-room") == null && System.nanoTime() < deadline) delay(10)
+            assertEquals(listOf("owner", "moderator"), store.getPermissionRoles("edit-room"))
+            assertNull(store.getPermissionRoles("untracked"))
+
+            awaitCond("subs done") { ws.subCount() >= 6 }
+
+            // SessionModule 生产装配同位注册（本测试直构 manager 不走 DI）：permissions-changed 流消费
+            manager.setStreamHandler(
+                StreamNames.NOTIFY_LOGGED,
+                cn.appia.im.core.permissions.PermissionsStore::applyPermissionsChangedFrame,
+            )
+
+            // permissions-changed 流帧 → store patch（RN session.ts:107-126 载荷形状）
+            ws.send(
+                """{"msg":"changed","collection":"stream-notify-logged","id":"evt",""" +
+                    """"fields":{"eventName":"permissions-changed","args":["updated",{"_id":"edit-room","roles":["admin"]}]}}""",
+            )
+            val deadline2 = System.nanoTime() + 5_000_000_000L
+            while (store.getPermissionRoles("edit-room") != listOf("admin") && System.nanoTime() < deadline2) delay(10)
+            assertEquals(listOf("admin"), store.getPermissionRoles("edit-room"))
+        } finally {
+            cn.appia.im.core.permissions.PermissionsStore.reset()
+        }
     }
 
     // ---- prepareSocketConnection 收敛点（T4 预检裁定：AuthApi 未来复用） ----
