@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- M2 T5：NetworkMonitor 读 ConnectivityManager（registerNetworkCallback/activeNetwork） -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- M4 T9：MyCard 保存二维码到相册——Android 9- 写 DCIM 需运行时申请；10+ MediaStore 免申请 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:name=".AppiaApplication"

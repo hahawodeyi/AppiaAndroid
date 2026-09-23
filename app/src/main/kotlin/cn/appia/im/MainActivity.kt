@@ -1,5 +1,6 @@
 package cn.appia.im
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -44,6 +46,7 @@ import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.domain.session.BackgroundScope
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
+import cn.appia.im.core.chat.resolveDirectChatRid
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.DraftRepository
 import cn.appia.im.feature.chat.RecallActions
@@ -82,6 +85,8 @@ import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.contacts.ui.CreateChannelMembersScreen
+import cn.appia.im.feature.contacts.ui.MyCardScreen
+import cn.appia.im.feature.contacts.ui.MemberProfileScreen
 import cn.appia.im.feature.contacts.ui.TeamScreen
 import cn.appia.im.feature.roominfo.RoomInfoActions
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
@@ -226,9 +231,13 @@ data class CreateChannelMembersRoute(
     val isMerged: Boolean = false,
 )
 
-// TODO(T9): MemberProfileScreen（RN navigate('MemberProfile', {username})）
+// RN navigate('MemberProfile', {username})
 @Serializable
 data class MemberProfileRoute(val username: String)
+
+/** 我的二维码名片（RN ProfileScreen → MyCard；ProfileScreen 为 M5 域——本任务先挂 ChatList 顶栏菜单）。 */
+@Serializable
+data object MyCardRoute
 
 /** 通讯录双树（M4 T6）：deptId 空 = 根视图（PMT/L1D 双 tab），非空 = 子部门视图（push）。 */
 @Serializable
@@ -411,6 +420,7 @@ fun AppiaNavHost(
                     onOpenRoom = { rid, title, roomType -> nav.navigate(RoomRoute(rid, title, roomType)) },
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
                     onOpenContacts = { nav.navigate(TeamRoute()) },
+                    onOpenMyCard = { nav.navigate(MyCardRoute) },
                 )
             }
         }
@@ -849,7 +859,7 @@ fun AppiaNavHost(
                 )
             }
         }
-        // T5 成员管理页（binding ②）：list/remove 双模式；T6/T7/T8/T9 仍占位。
+        // T5 成员管理页（binding ②）：list/remove 双模式；发消息（T9 openDirectMessage 链）接线。
         composable<RoomMembersRoute> { entry ->
             val route = entry.toRoute<RoomMembersRoute>()
             if (deps == null) {
@@ -857,6 +867,9 @@ fun AppiaNavHost(
             } else {
                 val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
                 val auth = remember { deps.store.load() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
                 RoomMembersScreen(
                     rid = route.rid,
                     roomType = route.roomType,
@@ -870,8 +883,15 @@ fun AppiaNavHost(
                     onOpenMemberProfile = { username ->
                         nav.navigate(MemberProfileRoute(username = username))
                     },
-                    // 发消息动作（openDirectMessage 链）归 T9 接线——本任务回调参数化
-                    onSendMessage = { _, _ -> },
+                    // 发消息（RN openDirectMessage 链三段）：resolveDirectChatRid → RoomRoute('d')
+                    onSendMessage = { username, name ->
+                        deps.scope.launch {
+                            val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
+                            if (rid != null) {
+                                nav.navigate(RoomRoute(rid = rid, title = name.orEmpty(), roomType = "d"))
+                            }
+                        }
+                    },
                 )
             }
         }
@@ -977,7 +997,73 @@ fun AppiaNavHost(
                 )
             }
         }
-        composable<MemberProfileRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        // 成员名片（T9）：users.info + 发消息（openDirectMessage 链）/简历外链（ACTION_VIEW，
+        // 同 InlineNodes 外链裁定——RN InAppWeb 为 M5 域，报告入册）
+        composable<MemberProfileRoute> { entry ->
+            val route = entry.toRoute<MemberProfileRoute>()
+            val context = LocalContext.current
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val auth = remember { deps.store.load() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                MemberProfileScreen(
+                    username = route.username,
+                    userId = null,
+                    sdk = deps.sdk,
+                    serverUrl = serverUrl,
+                    currentUserId = auth?.user?.id,
+                    token = auth?.token,
+                    currentUsername = auth?.user?.username,
+                    onBack = { nav.popBackStack() },
+                    // 发消息（RN openDirectMessage 链）：resolveDirectChatRid → RoomRoute
+                    onSendMessage = { username, name ->
+                        deps.scope.launch {
+                            val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
+                            if (rid != null) {
+                                nav.navigate(RoomRoute(rid = rid, title = name.orEmpty(), roomType = "d"))
+                            }
+                        }
+                    },
+                    onOpenWeb = { url, _ ->
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                        }
+                    },
+                )
+            }
+        }
+        // 我的二维码名片（T9）：qrcode.query 7 级回退 + MediaStore 保存；ProfileScreen 入口为
+        // M5 域——本任务挂 ChatList 顶栏菜单（报告注明 M5 迁正）
+        composable<MyCardRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                var enterpriseName by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(db) {
+                    enterpriseName = db.settingDao().getById("Enterprise_Name")?.value_as_string
+                }
+                MyCardScreen(
+                    sdk = deps.sdk,
+                    enterpriseName = enterpriseName,
+                    serverUrl = serverUrl,
+                    currentUserId = auth?.user?.id,
+                    currentUsername = auth?.user?.username,
+                    displayName = auth?.user?.name?.takeIf { it.isNotBlank() }
+                        ?: auth?.user?.username.orEmpty(),
+                    token = auth?.token,
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
         // M4 T6 通讯录双树：hrm/v2.users.list 数据源 + TeamScreen（deptId 空=根视图）
         composable<TeamRoute> { entry ->
             val route = entry.toRoute<TeamRoute>()

@@ -72,4 +72,12 @@ interface ChatDao {
             "ORDER BY room_updated_at DESC",
     )
     fun observeDirects(): Flow<List<ChatEntity>>
+
+    /**
+     * DM 全表扫描源（RN openDirectMessage.ts:84-86 `Q.where('t', DIRECT)` fetch）：
+     * 仅 t='d' 过滤（无 open/bot/archived 条件——与 observeDirects 的列表语义不同，
+     * 本地 DM 命中判定须看见全部直聊行）。
+     */
+    @Query("SELECT * FROM chats WHERE t = 'd'")
+    suspend fun getDirects(): List<ChatEntity>
 }

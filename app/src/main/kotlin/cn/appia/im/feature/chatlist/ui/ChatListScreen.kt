@@ -73,6 +73,8 @@ fun ChatListScreen(
     onOpenRoom: (rid: String, title: String, roomType: String) -> Unit,
     onLogout: () -> Unit,
     onOpenContacts: () -> Unit = {},
+    // 我的二维码名片入口（T9）：RN ProfileScreen → MyCard；ProfileScreen 为 M5 域，暂挂顶栏菜单
+    onOpenMyCard: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -188,6 +190,15 @@ fun ChatListScreen(
                             onOpenContacts()
                         },
                         modifier = Modifier.testTag("qa-room-list-menu-contacts"),
+                    )
+                    // 我的二维码名片（T9；RN ProfileScreen 域，M5 迁正）
+                    DropdownMenuItem(
+                        text = { Text(context.t("mycard_title")) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenMyCard()
+                        },
+                        modifier = Modifier.testTag("qa-room-list-menu-my-card"),
                     )
                     DropdownMenuItem(
                         text = { Text(context.t("drawer_myenterprise")) },
