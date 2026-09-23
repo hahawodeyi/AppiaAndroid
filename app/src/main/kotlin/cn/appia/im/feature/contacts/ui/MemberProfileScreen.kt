@@ -51,8 +51,8 @@ import kotlinx.coroutines.launch
 
 /**
  * 成员名片页（RN screens/MemberProfileScreen/index.tsx + useMemberProfile + OtkrSection 逐结构）：
- * - 数据：users.info（userId = 路由 username 优先 userMap _id 回退——Android 路由只带 username，
- *   userId 缺省时以 username 调用，服务端兼容同名解析）
+ * - 数据：users.info（userId 优先——三入口透传 _id；缺省（如 DM 头像行本地无 _id）走
+ *   username 回退）
  * - 头像：getTeamUserAvatarUri 鉴权 URL（teamAvatarUrl 同构）
  * - 操作：发消息（openDirectMessage 链——装配处接线）/语音通话（**占位禁用 M10 接**）
  * - 个人信息行：email / supervisor（leaderNames[0]）/ 简历链接（canViewResume 门 → InAppWeb）
