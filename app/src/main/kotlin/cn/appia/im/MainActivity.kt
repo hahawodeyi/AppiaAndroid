@@ -231,9 +231,10 @@ data class CreateChannelMembersRoute(
     val isMerged: Boolean = false,
 )
 
-// RN navigate('MemberProfile', {username})
+// RN navigate('MemberProfile', {username})；userId 可选（RN 常态真 _id，username 为
+// userMap 缺失冷路径回退——评审 fix I-1：双入口透传 _id，缺省仍走 username 回退）
 @Serializable
-data class MemberProfileRoute(val username: String)
+data class MemberProfileRoute(val username: String, val userId: String? = null)
 
 /** 我的二维码名片（RN ProfileScreen → MyCard；ProfileScreen 为 M5 域——本任务先挂 ChatList 顶栏菜单）。 */
 @Serializable
@@ -845,8 +846,8 @@ fun AppiaNavHost(
                     onOpenAnnouncement = {
                         nav.navigate(RoomAnnouncementRoute(rid = route.rid, roomType = route.roomType))
                     },
-                    onOpenMemberProfile = { username ->
-                        nav.navigate(MemberProfileRoute(username = username))
+                    onOpenMemberProfile = { username, userId ->
+                        nav.navigate(MemberProfileRoute(username = username, userId = userId))
                     },
                     onDirectAddChannel = { peer ->
                         nav.navigate(
@@ -880,8 +881,8 @@ fun AppiaNavHost(
                     serverUrl = serverUrl,
                     token = auth?.token,
                     onBack = { nav.popBackStack() },
-                    onOpenMemberProfile = { username ->
-                        nav.navigate(MemberProfileRoute(username = username))
+                    onOpenMemberProfile = { username, userId ->
+                        nav.navigate(MemberProfileRoute(username = username, userId = userId))
                     },
                     // 发消息（RN openDirectMessage 链三段）：resolveDirectChatRid → RoomRoute('d')
                     onSendMessage = { username, name ->
@@ -1012,7 +1013,7 @@ fun AppiaNavHost(
                 }
                 MemberProfileScreen(
                     username = route.username,
-                    userId = null,
+                    userId = route.userId,
                     sdk = deps.sdk,
                     serverUrl = serverUrl,
                     currentUserId = auth?.user?.id,
@@ -1093,8 +1094,10 @@ fun AppiaNavHost(
                     enterpriseId = enterpriseId,
                     enterpriseName = enterpriseName,
                     onBack = { nav.popBackStack() },
-                    // T9 名片接线：userId 备用（MemberProfileRoute 暂只需 username）
-                    onOpenMemberProfile = { username, _ -> nav.navigate(MemberProfileRoute(username = username)) },
+                    // T9 名片接线（fix I-1：member.id 已透传，_id 常态直达——username 仅回退）
+                    onOpenMemberProfile = { username, userId ->
+                        nav.navigate(MemberProfileRoute(username = username, userId = userId))
+                    },
                     onOpenDept = { deptId -> nav.navigate(TeamRoute(deptId = deptId)) },
                 )
             }

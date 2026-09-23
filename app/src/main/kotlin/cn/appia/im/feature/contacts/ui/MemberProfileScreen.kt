@@ -387,7 +387,8 @@ private fun LinkText(text: String, modifier: Modifier = Modifier) {
 /**
  * POTA/OKR 节（RN OtkrSection.tsx 逐段）：canQuery 门（success && data 才放行，默认无权限
  * **不渲染任何节**——brief「无权限不显示」）→ otkr.date 月份 tab → otkr.query 层级渲染
- * （KO/KT/KR 徽标行；KO hidden 半透明）。占位入册：数据链全真，渲染为只读层级（无 tab 滚动动画）。
+ * （KO/KT/KR 徽标行）。占位入册：数据链全真，渲染为只读层级（无 tab 滚动动画/KO hidden
+ * 行为——RN hidden 语义后续渲染迭代时对照补）。
  */
 @Composable
 private fun OtkrSection(

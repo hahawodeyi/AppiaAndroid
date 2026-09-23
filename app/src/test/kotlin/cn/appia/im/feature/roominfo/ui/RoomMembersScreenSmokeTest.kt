@@ -28,7 +28,7 @@ class RoomMembersScreenSmokeTest {
 
     private val context = ApplicationProvider.getApplicationContext<android.app.Application>()
 
-    private fun setContent(mode: String, onOpenMemberProfile: (String) -> Unit = {}) {
+    private fun setContent(mode: String, onOpenMemberProfile: (String, String?) -> Unit = { _, _ -> }) {
         rule.setContent {
             AppiaTheme(isDark = false) {
                 RoomMembersScreen(
@@ -73,7 +73,7 @@ class RoomMembersScreenSmokeTest {
     @Test
     fun `member profile callback parameterized`() {
         var opened: String? = null
-        setContent(mode = "list", onOpenMemberProfile = { opened = it })
+        setContent(mode = "list", onOpenMemberProfile = { u, _ -> opened = u })
         rule.waitForIdle()
         assertEquals(null, opened) // 无成员行可点（sdk null 空列表）
     }

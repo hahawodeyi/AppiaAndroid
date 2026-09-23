@@ -101,7 +101,7 @@ fun RoomMembersScreen(
     serverUrl: String,
     token: String?,
     onBack: () -> Unit,
-    onOpenMemberProfile: (username: String) -> Unit = {},
+    onOpenMemberProfile: (username: String, userId: String?) -> Unit = { _, _ -> },
     onSendMessage: (username: String, userId: String?) -> Unit = { _, _ -> },
 ) {
     val colors = LocalAppiaColors.current
@@ -317,7 +317,7 @@ fun RoomMembersScreen(
                                     toggleUserSelection(row.user)
                                 } else {
                                     row.user.username?.trim()?.takeIf { it.isNotEmpty() }
-                                        ?.let(onOpenMemberProfile)
+                                        ?.let { onOpenMemberProfile(it, row.user._id.takeIf { id -> id.isNotEmpty() }) }
                                 }
                             },
                             onLongPress = {
@@ -340,7 +340,8 @@ fun RoomMembersScreen(
                             roomMemberRolesOf = ::memberRolesOf,
                             onMemberPress = { member ->
                                 // 部门块成员无 checkbox（RN showCheckbox=false）→ 恒走资料页
-                                member.username?.trim()?.takeIf { it.isNotEmpty() }?.let(onOpenMemberProfile)
+                                member.username?.trim()?.takeIf { it.isNotEmpty() }
+                                    ?.let { onOpenMemberProfile(it, member._id.takeIf { id -> id.isNotEmpty() }) }
                             },
                             onMemberLongPress = { member ->
                                 if (!isRemoveMode) showMemberActionSheet(member, allowRemoveFromRoom = false)

@@ -134,12 +134,14 @@ fun MyCardScreen(
     var status by remember { mutableStateOf(QrFetchStatus.LOADING) }
     var saving by remember { mutableStateOf(false) }
     var saveAlert by remember { mutableStateOf(false) }
+    var saveFailed by remember { mutableStateOf(false) }
     var permissionDenied by remember { mutableStateOf(false) }
 
-    // 位图化（展示与保存同源；RN qrDisplayUri effect 的 Android 等价）
+    // 位图化（展示与保存同源；RN qrDisplayUri effect 的 Android 等价）。IO：http(s) 拉取
+    // 是网络调用（评审 Minor），data URI 解码同线程无碍
     var qrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     LaunchedEffect(qr) {
-        qrBitmap = qr?.let { withContext(Dispatchers.Default) { decodeQrBitmap(it.imgUrl) } }
+        qrBitmap = qr?.let { withContext(Dispatchers.IO) { decodeQrBitmap(it.imgUrl) } }
     }
 
     fun loadQr() {
@@ -167,13 +169,14 @@ fun MyCardScreen(
     fun doSave() {
         if (qrBitmap == null) {
             saving = false
+            saveFailed = true // RN catch → myCard_saveFailed Alert（评审 fix I-2：失败不再静默）
             return
         }
         scope.launch(Dispatchers.IO) {
             val saved = runCatching { saveToAlbum(context, qrBitmap!!) }.getOrDefault(false)
             withContext(Dispatchers.Main) {
                 saving = false
-                if (saved) saveAlert = true
+                if (saved) saveAlert = true else saveFailed = true
             }
         }
     }
@@ -368,6 +371,16 @@ fun MyCardScreen(
             text = { Text(context.t("mycard_savedsuccess")) },
             confirmButton = {
                 TextButton(onClick = { saveAlert = false }) { Text(context.t("common_close")) }
+            },
+        )
+    }
+    // 保存失败（RN catch 非 AUTH_DENIED 分支 → myCard_saveFailed——评审 fix I-2）
+    if (saveFailed) {
+        AlertDialog(
+            onDismissRequest = { saveFailed = false },
+            text = { Text(context.t("mycard_savefailed")) },
+            confirmButton = {
+                TextButton(onClick = { saveFailed = false }) { Text(context.t("common_close")) }
             },
         )
     }

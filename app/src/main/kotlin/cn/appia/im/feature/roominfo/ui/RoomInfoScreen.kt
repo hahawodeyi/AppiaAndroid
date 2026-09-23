@@ -152,7 +152,7 @@ fun RoomInfoScreen(
     onMoreMembers: () -> Unit = {},
     onEditChannelName: () -> Unit = {},
     onOpenAnnouncement: () -> Unit = {},
-    onOpenMemberProfile: (username: String) -> Unit = {},
+    onOpenMemberProfile: (username: String, userId: String?) -> Unit = { _, _ -> },
     onDirectAddChannel: (peerUsername: String?) -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
@@ -258,7 +258,9 @@ fun RoomInfoScreen(
                         serverUrl, chat?.name.orEmpty(), currentUserId, token,
                         with(density) { 50.dp.roundToPx() },
                     ),
-                    onOpenProfile = { chat?.name?.takeIf { it.isNotEmpty() }?.let(onOpenMemberProfile) },
+                    // DM 对象头像行（RN RoomInfoView DirectAvatarCard→MemberProfile）：本地 chats 行
+                    // 只有对端 username（无 _id）——走 username 回退（MemberProfileRoute.userId=null）
+                    onOpenProfile = { chat?.name?.takeIf { it.isNotEmpty() }?.let { onOpenMemberProfile(it, null) } },
                     onAdd = { onDirectAddChannel(chat?.name) },
                 )
                 Card(Modifier.padding(top = 16.dp)) {
@@ -531,7 +533,7 @@ private fun MembersCard(
     onAdd: () -> Unit,
     onRemove: () -> Unit,
     onMore: () -> Unit,
-    onMember: (String) -> Unit,
+    onMember: (username: String, userId: String?) -> Unit,
 ) {
     val context = LocalContext.current
     Column(
@@ -553,7 +555,8 @@ private fun MembersCard(
                         Modifier
                             .fillMaxWidth(0.2f)
                             .clickable {
-                                member.username.trim().takeIf { it.isNotEmpty() }?.let(onMember)
+                                member.username.trim().takeIf { it.isNotEmpty() }
+                                    ?.let { onMember(it, member._id.takeIf { id -> id.isNotEmpty() }) }
                             }
                             .testTag("qa-roominfo-member-${member._id}"),
                         horizontalAlignment = Alignment.CenterHorizontally,
