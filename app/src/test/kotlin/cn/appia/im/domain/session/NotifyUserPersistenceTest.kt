@@ -13,6 +13,7 @@ import cn.appia.im.core.network.AuthUser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -249,6 +250,45 @@ class NotifyUserPersistenceTest {
 
         slow.flushPendingToDatabase() // 若 pending 未被撤销，这里会把行写回
         assertNull(manager.active.chatDao().getById("rid-1"))
+    }
+
+    // ---- removed → 访问丢失通知（M4-T10 / RN :86 notifyRoomAccessLost，`t` 透传）----
+
+    @Test
+    fun `removed emits room access lost event with payload t`() = runBlocking {
+        var event: RoomAccessLostEvent? = null
+        val collector = CoroutineScope(Dispatchers.IO).launch {
+            RoomAccessLostBus.events.collect { if (event == null) event = it }
+        }
+        kotlinx.coroutines.delay(50) // 订阅就绪（无 replay）
+        manager.active.chatDao().insert(chatRow("rid-1"))
+
+        handler.handleStreamNotifyUser(parse(removedFrame("rid-1"))) // t:"c"
+        val deadline = System.currentTimeMillis() + 5_000
+        while (event == null && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        collector.cancel()
+
+        assertEquals("rid-1", event?.rid)
+        assertEquals(RoomAccessLoss.Reason.UNKNOWN, event?.reason) // 无 hint 无标记
+    }
+
+    @Test
+    fun `removed with direct t does not emit room access lost`() = runBlocking {
+        val received = java.util.concurrent.CopyOnWriteArrayList<RoomAccessLostEvent>()
+        val collector = CoroutineScope(Dispatchers.IO).launch {
+            RoomAccessLostBus.events.collect { received.add(it) }
+        }
+        kotlinx.coroutines.delay(50)
+        manager.active.chatDao().insert(chatRow("rid-1"))
+
+        handler.handleStreamNotifyUser(
+            parse(frame("uid-1/subscriptions-changed", """["removed",{"rid":"rid-1","t":"d"}]""")),
+        )
+        waitUntilDeleted("rid-1")
+        Thread.sleep(200) // 若有事件，缓冲窗内必达
+        collector.cancel()
+
+        assertTrue(received.isEmpty()) // RN isDirectSubscriptionType：DM 不通知
     }
 
     /**

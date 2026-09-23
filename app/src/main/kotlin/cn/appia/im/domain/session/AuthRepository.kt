@@ -105,6 +105,7 @@ class AuthRepository @Inject constructor(
         prevServer?.let { RoomsSyncCursor(kv).clear(it) } // RN :148-150 clearRoomsUpdatedAt
         cn.appia.im.core.permissions.PermissionsStore.reset() // RN :147 usePermissionsStore.reset()
         cn.appia.im.feature.contacts.ContactsStore.reset() // RN contactStore 重置（登出清缓存）
+        RoomAccessLoss.clearHints() // RN 登出即丢 ul/ru hint（authStore 重置连带 roomAccessLoss 态）
         teardownRealtime() // RN :152
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
         store.clear() // RN :157
@@ -161,10 +162,15 @@ object SessionModule {
      */
     @Provides
     @Singleton
-    fun provideRoomStreamManager(sdk: RocketSdk, dbManager: DatabaseManager): RoomStreamManager =
+    fun provideRoomStreamManager(sdk: RocketSdk, dbManager: DatabaseManager, store: AuthSessionStore): RoomStreamManager =
         RoomStreamManager(
             sdk = sdk,
             persistMessage = { raw, rid -> MessageUpsert.persist(dbManager.active, listOf(raw), rid) },
+            // M4-T10 RN roomStreams.ts:82-84：访问丢失 hint 记录（ul/ru）+ 当前用户名现读
+            recordAccessHint = { raw, username ->
+                RoomAccessLoss.recordRoomAccessHintFromRawMessage(raw, username)
+            },
+            currentUsernameProvider = { store.load()?.user?.username },
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler),
         )
 

@@ -89,6 +89,11 @@ class RoomStreamManagerTest {
             sdk = sdk,
             persistMessage = { raw, rid -> persisted.add(raw as JsonObject to rid) },
             scope = newScope(),
+            // M4-T10 RN :82-84：hint 记录缝（生产 DI 接 RoomAccessLoss，此处同款直连断言链路）
+            recordAccessHint = { raw, username ->
+                cn.appia.im.domain.session.RoomAccessLoss.recordRoomAccessHintFromRawMessage(raw, username)
+            },
+            currentUsernameProvider = { "bob" },
         )
     }
 
@@ -233,6 +238,35 @@ class RoomStreamManagerTest {
         ws.send("""{"msg":"changed","collection":"stream-room-messages","fields":{"eventName":"rid-1"}}""")
         delay(200)
         assertEquals(0, persisted.size)
+    }
+
+    // ---- M4-T10：stream-room-messages → 访问丢失 hint 记录（RN roomStreams.ts:82-84）----
+
+    @Test
+    fun `ul and ru-me frames record access loss hints`() = runBlocking {
+        val ws = RoomWsServer().also { wsListeners.add(it) }
+        sdk.connect()
+        manager.subscribeRoom("rid-1")
+        awaitCond("subs") { ws.subFrames().size >= 3 }
+        cn.appia.im.domain.session.RoomAccessLoss.clearHints()
+        try {
+            // ul（有人退房）先到——hint 后写胜：ru msg==bob（我被移出）覆盖 → KICKED（RN hints.set 同键覆盖）
+            ws.send(
+                """{"msg":"changed","collection":"stream-room-messages","id":"evt-h1",""" +
+                    """"fields":{"eventName":"rid-1","args":[{"_id":"h1","rid":"rid-1","t":"ul"}]}}""",
+            )
+            ws.send(
+                """{"msg":"changed","collection":"stream-room-messages","id":"evt-h2",""" +
+                    """"fields":{"eventName":"rid-1","args":[{"_id":"h2","rid":"rid-1","t":"ru","msg":"bob"}]}}""",
+            )
+            awaitCond("ru hint recorded") {
+                // infer 消费即删：仅一次判定机会（第二次起 UNKNOWN）——失败重试用 KICKED 判等
+                cn.appia.im.domain.session.RoomAccessLoss.inferReason("rid-1") ==
+                    cn.appia.im.domain.session.RoomAccessLoss.Reason.KICKED
+            }
+        } finally {
+            cn.appia.im.domain.session.RoomAccessLoss.clearHints()
+        }
     }
 
     // ---- 重连后重订全部活跃流 ----

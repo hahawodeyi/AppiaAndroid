@@ -43,6 +43,11 @@ class RoomStreamManager(
     /** 消息落库缝（DI 接 MessageUpsert.persistFromUnknown；RN persistRocketChatMessageFromUnknown :85）。 */
     private val persistMessage: suspend (raw: JsonElement, rid: String) -> Unit,
     private val scope: CoroutineScope,
+    /** RN :82-84 recordRoomAccessHintFromRawMessage 的缝（M4-T10；DI 接 RoomAccessLoss，
+     *  core 不反向依赖 domain——persistMessage 同款注入裁定）。 */
+    private val recordAccessHint: (raw: JsonElement, currentUsername: String?) -> Unit = { _, _ -> },
+    /** RN :82 useAuthStore.getState().user?.username 现读——hint 记录的当前用户名（DI 传 store 现读）。 */
+    private val currentUsernameProvider: () -> String? = { null },
 ) {
 
     private class ActiveEntry(
@@ -152,10 +157,12 @@ class RoomStreamManager(
         }
     }
 
-    /** RN :77-96：rid 过滤 → 异步落库 → 发射 rid；失败仅 warn（RN __DEV__ console.warn 同义）。 */
+    /** RN :77-96：rid 过滤 → hint 记录（:83-84）→ 异步落库 → 发射 rid；失败仅 warn（RN __DEV__ console.warn 同义）。 */
     private fun handleRoomMessage(msg: JsonElement, rid: String) {
         val raw = parseStreamRoomMessageRaw(msg) ?: return
         if (roomRidOf(raw) != rid) return // RN :79 args[0].rid == rid 过滤
+        // RN :82-84 recordRoomAccessHintFromRawMessage（ul/ru → 访问丢失三态 hint；M4-T10）
+        runCatching { recordAccessHint(raw, currentUsernameProvider()) }
         scope.launch {
             try {
                 persistMessage(raw, rid)

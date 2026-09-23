@@ -29,7 +29,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * 守卫（RN :72-74/:94-99 activeDbMatchesAuth）：active 库必须就是 auth server 对应的库。
  * 房间流退订（RN :85 unsubscribeRoomStreams）经 [unsubscribeRoom] 缝接 T6 RoomStreamManager；
- * 访问丢失提示（RN :86 notifyRoomAccessLost）归 T11；callMsg 语音同步（RN :55-61/:141-143）归 M6。
+ * 访问丢失通知（RN :86 notifyRoomAccessLost）M4-T10 经 [RoomAccessLoss.notifyRoomAccessLost]
+ * （removed payload 的 `t` 透传，DM 过滤在 RoomAccessLoss 内）；callMsg 语音同步（RN :55-61/:141-143）归 M6。
  *
  * 线程契约：[handleStreamNotifyUser] 由 RealtimeSessionManager 在 DDP IO 线程调用；
  * 删行/flush 在 [scope] 内异步执行（RN `.catch(() => undefined)` 同义），DB 写不触 UI。
@@ -92,9 +93,10 @@ class NotifyUserPersistence(
                         // Kotlin launch 整体延迟派发，撤销必须留在本同步段——否则同 rid 先入队补丁
                         // 后 removed 时，删除协程里的撤销晚了，flush 窗口可复活该行（总纲 §4.3-4）
                         pending.remove(rid)
+                        val subscriptionT = data.str("t") // RN :67-70 payload `t`（DM 过滤用）
                         scope.launch {
                             try {
-                                removeChatByRid(rid)
+                                removeChatByRid(rid, subscriptionT)
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -204,14 +206,15 @@ class NotifyUserPersistence(
 
     /**
      * RN removeChatByRid :65-87 的异步半程（撤销补丁已前移至 [handleStreamNotifyUser] 同步段，
-     * RN :66 首 await 前语义）→ 守卫 → 物理删 chats 行 → 退订房间流（:85）。
+     * RN :66 首 await 前语义）→ 守卫 → 物理删 chats 行 → 退订房间流（:85）→
+     * 访问丢失通知（:86——`t` 透传，DM 过滤与三态判定在 RoomAccessLoss 内）。
      * Room `deleteById` 行不存在时 no-op（RN find 失败 catch 同义）。
-     * T11: notifyRoomAccessLost —— RN :86；其提示文案需 payload 的 `t`，届时透传整包。
      */
-    suspend fun removeChatByRid(rid: String) {
+    suspend fun removeChatByRid(rid: String, subscriptionT: String? = null) {
         val db = activeDbForAuth() ?: return // RN :72-74 activeDbMatchesAuth
         db.chatDao().deleteById(rid)
         runCatching { unsubscribeRoom(rid) } // RN :85 .catch(() => undefined)
+        RoomAccessLoss.notifyRoomAccessLost(rid, subscriptionT) // RN :86
     }
 
     /** activeDbMatchesAuth（RN db.ts 同名）：auth server 对应的库且它就是 active；否则 null。 */

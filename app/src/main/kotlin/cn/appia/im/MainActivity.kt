@@ -7,8 +7,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +29,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -45,6 +49,8 @@ import cn.appia.im.core.realtime.NetworkMonitor
 import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.domain.session.BackgroundScope
+import cn.appia.im.domain.session.RoomAccessLostBus
+import cn.appia.im.domain.session.RoomAccessLoss
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.core.chat.resolveDirectChatRid
 import cn.appia.im.feature.chat.DraftController
@@ -269,6 +275,28 @@ class RouteDeps(
 private const val NAV_TAG = "roomRoute"
 
 /**
+ * RN stackInvolvesRid（roomAccessLoss.ts :79-95）的 Android 等价（M4-T10）：
+ * back stack 中任一携带该 rid 的房间域路由在栈即 true。对照 RN ROOM_ROUTES_WITH_RID 清单
+ * （Room/RoomInfo/RoomMembers/RoomAnnouncement/RoomChannelNameEdit/MediaPreviewPage/
+ * UrlMediaPreviewPage）——Android 侧房间域路由为 [RoomRoute]/[RoomInfoRoute]/[RoomMembersRoute]/
+ * [RoomAnnouncementRoute]/[RoomChannelNameEditRoute]，叠在其上的 DocPreview/MediaViewer/
+ * MediaPlayer/ForwardDetail/ReadReceipt/MentionSuggestion 等子页随「弹回 Main」一并出栈
+ * （RN DocPreview 叠 Room 的特判在 pop 整段时天然覆盖）。
+ */
+internal fun stackInvolvesRid(nav: androidx.navigation.NavController, rid: String): Boolean =
+    nav.visibleEntries.value.any { entry ->
+        val dest = entry.destination
+        val isRoomRoute = runCatching {
+            dest.hasRoute(RoomRoute::class) ||
+                dest.hasRoute(RoomInfoRoute::class) ||
+                dest.hasRoute(RoomMembersRoute::class) ||
+                dest.hasRoute(RoomAnnouncementRoute::class) ||
+                dest.hasRoute(RoomChannelNameEditRoute::class)
+        }.getOrDefault(false)
+        isRoomRoute && entry.arguments?.getString("rid") == rid
+    }
+
+/**
  * 导航宿主：默认落 EnterpriseCode（RN AuthStack 首屏）；verify 参数化供 UI 测试注入 fake。
  * `session` 为会话编排（登录持久化/bootstrap/登出/切组织的挂接点）；`startAuthenticated`
  * 供 MainActivity 以同步恢复判定直落 Main（RN RootNavigator.tsx:66-95 首帧即定，无闪屏）。
@@ -312,6 +340,48 @@ fun AppiaNavHost(
                 goAuth()
             }
         }
+    }
+
+    // 房间访问丢失（M4-T10 / RN roomAccessLoss.ts notifyRoomAccessLost→handleRoomAccessLostNavigation）：
+    // 栈涉及该 rid（Room/RoomInfo/RoomMembers/RoomAnnouncement/RoomChannelNameEdit——对照 RN
+    // ROOM_ROUTES_WITH_RID 清单，Android 叠在其上的 DocPreview/MediaViewer 一并出栈）时
+    // pop 回 Main；self → Toast（RN ToastAndroid 同），left/kicked/unknown → AlertDialog。
+    // 栈不涉及则静默（列表行已被 NotifyUserPersistence 删除——RN 同语义）。
+    var roomAccessAlert by remember { mutableStateOf<RoomAccessLoss.Reason?>(null) }
+    LaunchedEffect(session) {
+        RoomAccessLostBus.events.collect { event ->
+            if (stackInvolvesRid(nav, event.rid)) {
+                // RN ref.navigate('MineDrawer')：弹掉目标房之上全部路由回列表。
+                // popUpTo<MainRoute> inclusive=false：清 Main 之上整段，再回 Main（幂等）
+                nav.navigate(MainRoute) { popUpTo<MainRoute> { inclusive = false } }
+                if (event.reason == RoomAccessLoss.Reason.SELF) {
+                    Toast.makeText(
+                        context, context.t("roomInfo_leaveSuccess"), Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    roomAccessAlert = event.reason
+                }
+            }
+        }
+    }
+    roomAccessAlert?.let { reason ->
+        AlertDialog(
+            onDismissRequest = { roomAccessAlert = null },
+            title = { Text(context.t("roomAccess_alertTitle")) },
+            text = {
+                Text(
+                    context.t(
+                        if (reason == RoomAccessLoss.Reason.LEFT) "roomAccess_leftElsewhere"
+                        else "roomAccess_removed",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { roomAccessAlert = null }) {
+                    Text(context.t("common_close"))
+                }
+            },
+        )
     }
 
     /** CAS 命中 → 与账密/SMS 同走登录成功路径（RN handleCasSsoLogin → runLogin）。 */
