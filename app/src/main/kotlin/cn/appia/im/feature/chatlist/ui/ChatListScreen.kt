@@ -72,6 +72,7 @@ fun ChatListScreen(
     networkOnline: Boolean?,
     onOpenRoom: (rid: String, title: String, roomType: String) -> Unit,
     onLogout: () -> Unit,
+    onOpenContacts: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -179,6 +180,15 @@ fun ChatListScreen(
                         .testTag("qa-room-list-menu"),
                 )
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    // RN MineMenu.tsx:329 通讯录入口（team_title）
+                    DropdownMenuItem(
+                        text = { Text(context.t("team_title")) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenContacts()
+                        },
+                        modifier = Modifier.testTag("qa-room-list-menu-contacts"),
+                    )
                     DropdownMenuItem(
                         text = { Text(context.t("drawer_myenterprise")) },
                         onClick = {

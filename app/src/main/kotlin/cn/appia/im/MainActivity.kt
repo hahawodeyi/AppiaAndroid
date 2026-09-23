@@ -81,6 +81,7 @@ import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
 import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
+import cn.appia.im.feature.contacts.ui.TeamScreen
 import cn.appia.im.feature.roominfo.RoomInfoActions
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
 import cn.appia.im.feature.roominfo.ui.RoomMembersScreen
@@ -219,6 +220,10 @@ data class CreateChannelMembersRoute(
 // TODO(T9): MemberProfileScreen（RN navigate('MemberProfile', {username})）
 @Serializable
 data class MemberProfileRoute(val username: String)
+
+/** 通讯录双树（M4 T6）：deptId 空 = 根视图（PMT/L1D 双 tab），非空 = 子部门视图（push）。 */
+@Serializable
+data class TeamRoute(val deptId: String? = null)
 
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
 const val MENTION_SELECTED_KEY = "mention_selected"
@@ -396,6 +401,7 @@ fun AppiaNavHost(
                     networkOnline = online,
                     onOpenRoom = { rid, title, roomType -> nav.navigate(RoomRoute(rid, title, roomType)) },
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
+                    onOpenContacts = { nav.navigate(TeamRoute()) },
                 )
             }
         }
@@ -641,6 +647,7 @@ fun AppiaNavHost(
                     chats = chats,
                     currentUserId = auth?.user?.id,
                     searcher = searcher,
+                    sdk = deps.sdk, // M4 T6：组织树 tab（ContactsStore 真数据源）
                     onForward = { users, rooms ->
                         ForwardApi.forwardMessage(
                             deps.sdk,
@@ -850,6 +857,41 @@ fun AppiaNavHost(
         composable<RoomChannelNameEditRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         composable<CreateChannelMembersRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         composable<MemberProfileRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        // M4 T6 通讯录双树：hrm/v2.users.list 数据源 + TeamScreen（deptId 空=根视图）
+        composable<TeamRoute> { entry ->
+            val route = entry.toRoute<TeamRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                // RN Enterprise_Name/Enterprise_ID 读 settings 表（settings.public 同步，M5 占位）——
+                // 本地有则用，无则 TeamScreen 内部回退（SSC logo / homeModel.companyName）
+                var enterpriseName by remember { mutableStateOf<String?>(null) }
+                var enterpriseId by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(db) {
+                    enterpriseName = db.settingDao().getById("Enterprise_Name")?.value_as_string
+                    enterpriseId = db.settingDao().getById("Enterprise_ID")?.value_as_string
+                }
+                TeamScreen(
+                    deptId = route.deptId,
+                    sdk = deps.sdk,
+                    serverUrl = serverUrl,
+                    currentUserId = auth?.user?.id,
+                    currentUsername = auth?.user?.username,
+                    token = auth?.token,
+                    enterpriseId = enterpriseId,
+                    enterpriseName = enterpriseName,
+                    onBack = { nav.popBackStack() },
+                    // T9 名片接线：userId 备用（MemberProfileRoute 暂只需 username）
+                    onOpenMemberProfile = { username, _ -> nav.navigate(MemberProfileRoute(username = username)) },
+                    onOpenDept = { deptId -> nav.navigate(TeamRoute(deptId = deptId)) },
+                )
+            }
+        }
         composable<MediaViewerRoute> { entry ->
             val route = entry.toRoute<MediaViewerRoute>()
             val images = remember(route.imagesJson) {

@@ -104,6 +104,7 @@ class AuthRepository @Inject constructor(
         LoginSwitchCandidatesCache(kv).clear(prevUsername) // RN :144-146
         prevServer?.let { RoomsSyncCursor(kv).clear(it) } // RN :148-150 clearRoomsUpdatedAt
         cn.appia.im.core.permissions.PermissionsStore.reset() // RN :147 usePermissionsStore.reset()
+        cn.appia.im.feature.contacts.ContactsStore.reset() // RN contactStore 重置（登出清缓存）
         teardownRealtime() // RN :152
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
         store.clear() // RN :157
