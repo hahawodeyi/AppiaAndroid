@@ -133,6 +133,23 @@ class RoomSettingsApiTest {
         assertNull(ann["files"])
     }
 
+    @Test
+    fun `saveRoomSettings publish always encodes files even when empty`() = runBlocking {
+        // RN :117-119 无条件发 files: draftFiles——编辑清空附件须发 [] 覆盖（评审 I2）
+        server.enqueue(MockResponse().setBody(envelope("null")))
+        RoomSettingsApi.postSaveRoomSettings(
+            newSdk(),
+            "r1",
+            SaveRoomSettingsParams(
+                roomAnnouncementData = RoomAnnouncementData(id = "a1", message = "m", files = emptyList()),
+            ),
+        )
+
+        val ann = methodFrame(server.takeRequest().body.readUtf8())
+            .let { it["params"]!!.jsonArray[1].jsonObject["roomAnnouncementData"]!!.jsonObject }
+        assertEquals("[]", ann["files"]!!.jsonArray.toString())
+    }
+
     // ---- saveNotification（RN :37-40）----
 
     @Test

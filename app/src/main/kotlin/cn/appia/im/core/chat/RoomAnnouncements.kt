@@ -72,7 +72,8 @@ private fun JsonObject.str(key: String): String? =
     (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull
 
 private fun JsonObject.intField(key: String): Int? =
-    (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull?.toDoubleOrNull()?.toInt()
+    // RN `=== 1` 严格比较：字符串 "1" 不等——仅 JSON 数字（isString false）可转
+    (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull && !it.isString }?.contentOrNull?.toIntOrNull()
 
 private fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject
 
@@ -99,14 +100,24 @@ fun parseAnnouncementField(raw: String?): RoomAnnouncement? {
     val parsed = runCatching { Json.parseToJsonElement(trimmed) }.getOrNull()
         ?: return RoomAnnouncement(message = trimmed)
 
-    if (parsed is JsonPrimitive) {
+    // RN typeof parsed === 'string'：数字/布尔/null 原始形态 → undefined 丢弃
+    //（kotlinx JsonNull/数字/布尔/裸词均是 JsonPrimitive 且 isString=false——裸词须按 JS
+    // JSON.parse 抛异常语义归 {message}，真原始字面量才丢弃）
+    if (parsed is JsonPrimitive && parsed.isString) {
         val inner = parsed.contentOrNull?.trim().orEmpty()
         if (inner.isEmpty()) return null
         val again = runCatching { Json.parseToJsonElement(inner) }.getOrNull()
         if (again is JsonObject) return again.toAnnouncement()
+        // RN 数组等非对象再解形态原样透传、下游 hasAnnouncementItemContent 过滤——同义丢弃
+        if (again != null) return null
         return RoomAnnouncement(message = inner)
     }
     if (parsed is JsonObject) return parsed.toAnnouncement()
+    if (parsed is JsonPrimitive) {
+        val c = parsed.content
+        val isTruePrimitive = parsed is JsonNull || c == "true" || c == "false" || c.toDoubleOrNull() != null
+        return if (isTruePrimitive) null else RoomAnnouncement(message = trimmed)
+    }
     return null
 }
 

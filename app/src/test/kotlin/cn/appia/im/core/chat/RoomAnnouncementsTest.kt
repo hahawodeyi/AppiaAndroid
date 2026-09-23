@@ -2,6 +2,7 @@ package cn.appia.im.core.chat
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -94,6 +95,44 @@ class RoomAnnouncementsTest {
         val result = parseRoomAnnouncements(wrapped, null)
         assertEquals(1, result.size)
         assertEquals("nested", result[0].message)
+    }
+
+    @Test
+    fun `raw primitive announcement fields are discarded`() {
+        // RN typeof parsed === 'string' 守卫：数字/布尔/null 原始形态 → undefined（评审 I1）
+        assertNull(parseAnnouncementField("null"))
+        assertNull(parseAnnouncementField("123"))
+        assertNull(parseAnnouncementField("true"))
+        assertEquals(0, parseRoomAnnouncements("null", null).size)
+    }
+
+    @Test
+    fun `double-encoded array announcement is discarded`() {
+        // `"[1,2]"` 再解为数组 → 非对象丢弃（评审 I4；RN 数组透传后 hasAnnouncementItemContent 过滤同义）
+        assertNull(parseAnnouncementField("\"[1,2]\""))
+        assertEquals(0, parseRoomAnnouncements("\"[1,2]\"", null).size)
+    }
+
+    @Test
+    fun `string announcementType does not classify as meeting`() {
+        // RN === 严格比较："1" ≠ 1（评审 I3）——仍属主公告
+        val items = parseAnnouncementsListField("""[{"_id":"a","message":"m","announcementType":"1"}]""")
+        assertEquals(1, items.size)
+        assertTrue(isMainAnnouncement(items[0]))
+        assertFalse(isMeetingPanelItem(items[0]))
+        // 数字 1 → meeting（booking 结构缺 → 非 panel，但非 main）
+        val num = parseAnnouncementsListField("""[{"_id":"a","message":"m","announcementType":1}]""")
+        assertFalse(isMainAnnouncement(num[0]))
+    }
+
+    @Test
+    fun `intField accepts json number only`() {
+        // 字符串 "1" → null（不分类）；数字 1 → 1
+        val items = parseAnnouncementsListField(
+            """[{"_id":"a","message":"m","announcementType":"1"},{"_id":"b","message":"m","announcementType":1}]""",
+        )
+        assertNull(items[0].announcementType)
+        assertEquals(1, items[1].announcementType)
     }
 
     @Test

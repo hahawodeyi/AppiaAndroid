@@ -188,8 +188,10 @@ fun RoomAnnouncementScreen(
                         roomAnnouncementData = RoomAnnouncementData(
                             id = editingId,
                             message = draftMessage,
-                            files = draftFiles.takeIf { it.isNotEmpty() }
-                                ?.map { f -> cn.appia.im.core.network.api.RoomAnnouncementFile(f.fileName, f.fileUrl, f.fileType) },
+                            // RN :117-119 无条件发 files: draftFiles（编辑清空附件须发 [] 覆盖）
+                            files = draftFiles.map { f ->
+                                cn.appia.im.core.network.api.RoomAnnouncementFile(f.fileName, f.fileUrl, f.fileType)
+                            },
                         ),
                     ),
                 )
