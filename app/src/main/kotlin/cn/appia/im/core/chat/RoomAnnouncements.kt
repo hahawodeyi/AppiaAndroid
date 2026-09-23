@@ -91,7 +91,8 @@ private fun parseMaybeJsonObject(value: JsonElement?): JsonObject? = when (value
 
 /**
  * RN parseAnnouncementField：announcement 列——空 → null；纯文本 → {message}；
- * JSON 对象 → 原样；JSON 串（双重编码）→ 内层再解对象，解不动按 {message: 内层串}。
+ * JSON 对象 → 原样；JSON 串（双重编码）→ 内层再解对象，数组透传下游过滤（丢弃），
+ * 标量/解不动按 {message: 内层串}（RN :76-90 语义）。
  */
 fun parseAnnouncementField(raw: String?): RoomAnnouncement? {
     val trimmed = raw?.trim().orEmpty()
@@ -108,8 +109,8 @@ fun parseAnnouncementField(raw: String?): RoomAnnouncement? {
         if (inner.isEmpty()) return null
         val again = runCatching { Json.parseToJsonElement(inner) }.getOrNull()
         if (again is JsonObject) return again.toAnnouncement()
-        // RN 数组等非对象再解形态原样透传、下游 hasAnnouncementItemContent 过滤——同义丢弃
-        if (again != null) return null
+        // RN :76-90 内层再解为数组 → 透传后下游过滤（丢弃）；标量/解不动 → {message: inner} 保留
+        if (again is JsonArray) return null
         return RoomAnnouncement(message = inner)
     }
     if (parsed is JsonObject) return parsed.toAnnouncement()

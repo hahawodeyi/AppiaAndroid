@@ -108,9 +108,20 @@ class RoomAnnouncementsTest {
 
     @Test
     fun `double-encoded array announcement is discarded`() {
-        // `"[1,2]"` 再解为数组 → 非对象丢弃（评审 I4；RN 数组透传后 hasAnnouncementItemContent 过滤同义）
+        // `"[1,2]"` 再解为数组 → 透传后下游过滤（评审 round 2：仅数组丢弃）
         assertNull(parseAnnouncementField("\"[1,2]\""))
         assertEquals(0, parseRoomAnnouncements("\"[1,2]\"", null).size)
+    }
+
+    @Test
+    fun `double-encoded scalar announcement falls back to message`() {
+        // RN :76-90 内层标量/解不动 → {message: inner} 保留展示（评审 round 2）——
+        // 双重编码串/数字是写入端 JSON.stringify 纯文本的自然产物；
+        // 嵌套引号 inner 原文保留（RN trim 不剥引号，JS 模拟已核验）
+        assertEquals("123", parseAnnouncementField("\"123\"")?.message)
+        assertEquals("\"hi\"", parseAnnouncementField("\"\\\"hi\\\"\"")?.message)
+        assertEquals("not json", parseAnnouncementField("\"not json\"")?.message)
+        assertEquals(1, parseRoomAnnouncements("\"123\"", null).size)
     }
 
     @Test
