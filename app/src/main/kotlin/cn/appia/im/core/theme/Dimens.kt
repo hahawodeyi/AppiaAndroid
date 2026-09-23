@@ -3,7 +3,10 @@ package cn.appia.im.core.theme
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** RN `src/theme/tokens.ts` 的间距/圆角/字号转录（RN 数值单位即 dp）。 */
+/**
+ * RN `src/theme/tokens.ts` 的间距/圆角/字号转录（RN 数值单位即 dp）。
+ * 当前零消费者：M5 设置域决定采用或移除（M4 终审裁定），勿新增消费——留待 M5 统一裁决。
+ */
 class FontSize(
     val xs: Dp,
     val sm: Dp,

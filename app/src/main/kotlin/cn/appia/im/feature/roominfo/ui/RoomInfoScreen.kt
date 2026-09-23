@@ -72,8 +72,6 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 
 // RN RoomInfoScreen/styles.ts 硬编码色（iOS 分组样式，不走主题色板）
 private val SectionGray = Color(0xFF6D6D72)
@@ -96,17 +94,6 @@ private fun memberAvatarUrl(serverUrl: String, username: String, userId: String?
             append("&rc_token=").append(token).append("&rc_uid=").append(userId)
         }
     }
-}
-
-/** RN resolveDirectPeerUserId：uids JSON 数组取非本人 id；单人自聊/坏 JSON → null。 */
-internal fun resolveDirectPeerUserId(uidsRaw: String?, currentUserId: String?): String? {
-    if (uidsRaw.isNullOrEmpty() || currentUserId.isNullOrEmpty()) return null
-    val arr = runCatching {
-        kotlinx.serialization.json.Json.parseToJsonElement(uidsRaw) as? JsonArray
-    }.getOrNull() ?: return null
-    if (arr.isEmpty()) return null
-    if (arr.size == 1 && (arr[0] as? JsonPrimitive)?.contentOrNull == currentUserId) return null
-    return arr.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.firstOrNull { it != currentUserId }
 }
 
 /** RN isGroupChat（chatFields.ts:46-51）：uids 或 usernames 解析后 >2 人。 */

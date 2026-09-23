@@ -826,7 +826,7 @@ fun CreateChannelMembersScreen(
                         pendingOnCreated = null
                         onCreated(rid, title)
                     }
-                }) { Text("OK") }
+                }) { Text(context.t("voice_ok")) }
             },
         )
     }

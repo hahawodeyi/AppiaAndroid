@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appia.im.core.i18n.t
+import cn.appia.im.core.network.RocketHttp
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.api.QrData
 import cn.appia.im.core.network.api.fetchUserQrcodePayload
@@ -61,7 +62,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
@@ -105,7 +105,7 @@ internal fun decodeQrBitmap(imgUrl: String): android.graphics.Bitmap? = try {
                     ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
             }
         imgUrl.startsWith("http://") || imgUrl.startsWith("https://") ->
-            OkHttpClient().newCall(Request.Builder().url(imgUrl).build()).execute().use { resp ->
+            RocketHttp.client.newCall(Request.Builder().url(imgUrl).build()).execute().use { resp ->
                 resp.body?.bytes()?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
             }
         else -> null
