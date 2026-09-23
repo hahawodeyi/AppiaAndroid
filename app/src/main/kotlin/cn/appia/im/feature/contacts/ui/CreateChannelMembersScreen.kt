@@ -239,6 +239,9 @@ fun CreateChannelMembersScreen(
     var isShareRecord by rememberSaveable { mutableStateOf(true) }
     var submitting by remember { mutableStateOf(false) }
     var alertMsg by remember { mutableStateOf<String?>(null) }
+    // 转发失败延迟导航（评审 I-1）：Alert 属本 composable，先弹后跳（dismiss 才 onCreated）
+    // ——RN Alert 从根弹不随屏亡，Android 无根级 Alert，等 dismiss 等价保可见
+    var pendingOnCreated by remember { mutableStateOf<Pair<String, String?>?>(null) }
 
     // 搜索器（RN :124：members+agents 子源 → 本地过滤；其余 remote users-only）
     val useAgentLocalSearch = mode == CreateChannelMode.MEMBERS && memberSource == MemberSource.AGENTS
@@ -282,7 +285,8 @@ fun CreateChannelMembersScreen(
         }
     }
     LaunchedEffect(isAddToRoom, preselectedUsernames) {
-        if (!isAddToRoom && preselectedUsernames.isNotEmpty()) {
+        // RN :201 `intent !== 'create'` 直返——preselected 仅 create intent 生效（forward 不并）
+        if (intent == "create" && preselectedUsernames.isNotEmpty()) {
             selectedUsernames = selectedUsernames + preselectedUsernames
         }
     }
@@ -390,15 +394,21 @@ fun CreateChannelMembersScreen(
                     val result = ChannelsApi.parseCreateChannelResult(raw)
                     val newRid = result.rid ?: error(context.t("createchannelmembers_createfailedtitle"))
                     if (forwardMessageIds.isNotEmpty()) {
-                        // RN :296-309：转发失败不阻断跳转（频道已建成），仅 Alert
-                        runCatching {
+                        // RN :296-309：转发失败不阻断跳转（频道已建成），仅 Alert——
+                        // Android Alert 随屏亡，改为挂起跳转：dismiss 后才 onCreated（评审 I-1）
+                        val forwarded = runCatching {
                             ForwardApi.forwardMessage(
                                 sdk,
                                 forwardMessageIds = forwardMessageIds,
                                 forwardRooms = listOf(newRid),
                                 isForwardMerged = forwardIsMerged,
                             )
-                        }.onFailure { alertMsg = context.t("forwardfailed") }
+                        }.isSuccess
+                        if (!forwarded) {
+                            alertMsg = context.t("forwardfailed")
+                            pendingOnCreated = newRid to result.name
+                            return@launch
+                        }
                     }
                     onCreated(newRid, result.name)
                 }
@@ -487,7 +497,14 @@ fun CreateChannelMembersScreen(
                     .testTag("qa-ccm-back"),
             )
             Text(
-                context.t(if (isAddToRoom) "roomaddmembers_title" else "createchannelmembers_navtitle"),
+                // RN :1603-1609：addToRoom→roomAddMembers_title / forward→roomList_addMenu_createChannel / 其余 navTitle
+                context.t(
+                    when {
+                        isAddToRoom -> "roomaddmembers_title"
+                        intent == "forward" -> "roomlist_addmenu_createchannel"
+                        else -> "createchannelmembers_navtitle"
+                    },
+                ),
                 color = colors.titleText,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -797,13 +814,19 @@ fun CreateChannelMembersScreen(
         }
     }
 
-    // 失败 Alert（RN :318-324：title + message + OK）
+    // 失败 Alert（RN :318-324：title + message + OK）；转发失败挂起的跳转随 dismiss 放行（评审 I-1）
     alertMsg?.let { msg ->
         AlertDialog(
             onDismissRequest = { alertMsg = null },
             title = { Text(msg) },
             confirmButton = {
-                TextButton(onClick = { alertMsg = null }) { Text("OK") }
+                TextButton(onClick = {
+                    alertMsg = null
+                    pendingOnCreated?.let { (rid, title) ->
+                        pendingOnCreated = null
+                        onCreated(rid, title)
+                    }
+                }) { Text("OK") }
             },
         )
     }

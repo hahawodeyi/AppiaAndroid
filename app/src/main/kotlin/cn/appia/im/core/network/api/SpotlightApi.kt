@@ -45,10 +45,11 @@ object SpotlightApi {
     )
 
     /**
-     * 选人器用户搜索（RN fetchSpotlightV2Users spotlight.ts:56-78）：
+     * 选人器用户搜索（RN fetchSpotlightV2Users spotlight.ts:40-54）：
      * `[text, [], {users,rooms:false,includeFederatedRooms:false,isMessageFull}, null, 50,
-     * undefined, undefined, false]`——仅 users、限 50 条；解析按 RN parseSpotlightV2Users
-     * （:19-45：空 id/username 剔除、id 去重、displayName = name || username）。
+     * undefined, undefined, false]`——数组元素 undefined 经 JSON.stringify 序列化为 null
+     * （对象属性才被丢弃），实际 wire 8 元素：`[..., 50, null, null, false]`；
+     * 解析按 RN parseSpotlightV2Users（:19-35：空 id/username 剔除、id 去重、displayName = name || username）。
      */
     suspend fun fetchSpotlightV2Users(sdk: RocketSdk, searchText: String): List<SpotlightUser> {
         val text = searchText.trim()
@@ -66,6 +67,9 @@ object SpotlightApi {
                 },
                 JsonNull,
                 JsonPrimitive(50),
+                JsonNull,
+                JsonNull,
+                JsonPrimitive(false),
             ),
         )
         return parseSpotlightV2Users(raw)

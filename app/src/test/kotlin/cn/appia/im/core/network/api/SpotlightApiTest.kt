@@ -146,4 +146,60 @@ class SpotlightApiTest {
         assertTrue(SpotlightApi.fetchForwardSelectSearch(newSdk(), "   ").isEmpty())
         assertEquals(0, server.requestCount)
     }
+
+    /**
+     * users-only wire（RN fetchSpotlightV2Users spotlight.ts:40-54）：数组元素 undefined 经
+     * JSON.stringify 序列化为 **null**（对象属性才丢弃）——实际 8 元素
+     * `[text, [], {users:true,rooms:false,includeFederatedRooms:false,isMessageFull:false}, null, 50, null, null, false]`。
+     */
+    @Test
+    fun `users only params array matches RN bit by bit`() = runBlocking {
+        server.enqueue(MockResponse().setBody(envelope("{}")))
+        SpotlightApi.fetchSpotlightV2Users(newSdk(), "\u5f20")
+
+        val req = server.takeRequest()
+        assertEquals("/api/v1/method.call/spotlightv2", req.path)
+        val outer = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+        val message = Json.parseToJsonElement(outer["message"]!!.jsonPrimitive.content).jsonObject
+        assertEquals("spotlightv2", message["method"]!!.jsonPrimitive.content)
+        val params = message["params"]!!.jsonArray
+        assertEquals("\u5f20", params[0].jsonPrimitive.content)
+        assertEquals(JsonArray(emptyList()), params[1])
+        assertEquals(
+            JsonObject(
+                mapOf(
+                    "users" to JsonPrimitive(true),
+                    "rooms" to JsonPrimitive(false),
+                    "includeFederatedRooms" to JsonPrimitive(false),
+                    "isMessageFull" to JsonPrimitive(false),
+                ),
+            ),
+            params[2],
+        )
+        assertEquals(JsonNull, params[3])
+        assertEquals(50, params[4].jsonPrimitive.content.toInt())
+        assertEquals(JsonNull, params[5])
+        assertEquals(JsonNull, params[6])
+        assertEquals(false, params[7].jsonPrimitive.content.toBoolean())
+        assertEquals(8, params.size)
+    }
+
+    @Test
+    fun `users only parses users with id dedupe and name fallback`() = runBlocking {
+        val result = """
+            {
+              "users": [
+                {"_id":"u1","username":"zhang","name":"\u5f20\u4e09","primaryOrgName":"PMT"},
+                {"_id":"","username":"bad"},
+                {"_id":"u1","username":"dup","name":"\u91cd\u590d"}
+              ]
+            }
+        """.trimIndent()
+        server.enqueue(MockResponse().setBody(envelope(result)))
+        val users = SpotlightApi.fetchSpotlightV2Users(newSdk(), "z")
+        assertEquals(
+            listOf(SpotlightApi.SpotlightUser("u1", "zhang", "\u5f20\u4e09", "PMT")),
+            users,
+        )
+    }
 }
