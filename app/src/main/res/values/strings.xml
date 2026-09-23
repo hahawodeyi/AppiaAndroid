@@ -284,6 +284,7 @@
     <string name="feedback_savesuccess">Submitted successfully</string>
     <string name="feedback_title">Feedback</string>
     <string name="forwardfailed">Forward failed</string>
+    <string name="forward_createchannel">Create channel and forward</string>
     <string name="forward_search_placeholder">Search</string>
     <string name="forward_search_empty">No results found</string>
     <string name="forward_select_hint">Select forward target</string>

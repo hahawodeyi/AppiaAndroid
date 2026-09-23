@@ -62,4 +62,14 @@ interface ChatDao {
             "ORDER BY room_updated_at DESC",
     )
     fun observeList(): Flow<List<ChatEntity>>
+
+    /**
+     * 最近联系成员源（RN useRecentContacts.ts:44-48）：`t='d'`、非 bot、未归档、open，
+     * room_updated_at 倒序。「对方」username 提取/去重由 [cn.appia.im.core.chat.mapRecentContactRows] 负责。
+     */
+    @Query(
+        "SELECT * FROM chats WHERE t = 'd' AND bot IS NOT 1 AND archived = 0 AND open = 1 " +
+            "ORDER BY room_updated_at DESC",
+    )
+    fun observeDirects(): Flow<List<ChatEntity>>
 }

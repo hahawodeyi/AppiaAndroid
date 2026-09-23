@@ -284,6 +284,7 @@
     <string name="feedback_savesuccess">提交成功</string>
     <string name="feedback_title">意见反馈</string>
     <string name="forwardfailed">转发失败</string>
+    <string name="forward_createchannel">创建频道并转发</string>
     <string name="forward_search_placeholder">搜索</string>
     <string name="forward_search_empty">未找到相关结果</string>
     <string name="forward_select_hint">选择转发对象</string>

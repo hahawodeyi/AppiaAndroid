@@ -81,6 +81,7 @@ import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
 import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
+import cn.appia.im.feature.contacts.ui.CreateChannelMembersScreen
 import cn.appia.im.feature.contacts.ui.TeamScreen
 import cn.appia.im.feature.roominfo.RoomInfoActions
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
@@ -209,14 +210,20 @@ data class RoomAnnouncementRoute(val rid: String, val roomType: String = "c")
 @Serializable
 data class RoomChannelNameEditRoute(val rid: String, val roomType: String = "c")
 
-// TODO(T8): CreateChannelMembersScreen（RN navigate('CreateChannelMembers', {intent, rid?, t?, existingMemberUsernames?, preselectedUsernames?})）
+// T8 已落地（选人器）：RN navigate('CreateChannelMembers', {intent, rid?, t?, teamId?,
+// existingMemberUsernames?, preselectedUsernames?})；teamId 来自 RN RoomInfo :200
+// `chat?.teamMain ? chat.teamId : undefined`（T4 minor 补——agent 移除 team 主房双调用 M5+ 用）
 @Serializable
 data class CreateChannelMembersRoute(
     val intent: String,
     val rid: String? = null,
     val roomType: String? = null,
+    val teamId: String? = null,
     val existingMemberUsernames: List<String> = emptyList(),
     val preselectedUsernames: List<String> = emptyList(),
+    // forward intent（RN navigate({intent:'forward', messageIds, isMerged})）：建频道后转发
+    val messageIds: List<String> = emptyList(),
+    val isMerged: Boolean = false,
 )
 
 // TODO(T9): MemberProfileScreen（RN navigate('MemberProfile', {username})）
@@ -650,6 +657,16 @@ fun AppiaNavHost(
                     currentUserId = auth?.user?.id,
                     searcher = searcher,
                     sdk = deps.sdk, // M4 T6：组织树 tab（ContactsStore 真数据源）
+                    // T8：创建频道并转发（RN navigate({intent:'forward', messageIds, isMerged})）
+                    onCreateChannel = {
+                        nav.navigate(
+                            CreateChannelMembersRoute(
+                                intent = "forward",
+                                messageIds = route.messageIds,
+                                isMerged = route.isMerged,
+                            ),
+                        )
+                    },
                     onForward = { users, rooms ->
                         ForwardApi.forwardMessage(
                             deps.sdk,
@@ -799,6 +816,9 @@ fun AppiaNavHost(
                                 intent = "addToRoom",
                                 rid = route.rid,
                                 roomType = route.roomType,
+                                // RN RoomInfo :200 `chat?.teamMain ? chat.teamId : undefined`
+                                // （agent 移除 team 主房双调用 M5+ 用）
+                                teamId = chatRow?.takeIf { it.team_main == true }?.team_id,
                                 existingMemberUsernames = existing,
                             ),
                         )
@@ -927,7 +947,36 @@ fun AppiaNavHost(
                 )
             }
         }
-        composable<CreateChannelMembersRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        // T8 选人器（RN CreateChannelMembersScreen）：create/addToRoom/forward 三 intent 共用
+        composable<CreateChannelMembersRoute> { entry ->
+            val route = entry.toRoute<CreateChannelMembersRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val auth = remember { deps.store.load() }
+                CreateChannelMembersScreen(
+                    intent = route.intent,
+                    rid = route.rid,
+                    existingMemberUsernames = route.existingMemberUsernames,
+                    preselectedUsernames = route.preselectedUsernames,
+                    forwardMessageIds = route.messageIds,
+                    forwardIsMerged = route.isMerged,
+                    sdk = deps.sdk,
+                    dbManager = deps.dbManager,
+                    serverUrl = serverUrl,
+                    currentUserId = auth?.user?.id,
+                    currentUsername = auth?.user?.username,
+                    onBack = { nav.popBackStack() },
+                    // RN navigateToRoom：create/forward 建成即跳房（RN exit 多选在 ForwardSelect 完成侧已处理）
+                    onCreated = { rid, title ->
+                        nav.navigate(RoomRoute(rid = rid, title = title.orEmpty(), roomType = "c")) {
+                            popUpTo<CreateChannelMembersRoute> { inclusive = true }
+                        }
+                    },
+                )
+            }
+        }
         composable<MemberProfileRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         // M4 T6 通讯录双树：hrm/v2.users.list 数据源 + TeamScreen（deptId 空=根视图）
         composable<TeamRoute> { entry ->

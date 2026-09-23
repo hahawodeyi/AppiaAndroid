@@ -31,9 +31,45 @@ sealed interface ForwardSearchRow {
 
 /**
  * spotlightv2 REST 包 DDP call（RN src/services/api/spotlight.ts）。
- * 仅移植 T9 所需的 `fetchForwardSelectSearch`（fetchSpotlightV2Users 归 M4 联系人域补）。
+ * fetchForwardSelectSearch（T9 转发弹窗聚合）+ fetchSpotlightV2Users（M4-T8 选人器
+ * users-only 搜索，RN :56-78 同参逐位）。
  */
 object SpotlightApi {
+
+    /** RN SpotlightV2User（spotlight.ts:11-16）：_id/username/displayName/subtitle(=primaryOrgName)。 */
+    data class SpotlightUser(
+        val _id: String,
+        val username: String,
+        val displayName: String,
+        val subtitle: String? = null,
+    )
+
+    /**
+     * 选人器用户搜索（RN fetchSpotlightV2Users spotlight.ts:56-78）：
+     * `[text, [], {users,rooms:false,includeFederatedRooms:false,isMessageFull}, null, 50,
+     * undefined, undefined, false]`——仅 users、限 50 条；解析按 RN parseSpotlightV2Users
+     * （:19-45：空 id/username 剔除、id 去重、displayName = name || username）。
+     */
+    suspend fun fetchSpotlightV2Users(sdk: RocketSdk, searchText: String): List<SpotlightUser> {
+        val text = searchText.trim()
+        if (text.isEmpty()) return emptyList()
+        val raw = sdk.methodCall(
+            "spotlightv2",
+            listOf(
+                JsonPrimitive(text),
+                JsonArray(emptyList()),
+                buildJsonObject {
+                    put("users", true)
+                    put("rooms", false)
+                    put("includeFederatedRooms", false)
+                    put("isMessageFull", false)
+                },
+                JsonNull,
+                JsonPrimitive(50),
+            ),
+        )
+        return parseSpotlightV2Users(raw)
+    }
 
     /**
      * 转发弹窗聚合搜索（RN fetchForwardSelectSearch spotlight.ts:67-151 同参逐位）：
@@ -69,6 +105,28 @@ private fun JsonObject.str(key: String): String? =
 
 private fun JsonObject.boolFalse(key: String): Boolean =
     (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content == "false"
+
+/** RN parseSpotlightV2Users（spotlight.ts:19-45）：id 去重/空字段剔除/displayName 回退 username。 */
+internal fun parseSpotlightV2Users(raw: JsonElement?): List<SpotlightApi.SpotlightUser> {
+    val res = raw as? JsonObject ?: return emptyList()
+    val users = res["users"] as? JsonArray ?: return emptyList()
+    val out = mutableListOf<SpotlightApi.SpotlightUser>()
+    val seen = mutableSetOf<String>()
+    for (value in users) {
+        val row = value as? JsonObject ?: continue
+        val id = row.str("_id").orEmpty()
+        val username = row.str("username").orEmpty()
+        if (id.isEmpty() || username.isEmpty() || !seen.add(id)) continue
+        val name = row.str("name")
+        out += SpotlightApi.SpotlightUser(
+            _id = id,
+            username = username,
+            displayName = name ?: username,
+            subtitle = row.str("primaryOrgName"),
+        )
+    }
+    return out
+}
 
 /** RN parseForwardSelectSearch 逐条移植（user 去重/联邦剔除/inactive 剔除/d 型房转 user/排序）。 */
 internal fun parseForwardSelectSearch(raw: JsonElement?): List<ForwardSearchRow> {

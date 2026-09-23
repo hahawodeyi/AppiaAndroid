@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -111,6 +112,7 @@ fun ForwardSelectScreen(
     currentUserId: String?,
     searcher: ForwardSearcher,
     sdk: RocketSdk? = null,
+    onCreateChannel: () -> Unit = {},
     onForward: suspend (users: List<String>, rooms: List<String>) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -178,6 +180,20 @@ fun ForwardSelectScreen(
                 .testTag("qa-forward-search-input"),
             placeholder = { Text(context.t("forward_search_placeholder"), color = colors.auxiliaryText) },
             singleLine = true,
+        )
+
+        // 创建频道并转发（RN :645-653：列表上方、右对齐入口；对齐旧版 SelectedUsersView.renderCreateGroup）
+        Text(
+            "+ ${context.t("forward_createchannel")}",
+            color = colors.tintColor,
+            fontSize = 14.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .wrapContentWidth(Alignment.End)
+                .clickable(onClick = onCreateChannel)
+                .padding(vertical = 2.dp)
+                .testTag("qa-forward-create-channel"),
         )
 
         // tab 栏（搜索态隐藏，RN :646）
