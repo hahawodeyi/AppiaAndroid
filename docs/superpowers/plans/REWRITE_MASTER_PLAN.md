@@ -138,6 +138,20 @@ cn.appia.im/
 
 **用户验收项（非代码）**：编辑器真机中文输入法复测（含 Gboard Inline composing OFF 场景）——协议第八节保留。
 
+## 4.5 M4 遗留与 M5 前置任务（2026-09-23 M4 终审裁定，不得静默丢失）
+
+**M5 计划必须列为显式任务行**：
+1. **全局角色运行时刷新**（M4 终审 Important-1）：`syncCurrentUserRoles` 等价——进 RoomInfo/RoomMembers focus 时 self `users.info` + `mergeUserRoles` 写 AuthSessionStore（RN useCanEditRoomSettings/useCanRemoveRoomMember 双 hook 都在 focus 刷新——M4 只做了登录时快照，会话中期升降权限不生效）
+2. settings.public 同步落地（**解锁 partners 门控**——`Appia_Show_External_Partners`/Enterprise 设置/UI_Use_Real_Name 全链；M4-T8/T6 已留读端就绪）
+3. ProfileScreen 编辑域（头像/昵称/我的二维码入口迁正）+ InAppWebScreen（简历链接消费）+ POTA/OKR 渲染评估
+4. 表情 update 键清空差异（缺省空数组走 replaceAll 一行）；resolveDirectPeerUserId 死代码删除；主题 token 收敛（新六屏 ~40 处 Color 字面量提取 AppiaColors + 复选框字形统一）；Dimens.kt 采用或删除决策
+5. RoomInfoSettings 通知设置细项（saveNotification 全参数面——M4/M5 边界划归 M5）
+6. agents 管理动作（编辑/禁用/恢复/创建智能体入口）+ agents 搜索字段/副标题对齐
+
+**UAT 测试说明**（M4 协议 §10.2 已注）：账号角色须**预置**（非会话中提升）直至全局角色刷新落地。
+
+**可带走**（终审 triage）：T3 双前缀映射/T5 视觉抛光/T6 BFS 性能/T7 照片单选/T8 UI 恢复件/T9 OKR 边角——均有归属或低风险。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
