@@ -40,6 +40,8 @@ internal fun buildOrgTreeRows(
 ): List<ForwardOrgRow> {
     if (departmentMap.isEmpty()) return emptyList()
     val rows = mutableListOf<ForwardOrgRow>()
+    // username 去重（保留首个）：同一人挂在两个部门时 LazyColumn key 唯一（RN FlatList 仅 warn）
+    val seenUsernames = mutableSetOf<String>()
 
     fun walk(deptId: String, depth: Int) {
         val dept = departmentMap[deptId] ?: return
@@ -53,7 +55,7 @@ internal fun buildOrgTreeRows(
             for (uid in dept.users) {
                 val u = userMap[uid] ?: continue
                 val username = u.username?.trim().orEmpty()
-                if (username.isEmpty()) continue
+                if (username.isEmpty() || !seenUsernames.add(username)) continue
                 val displayName = u.fname ?: u.name ?: username
                 val sub = buildString {
                     u.primaryOrgName?.let { append(it) }

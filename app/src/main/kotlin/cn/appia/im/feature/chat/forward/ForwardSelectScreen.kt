@@ -502,15 +502,25 @@ private fun ForwardOrgDeptRow(
     }
 }
 
-/** 三态 checkbox（RN Checkbox state checked/unchecked/indeterminate）。Material3 无 tri-state 原生件，Checkbox + indeterminate 视觉以图标近似。 */
+/** 三态 checkbox（RN Checkbox state checked/unchecked/indeterminate）。Material3 无 tri-state 原生件：
+ *  indeterminate 视觉以「−」文本近似；三种态均 enabled 可点（RN 原生 indeterminate 可点选全）。 */
 @Composable
 private fun TriStateCheckbox(state: ForwardDeptCheckState, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier, contentAlignment = Alignment.Center) {
-        when (state) {
-            ForwardDeptCheckState.CHECKED -> Checkbox(checked = true, onCheckedChange = { onClick() })
-            ForwardDeptCheckState.UNCHECKED -> Checkbox(checked = false, onCheckedChange = { onClick() })
-            ForwardDeptCheckState.INDETERMINATE ->
-                Checkbox(checked = false, onCheckedChange = { onClick() }, enabled = false)
+    if (state == ForwardDeptCheckState.INDETERMINATE) {
+        // Checkbox(enabled=false) 无触摸响应——外层 clickable 承接点击，内件仅作视觉
+        Box(
+            modifier
+                .size(48.dp)
+                .clickable(onClick = onClick)
+                .testTag("qa-forward-org-dept-indeterminate"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Checkbox(checked = false, onCheckedChange = null, enabled = false)
+            Text("−", color = LocalAppiaColors.current.tintColor, fontSize = 16.sp)
+        }
+    } else {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Checkbox(checked = state == ForwardDeptCheckState.CHECKED, onCheckedChange = { onClick() })
         }
     }
 }

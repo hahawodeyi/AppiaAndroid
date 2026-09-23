@@ -123,6 +123,8 @@ class OrgSwitchCoordinator(
         try {
             applySession(target, session)
             bootstrap(target, session.authToken, session.userId)
+            // RN MainNavigator:43-50：bootstrap 成功后强制刷通讯录（切组织换树；失败不回滚切换本身）
+            runCatching { cn.appia.im.feature.contacts.ContactsStore.refresh(sdk) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,12 +76,13 @@ private val CompanyLogoBase = "https://static.appia.cn/logo"
 internal fun companyLogoUrl(enterpriseLabel: String): String =
     "$CompanyLogoBase/${enterpriseLabel.lowercase()}.png"
 
-/** RN getTeamUserAvatarUri（DirectAvatar direct 变体：/avatar/{username}?…&rc_token&rc_uid）。 */
-internal fun teamAvatarUrl(serverUrl: String, username: String, userId: String?, token: String?): String? {
+/** RN getTeamUserAvatarUri（DirectAvatar direct 变体：/avatar/{username}?…&rc_token&rc_uid）。
+ *  size 由调用方按渲染 dp×密度换算 px（chatAvatarUrl 先例）。 */
+internal fun teamAvatarUrl(serverUrl: String, username: String, userId: String?, token: String?, sizePx: Int): String? {
     if (serverUrl.isBlank() || username.isBlank()) return null
     return buildString {
         append(serverUrl.trimEnd('/')).append("/avatar/").append(username)
-        append("?version=1&format=png&size=80")
+        append("?version=1&format=png&size=").append(sizePx)
         if (!userId.isNullOrEmpty() && !token.isNullOrEmpty()) {
             append("&rc_token=").append(token).append("&rc_uid=").append(userId)
         }
@@ -647,7 +649,11 @@ private fun MemberAvatar(
             fontSize = if (size >= 48) 18.sp else 15.sp,
         )
         AsyncImage(
-            model = teamAvatarUrl(serverUrl, member.username, currentUserId, token),
+            // 渲染 size dp×密度（RN avatarSize 同款；chatAvatarUrl 先例）
+            model = teamAvatarUrl(
+                serverUrl, member.username, currentUserId, token,
+                sizePx = with(LocalDensity.current) { size.dp.roundToPx() },
+            ),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
         )
