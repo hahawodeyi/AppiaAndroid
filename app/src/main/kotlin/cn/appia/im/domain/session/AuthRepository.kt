@@ -211,6 +211,9 @@ object SessionModule {
             StreamNames.NOTIFY_LOGGED,
             cn.appia.im.core.permissions.PermissionsStore::applyPermissionsChangedFrame,
         )
+        // M5-T1：public-settings-changed 流消费（RN publicSettingsStream.ts）——stream-notify-all
+        // 分发 M1 已有（订阅/监听/注册表齐备），此处补首个业务 handler（permissions 先例同位）
+        manager.setStreamHandler(StreamNames.NOTIFY_ALL, manager::handlePublicSettingsChanged)
         // T6 重连收尾：全局流恢复后重订全部活跃房间流（RN session.ts:162）
         manager.addReconnectTail { roomStreams.resubscribeAllActiveRoomStreams() }
         // T6 teardown：清活跃房间流表 + notify-user 待 flush 队列（RN :676-677；网络退订随 disconnect）

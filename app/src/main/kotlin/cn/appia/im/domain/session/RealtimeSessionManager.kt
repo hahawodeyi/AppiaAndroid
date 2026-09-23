@@ -9,6 +9,7 @@ import cn.appia.im.core.network.ddp.DdpMethodError
 import cn.appia.im.core.network.ddp.Disposable
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.core.realtime.RealtimeTransportPhase
+import cn.appia.im.core.settings.ServerSettingRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -388,11 +389,56 @@ class RealtimeSessionManager(
             for (step in listOf("public settings", "custom emojis", "permissions", "user roles")) {
                 if (bootstrapGeneration.get() != generationAtStart) return@launch
                 when (step) {
+                    "public settings" -> syncPublicSettings()
                     "custom emojis" -> syncCustomEmojis()
                     "permissions" -> syncPermissions()
                     else -> Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
                 }
             }
+        }
+    }
+
+    /**
+     * RN session.ts:600-604 syncPublicSettingsFromRegistry（M5-T1；失败仅 warn 不阻断，RN 同）。
+     * settings 行写入当前 active 库（切库先于 extras，RN 同序）。
+     */
+    private suspend fun syncPublicSettings() {
+        try {
+            cn.appia.im.core.network.api.SettingsPublicApi.syncPublicSettings(
+                sdk,
+                upsertAll = { rows -> dbManager.active.settingDao().upsertAll(rows) },
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "public settings sync skipped or failed", e)
+        }
+    }
+
+    /**
+     * `stream-notify-all` public-settings-changed 帧消费（RN publicSettingsStream.ts
+     * handlePublicSettingsChangedMessage 逐行）：eventName 含 `public-settings-changed` →
+     * args[1] = `{_id, value}` → prepare → 单条 upsert。未注册 id / 坏帧静默丢弃（RN 同）。
+     *
+     * 接入：SessionModule 经 [setStreamHandler] 注册（permissions 先例）；handler 在 DDP IO
+     * 线程被调，upsert 挂起 → 入 scope 异步落库（RN `.catch(() => undefined)` 同义）。
+     */
+    fun handlePublicSettingsChanged(ddpMessage: JsonElement) {
+        try {
+            val fields = (ddpMessage as? JsonObject)?.get("fields") as? JsonObject ?: return
+            val eventName = fields.str("eventName") ?: return
+            if (!PUBLIC_SETTINGS_CHANGED.containsMatchIn(eventName)) return
+            val args = fields["args"] as? JsonArray ?: return
+            if (args.size < 2) return
+            val payload = args[1] as? JsonObject ?: return
+            val id = payload.str("_id") ?: return
+            val prepared = ServerSettingRegistry.prepareSettingEntity(id, payload["value"]) ?: return
+            scope.launch {
+                runCatching { dbManager.active.settingDao().upsert(prepared) }
+                    .onFailure { Log.w(TAG, "[realtime] upsert public setting failed id=$id", it) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[realtime] public-settings-changed handler", e)
         }
     }
 
@@ -662,6 +708,9 @@ class RealtimeSessionManager(
         else -> null
     }
 
+    /** JSON 字段取串（PermissionsStore.str 同口径；handler 帧解析用）。 */
+    private fun JsonObject.str(key: String): String? = textField(key)
+
     // ---- 测试观测 ----
 
     /** 连接状态（占位 UI/M2 横幅同源）：true = 全局流已订阅且未被断线/teardown 复位。 */
@@ -704,6 +753,9 @@ class RealtimeSessionManager(
 
     companion object {
         private const val TAG = "realtime"
+
+        // RN publicSettingsStream.ts:14 /public-settings-changed/ 原文匹配
+        private val PUBLIC_SETTINGS_CHANGED = Regex("public-settings-changed")
 
         // RN session.ts:103 原文（直引号撇号），大小写不敏感
         private val LOGGED_OUT_BY_SERVER = Regex("you've been logged out by the server", RegexOption.IGNORE_CASE)

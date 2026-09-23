@@ -91,6 +91,7 @@ class RealtimeSessionManagerTest {
     private var roomsBody = "{}"
     private var emojiBody: String? = null
     private var permissionsBody: String? = null
+    private var settingsPublicBody: String? = null
 
     private lateinit var host: String
     private lateinit var sdk: RocketSdk
@@ -113,6 +114,9 @@ class RealtimeSessionManagerTest {
                     // M4-T2：permissions.listAll（syncPermissions）；null → 404
                     path.startsWith("/api/v1/permissions.listAll") ->
                         permissionsBody?.let { MockResponse().setBody(it) } ?: MockResponse().setResponseCode(404)
+                    // M5-T1：settings.public（syncPublicSettings 分批）；null → 404（失败仅 warn 分支）
+                    path.startsWith("/api/v1/settings.public") ->
+                        settingsPublicBody?.let { MockResponse().setBody(it) } ?: MockResponse().setResponseCode(404)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -624,6 +628,99 @@ class RealtimeSessionManagerTest {
             assertEquals(listOf("admin"), store.getPermissionRoles("edit-room"))
         } finally {
             cn.appia.im.core.permissions.PermissionsStore.reset()
+        }
+    }
+
+    // ---- M5-T1：bootstrap extras 的 public settings 同步 + 流式增量 ----
+
+    @Test
+    fun `bootstrap extras sync public settings into active database`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        settingsPublicBody = """
+            {"success":true,"settings":[
+              {"_id":"Enterprise_Name","value":"Appia Inc"},
+              {"_id":"UI_Use_Real_Name","value":"true"},
+              {"_id":"Unknown_Key_XXX","value":1}
+            ]}
+        """.trimIndent()
+
+        manager.bootstrap(host, "tok-set", userId = "uid-1")
+
+        val dao = dbManager.databaseFor(dbManager.normalizeServer(host)).settingDao()
+        // extras 为 fire-and-forget：轮询直至注册行落位（未注册 id 被保守丢弃）
+        val deadline = System.nanoTime() + 5_000_000_000L
+        var name: cn.appia.im.core.database.entity.SettingEntity? = null
+        while ((name?.value_as_string ?: "") != "Appia Inc" && System.nanoTime() < deadline) {
+            delay(10)
+            name = dao.getById("Enterprise_Name")
+        }
+        assertEquals("Appia Inc", name!!.value_as_string)
+        assertEquals(true, dao.getById("UI_Use_Real_Name")!!.value_as_boolean)
+        assertNull(dao.getById("Unknown_Key_XXX"))
+
+        awaitCond("subs done") { ws.subCount() >= 6 }
+    }
+
+    @Test
+    fun `public settings sync failure is warned not fatal`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        settingsPublicBody = null // 404 → syncPublicSettings 吞异常
+
+        manager.bootstrap(host, "tok-set-404", userId = "uid-1")
+
+        assertEquals(1, syncCalls.get())
+        assertNotNull(manager.sessionKeyForTest)
+        awaitCond("subs still done") { ws.subCount() >= 6 }
+    }
+
+    @Test
+    fun `public settings changed stream frame upserts single row`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        settingsPublicBody = """{"success":true,"settings":[]}"""
+
+        try {
+            manager.bootstrap(host, "tok-stream", userId = "uid-1")
+            awaitCond("subs done") { ws.subCount() >= 6 }
+
+            // SessionModule 生产装配同位注册（本测试直构 manager 不走 DI）
+            manager.setStreamHandler(StreamNames.NOTIFY_ALL, manager::handlePublicSettingsChanged)
+
+            // public-settings-changed 帧载荷：fields.args[1] = {_id, value}（RN publicSettingsStream）
+            ws.send(
+                """{"msg":"changed","collection":"stream-notify-all","id":"evt",""" +
+                    """"fields":{"eventName":"public-settings-changed","args":["changed",{"_id":"Site_Name","value":"New Name"}]}}""",
+            )
+            val dao = dbManager.active.settingDao()
+            val deadline = System.nanoTime() + 5_000_000_000L
+            var row: cn.appia.im.core.database.entity.SettingEntity? = null
+            while (row?.value_as_string != "New Name" && System.nanoTime() < deadline) {
+                delay(10)
+                row = dao.getById("Site_Name")
+            }
+            assertEquals("New Name", row!!.value_as_string)
+
+            // 布尔串归一：同一 eventName 前缀匹配（RN /public-settings-changed/ 正则同义）
+            ws.send(
+                """{"msg":"changed","collection":"stream-notify-all","id":"evt2",""" +
+                    """"fields":{"eventName":"public-settings-changed","args":["changed",{"_id":"UI_Use_Real_Name","value":"true"}]}}""",
+            )
+            val deadline2 = System.nanoTime() + 5_000_000_000L
+            var bool: Boolean? = null
+            while (bool == null && System.nanoTime() < deadline2) {
+                delay(10)
+                bool = dao.getById("UI_Use_Real_Name")?.value_as_boolean
+            }
+            assertEquals(true, bool)
+
+            // 未注册 id 帧静默丢弃；无关 eventName 不落库
+            ws.send(
+                """{"msg":"changed","collection":"stream-notify-all","id":"evt3",""" +
+                    """"fields":{"eventName":"other-event","args":["changed",{"_id":"Site_Name","value":"X"}]}}""",
+            )
+            delay(200)
+            assertEquals("New Name", dao.getById("Site_Name")!!.value_as_string)
+        } finally {
+            // 不清库：本测试独占 tok-stream 会话；teardown 由 @After 兜底
         }
     }
 
