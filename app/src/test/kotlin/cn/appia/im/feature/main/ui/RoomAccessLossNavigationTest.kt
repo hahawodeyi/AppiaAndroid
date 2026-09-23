@@ -157,6 +157,35 @@ class RoomAccessLossNavigationTest {
         assertEquals(false, tagExists("qa-roominfo-leave"))
         assertEquals(false, tagExists("qa-room-editor"))
     }
+
+    /**
+     * fix round 1 Critical 回归钉：Room 被全屏子页（MediaViewer）覆盖时 removed 仍触发弹栈。
+     * 旧实现 visibleEntries 按 maxLifecycle>=STARTED 过滤——覆盖态 Room entry 为 CREATED
+     * 被排除 → 检测 false 事件被吞。currentBackStack 全量栈快照命中（RN DocPreview 特判场景）。
+     */
+    @Test
+    fun `room covered by fullscreen media viewer still pops on removed event`() {
+        fixture.seedChats()
+        fixture.seedImageAttachmentMessage()
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
+        }
+        waitUntilExists { textExists("General") }
+        rule.onNodeWithText("General").performClick()
+        waitUntilExists { tagExists("qa-room-editor") }
+        // 图片附件渲染 + 点击 → MediaViewer 全屏覆盖 Room（Room entry maxLifecycle=CREATED）
+        waitUntilExists { tagExists("qa-attachment-image-0") }
+        rule.onNodeWithTag("qa-attachment-image-0").performClick()
+        waitUntilExists { tagExists("qa-media-preview-counter") }
+
+        // 覆盖态下发 removed：仍需检出 rid 在栈并整段弹回列表
+        RoomAccessLostBus.emit(RoomAccessLostEvent("rid-general", RoomAccessLoss.Reason.KICKED))
+
+        waitUntilExists { textExists("General") }
+        waitUntilExists { textExists(context.t("roomAccess_removed")) }
+        assertEquals(false, tagExists("qa-media-preview-counter"))
+        assertEquals(false, tagExists("qa-room-editor"))
+    }
 }
 
 /** MainNavigationFlowTest.Fixture 同口径（会话层真件 + 全 fakes，不触 DDP/MMKV）。 */
@@ -221,6 +250,25 @@ private class AccessLossFixture(context: Context) {
             dbManager.databaseFor(dbManager.normalizeServer(serverUrl)).chatDao().insertAll(
                 listOf(
                     chatRow(_id = "rid-general", name = "general", fname = "General", lm = 100.0),
+                ),
+            )
+        }
+    }
+
+    /** 图片附件消息（绝对 URL 免格式化分支）：点击图片格 → MediaViewer 全屏子页覆盖 Room。 */
+    fun seedImageAttachmentMessage(serverUrl: String = "https://s1") {
+        kotlinx.coroutines.runBlocking {
+            dbManager.databaseFor(dbManager.normalizeServer(serverUrl)).messageDao().insert(
+                cn.appia.im.core.database.entity.MessageEntity(
+                    _id = "m-img-1",
+                    rid = "rid-general",
+                    msg = "",
+                    ts = 100.0,
+                    u = """{"_id":"u-2","username":"alice","name":"Alice"}""",
+                    alias = "",
+                    parse_urls = "[]",
+                    _updated_at = 100.0,
+                    attachments = """[{"title":"pic","image_url":"https://s1/img.png","image_dimensions":{"width":200,"height":150}}]""",
                 ),
             )
         }

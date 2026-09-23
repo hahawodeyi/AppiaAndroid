@@ -83,4 +83,20 @@ class AuthSessionStoreTest {
         assertFalse(store.isAuthenticated)
         assertFalse(kv.contains("auth-storage"))
     }
+
+    /** M4-T10 fix Minor-2：currentUsername 缓存生命周期（save 回填 / clear 失效 / 冷启动惰性回填）。 */
+    @Test
+    fun `currentUsername cache is filled on save invalidated on clear and lazily backfilled`() {
+        assertNull(store.currentUsername) // 未登录
+
+        store.save(session)
+        assertEquals("bob", store.currentUsername)
+
+        // 冷启动（新实例 = 进程重启恢复）：缓存空 → 惰性回填（只 load 不 save 的路径）
+        assertEquals("bob", AuthSessionStore(kv).currentUsername)
+
+        store.clear()
+        assertNull(store.currentUsername)
+        assertNull(AuthSessionStore(kv).currentUsername) // 清后新实例也不回填
+    }
 }

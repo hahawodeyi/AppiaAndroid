@@ -29,9 +29,19 @@ private val sessionJson = Json { ignoreUnknownKeys = true }
  */
 class AuthSessionStore @Inject constructor(private val kv: KvStore) {
 
+    /**
+     * 当前用户名热路径缓存（M4-T10 fix Minor-2）：RoomStreamManager 每帧 hint 记录读取，
+     * 免逐帧 KV 读 + 全 session JSON 反序列化（DDP IO 线程）。save/clear 即失效点
+     * （登录/组织切换 applySession 汇入 login→save，登出→clear——无第三条写路径）；
+     * 首帧惰性回填：进程重启恢复（只 load 不 save）后首读现读一次。@Volatile：主线程写、IO 线程读。
+     */
+    @Volatile
+    private var cachedUsername: String? = null
+
     /** RN login authStore.ts:98-99：三字段整体覆盖写入（无增量合并）。 */
     fun save(session: AuthSession) {
         kv.putString(KEY, sessionJson.encodeToString(AuthSession.serializer(), session))
+        cachedUsername = session.user.username
     }
 
     /**
@@ -42,9 +52,17 @@ class AuthSessionStore @Inject constructor(private val kv: KvStore) {
             runCatching { sessionJson.decodeFromString(AuthSession.serializer(), raw) }.getOrNull()
         }
 
+    /**
+     * 每帧用户名读（RoomStreamManager currentUsernameProvider 缝；RN 每帧
+     * useAuthStore.getState().user?.username 的内存读等价）。未登录返回 null。
+     */
+    val currentUsername: String?
+        get() = cachedUsername ?: load()?.user?.username?.also { cachedUsername = it }
+
     /** RN logout authStore.ts:157：三字段一并清空。 */
     fun clear() {
         kv.remove(KEY)
+        cachedUsername = null
     }
 
     /** RN `Boolean(token && user && serverUrl)`（authStore.ts:187）：空串视为缺失。 */

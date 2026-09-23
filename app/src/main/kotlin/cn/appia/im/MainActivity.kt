@@ -282,9 +282,18 @@ private const val NAV_TAG = "roomRoute"
  * [RoomAnnouncementRoute]/[RoomChannelNameEditRoute]，叠在其上的 DocPreview/MediaViewer/
  * MediaPlayer/ForwardDetail/ReadReceipt/MentionSuggestion 等子页随「弹回 Main」一并出栈
  * （RN DocPreview 叠 Room 的特判在 pop 整段时天然覆盖）。
+ *
+ * **必须用 currentBackStack 而非 visibleEntries（fix round 1 Critical）**：visibleEntries
+ * 按 maxLifecycle>=STARTED 过滤（nav 2.9.5 populateVisibleEntries 源码实证）——Room 被全屏
+ * 子页（MediaViewer/DocPreview 等）覆盖时其 entry maxLifecycle=CREATED 被排除 → 检测 false
+ * → 事件被吞（hint 已消费无重试）。currentBackStack 是 backQueue 全量快照（RN getRootState
+ * 遍历原始栈的同语义）。@RestrictTo LIBRARY_GROUP 属 lint 级限制（非运行时强制），本处
+ * 只读不写、字段自 2.x 起稳定，用 @SuppressLint 定点豁免（方案②；方案①自维护 listener 栈
+ * 无法区分「压入既有路由」与「pop 到该路由」——同一 destination 事件双义，计数必偏）。
  */
+@android.annotation.SuppressLint("RestrictedApi")
 internal fun stackInvolvesRid(nav: androidx.navigation.NavController, rid: String): Boolean =
-    nav.visibleEntries.value.any { entry ->
+    nav.currentBackStack.value.any { entry ->
         val dest = entry.destination
         val isRoomRoute = runCatching {
             dest.hasRoute(RoomRoute::class) ||
@@ -352,8 +361,13 @@ fun AppiaNavHost(
         RoomAccessLostBus.events.collect { event ->
             if (stackInvolvesRid(nav, event.rid)) {
                 // RN ref.navigate('MineDrawer')：弹掉目标房之上全部路由回列表。
-                // popUpTo<MainRoute> inclusive=false：清 Main 之上整段，再回 Main（幂等）
-                nav.navigate(MainRoute) { popUpTo<MainRoute> { inclusive = false } }
+                // popUpTo<MainRoute> inclusive=false：清 Main 之上整段，再回 Main（幂等）；
+                // launchSingleTop：栈顶已是 Main 时不再叠压（fix round 1 Minor-1——否则
+                // pop 后再 navigate 压出 [Main,Main] 双栈，多按一次返回才离 app）
+                nav.navigate(MainRoute) {
+                    popUpTo<MainRoute> { inclusive = false }
+                    launchSingleTop = true
+                }
                 if (event.reason == RoomAccessLoss.Reason.SELF) {
                     Toast.makeText(
                         context, context.t("roomInfo_leaveSuccess"), Toast.LENGTH_SHORT,

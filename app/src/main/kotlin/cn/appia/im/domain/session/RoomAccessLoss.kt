@@ -44,7 +44,12 @@ object RoomAccessLoss {
         hints[rid] = isUl to clock()
     }
 
-    /** RN clearRoomAccessHints :36-38（登出清缓存挂点，AuthRepository.logout 调用）。 */
+    /**
+     * 清全部 hint。**RN 生产代码零调用**（clearRoomAccessHints 仅测试用，RN 登出后
+     * module 状态残留至进程结束）——Android 在 logout 清是**良性补充**而非 RN 语义移植：
+     * 登出后残留 hint 若跨账号存活，重登另一账号会拿旧账号的 ul/ru 误判三态（30s TTL
+     * 兜底但非零窗）。与 clearPendingSelfLeave 全清版同裁定：不移植「生产零调用」残留。
+     */
     fun clearHints() = hints.clear()
 
     /**

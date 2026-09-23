@@ -105,7 +105,7 @@ class AuthRepository @Inject constructor(
         prevServer?.let { RoomsSyncCursor(kv).clear(it) } // RN :148-150 clearRoomsUpdatedAt
         cn.appia.im.core.permissions.PermissionsStore.reset() // RN :147 usePermissionsStore.reset()
         cn.appia.im.feature.contacts.ContactsStore.reset() // RN contactStore 重置（登出清缓存）
-        RoomAccessLoss.clearHints() // RN 登出即丢 ul/ru hint（authStore 重置连带 roomAccessLoss 态）
+        RoomAccessLoss.clearHints() // 良性补充（非 RN 语义）：RN 生产零调用 hint 残留至进程终；清掉防跨账号串判
         teardownRealtime() // RN :152
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
         store.clear() // RN :157
@@ -170,7 +170,8 @@ object SessionModule {
             recordAccessHint = { raw, username ->
                 RoomAccessLoss.recordRoomAccessHintFromRawMessage(raw, username)
             },
-            currentUsernameProvider = { store.load()?.user?.username },
+            // fix Minor-2：currentUsername 缓存读（save/clear 即失效），免 DDP 每帧 KV 读+JSON 反序列化
+            currentUsernameProvider = { store.currentUsername },
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler),
         )
 

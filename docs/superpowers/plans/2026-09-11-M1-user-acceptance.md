@@ -356,9 +356,11 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 9. **长按时长 400ms**（Android 系统默认）vs RN 500ms；长按菜单图标未转录（纯文字项）。
 10. **编辑横幅简化**：标题+✕（RN EditPreview 另有原文预览行）；编辑提交分路——纯文本走 updateMessage、带文件恒走 replace（RN 恒 replace，服务端效果一致）。
 11. **转发选择页组织树 tab 降级**：PMT/L1D tab 现出最近会话占位，M4 联系人域后补树形+部门多选。
+    *已于 M4 收口（M4-T1）——现状见第十一节差异 14：组织树已接 ContactsStore 真数据源。*
 12. **合并转发卡片视觉为 M3 简化**：圆角/涟漪等未逐属性像素级复刻（间距字号按 RN styles 值对齐），验收走查若要求像素级再调。
 13. **AI 摘要 / 横竖屏切换 / 全房间画廊**（附件查看器附属功能）未移植，接受推迟。
 14. **ChatList 列表预览 mention 显示名**：列表第二行预览中 mention 仍显示 @username（正文渲染已按昵称解析），M4 联系人/成员域一并收口。
+    *已于 M4 收口（M4-T1）——现状见第十一节差异 15：列表预览 mention 显示 @昵称。*
 
 ## 十、M4 自测清单（群组与通讯录，双端对照）
 

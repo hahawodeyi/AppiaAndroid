@@ -156,7 +156,9 @@ private fun MessageImageGrid(
                         grid.cellToItem[localIndex].takeIf { it >= 0 }?.let { itemIndex ->
                             onNav(AttachmentNav.Images(grid.items, itemIndex))
                         }
-                    },
+                    }
+                    // M4-T10 fix：房间访问丢失「子页覆盖态」导航测试锚点（图片格点击 → MediaViewer）
+                    .testTag("qa-attachment-image-$localIndex"),
             )
         }
     }
