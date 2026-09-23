@@ -507,15 +507,20 @@ private fun ForwardOrgDeptRow(
 @Composable
 private fun TriStateCheckbox(state: ForwardDeptCheckState, onClick: () -> Unit, modifier: Modifier = Modifier) {
     if (state == ForwardDeptCheckState.INDETERMINATE) {
-        // Checkbox(enabled=false) 无触摸响应——外层 clickable 承接点击，内件仅作视觉
+        // Checkbox(enabled=false) 无触摸响应——外层 clickable 承接点击，内件仅作视觉；
+        // indeterminate tag 放内层 Checkbox（外层已有 qa-forward-org-dept-{id}，同节点会遮蔽）
         Box(
             modifier
                 .size(48.dp)
-                .clickable(onClick = onClick)
-                .testTag("qa-forward-org-dept-indeterminate"),
+                .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            Checkbox(checked = false, onCheckedChange = null, enabled = false)
+            Checkbox(
+                checked = false,
+                onCheckedChange = null,
+                enabled = false,
+                modifier = Modifier.testTag("qa-forward-org-dept-indeterminate"),
+            )
             Text("−", color = LocalAppiaColors.current.tintColor, fontSize = 16.sp)
         }
     } else {

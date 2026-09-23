@@ -124,13 +124,14 @@ class ForwardOrgTreeTest {
 
     @Test
     fun `same username in two sibling depts is emitted once keeping first row id unique`() {
-        // u1 同时挂 a/b 两部门（TeamModels dedupeMembers 同款数据形态）：
-        // 两部门都展开 → 行 id 不重复（RN FlatList 仅 warn，LazyColumn 直接崩）
-        val multiDeptUsers = mapOf(
-            "u1" to user("u1", "alice", fname = "Alice A"),
+        // u1 真实挂 a、b 两部门（TeamModels dedupeMembers 同款数据形态）：
+        // 两部门都展开 → user:alice 只出一次（RN FlatList 仅 warn，LazyColumn 同 key 直接崩）
+        val dupDeptMap = deptMap + mapOf(
+            "b" to TeamDepartment("b", "Dept B", users = listOf("u3", "u1")),
         )
-        val rows = buildOrgTreeRows("root", setOf("root", "a", "b"), deptMap, multiDeptUsers)
+        val rows = buildOrgTreeRows("root", setOf("root", "a", "b"), dupDeptMap, userMap)
         val userRows = rows.filterIsInstance<ForwardOrgRow.User>().map { it.id }
-        assertEquals(listOf("user:alice"), userRows)
+        // a 展开出 alice（首个），b 展开出 carol + alice 被去重
+        assertEquals(listOf("user:alice", "user:carol"), userRows)
     }
 }
