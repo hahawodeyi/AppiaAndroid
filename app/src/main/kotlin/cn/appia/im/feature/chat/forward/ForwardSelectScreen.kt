@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,7 +36,11 @@ import androidx.compose.ui.unit.sp
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.api.ForwardSearchRow
+import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.theme.LocalAppiaColors
+import cn.appia.im.feature.contacts.ContactsPhase
+import cn.appia.im.feature.contacts.ContactsStore
+import cn.appia.im.feature.contacts.TEAM_ROOT_IDS
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,7 +57,8 @@ private const val TAG = "forwardSelect"
 /**
  * 转发选择页（RN screens/ForwardSelectScreen 同构）：搜索框 + 3 tab（最近会话 + 双组织树）+
  * 两 Set 选中（rooms/usernames，合并计 MAX 10）+ 底栏计数与确认。
- * 组织树 tab 降级：联系人域属 M4，PMT/L1D 暂以最近会话列表占位（见 progress 报告）。
+ * 组织树 tab（M4 T6 接线）：ContactsStore 真数据源（进屏 UNLOAD 自动拉取，RN useContacts 同）；
+ * 行构建/三态勾选/批量勾选纯逻辑在 [ForwardOrgTree.kt]（ForwardOrgTreeTest 自检）。
  * 搜索态盖过 tab（RN :646-670 同构）：300ms debounce（[ForwardSearcher]）。
  */
 @OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -103,6 +110,7 @@ fun ForwardSelectScreen(
     chats: List<ChatEntity>,
     currentUserId: String?,
     searcher: ForwardSearcher,
+    sdk: RocketSdk? = null,
     onForward: suspend (users: List<String>, rooms: List<String>) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -115,10 +123,31 @@ fun ForwardSelectScreen(
     var selectedRids by remember { mutableStateOf(emptySet<String>()) }
     var selectedUserIds by remember { mutableStateOf(emptySet<String>()) }
     var sending by remember { mutableStateOf(false) }
+    // 组织树展开态（RN :230-231 双 tab 独立）
+    var expandedPmt by remember { mutableStateOf(emptySet<String>()) }
+    var expandedL1d by remember { mutableStateOf(emptySet<String>()) }
 
     val searchState by searcher.state.collectAsState()
     val isSearching = searchText.trim().isNotEmpty()
     val totalSelected = selectedRids.size + selectedUserIds.size
+
+    // 联系人数据源（RN useContacts：UNLOAD 自动拉取；tab 1/2 渲染组织树）
+    LaunchedEffect(sdk) {
+        if (sdk != null) scope.launch { runCatching { ContactsStore.refreshIfUnloaded(sdk) } }
+    }
+    val contactsPhase by ContactsStore.phase.collectAsState()
+    val contactsPayload by ContactsStore.payload.collectAsState()
+    val pmtRootId = contactsPayload.rootTree.getOrNull(0)
+        ?: TEAM_ROOT_IDS.getValue(cn.appia.im.feature.contacts.TeamRootType.PMT)
+    val l1dRootId = contactsPayload.rootTree.getOrNull(1)
+        ?: TEAM_ROOT_IDS.getValue(cn.appia.im.feature.contacts.TeamRootType.L1D)
+    val rootIdForTab = if (activeTab == 2) l1dRootId else pmtRootId
+    val expandedForTab = if (activeTab == 2) expandedL1d else expandedPmt
+    val orgRows = if (activeTab == 0) {
+        emptyList()
+    } else {
+        buildOrgTreeRows(rootIdForTab, expandedForTab, contactsPayload.departmentMap, contactsPayload.userMap)
+    }
 
     // RN toggleChat/toggleOrgUsername :265-295：两 Set 合并计 MAX 10——移除不限、新增达上限即忽略
     fun toggleRid(rid: String) {
@@ -224,8 +253,8 @@ fun ForwardSelectScreen(
                     }
                 }
 
-                else ->
-                    // 三个 tab 均出最近会话（PMT/L1D 组织树归 M4 联系人域——降级占位）
+                activeTab == 0 ->
+                    // 最近会话 tab
                     LazyColumn(Modifier.fillMaxSize().testTag("qa-forward-list")) {
                         items(chats, key = { it.rid }) { chat ->
                             ForwardSelectRow(
@@ -238,6 +267,80 @@ fun ForwardSelectScreen(
                             )
                         }
                     }
+
+                else -> {
+                    // 组织树 tab（RN renderOrg :579-613）
+                    when {
+                        contactsPhase == ContactsPhase.LOADING || contactsPhase == ContactsPhase.UNLOAD ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    context.t("team_loading"),
+                                    color = colors.auxiliaryText,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.testTag("qa-forward-org-loading"),
+                                )
+                            }
+
+                        contactsPhase == ContactsPhase.LOAD_ERROR ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    context.t("team_loadfailed"),
+                                    color = colors.auxiliaryText,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.testTag("qa-forward-org-error"),
+                                )
+                            }
+
+                        orgRows.isEmpty() ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    context.t("team_empty"),
+                                    color = colors.auxiliaryText,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.testTag("qa-forward-org-empty"),
+                                )
+                            }
+
+                        else -> LazyColumn(Modifier.fillMaxSize().testTag("qa-forward-org-list")) {
+                            items(orgRows, key = { it.id }) { row ->
+                                when (row) {
+                                    is ForwardOrgRow.Dept -> ForwardOrgDeptRow(
+                                        row = row,
+                                        checkState = deptCheckboxState(
+                                            row.id, selectedUserIds,
+                                            contactsPayload.departmentMap, contactsPayload.userMap,
+                                        ),
+                                        expanded = row.id in expandedForTab,
+                                        onToggleCheck = {
+                                            selectedUserIds = toggleDeptUsers(
+                                                row.id, selectedUserIds,
+                                                contactsPayload.departmentMap, contactsPayload.userMap,
+                                            )
+                                        },
+                                        onToggleExpand = {
+                                            if (activeTab == 2) {
+                                                expandedL1d = if (row.id in expandedL1d) expandedL1d - row.id else expandedL1d + row.id
+                                            } else {
+                                                expandedPmt = if (row.id in expandedPmt) expandedPmt - row.id else expandedPmt + row.id
+                                            }
+                                        },
+                                    )
+
+                                    is ForwardOrgRow.User -> ForwardSelectRow(
+                                        title = row.displayName,
+                                        subtitle = row.sub,
+                                        checked = row.username in selectedUserIds,
+                                        fallback = row.displayName,
+                                        modifier = Modifier
+                                            .padding(start = (row.depth * 16).dp)
+                                            .testTag("qa-forward-org-user-${row.username}"),
+                                        onToggle = { toggleUser(row.username) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -319,6 +422,95 @@ private fun ForwardSelectRow(
             if (!subtitle.isNullOrEmpty()) {
                 Text(subtitle, color = colors.auxiliaryText, fontSize = 12.sp, maxLines = 1)
             }
+        }
+    }
+}
+
+/** 组织树部门行（RN renderOrgTreeRow dept 分支）：缩进 + 三态 checkbox + 部门块图标 + 名称/计数/箭头。 */
+@Composable
+private fun ForwardOrgDeptRow(
+    row: ForwardOrgRow.Dept,
+    checkState: ForwardDeptCheckState,
+    expanded: Boolean,
+    onToggleCheck: () -> Unit,
+    onToggleExpand: () -> Unit,
+) {
+    val colors = LocalAppiaColors.current
+    val context = LocalContext.current
+    val dept = row.dept
+    val hasToggle = dept.children.isNotEmpty() || dept.users.isNotEmpty()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggleExpand)
+            .padding(start = (row.depth * 16).dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TriStateCheckbox(
+            state = checkState,
+            onClick = onToggleCheck,
+            modifier = Modifier.testTag("qa-forward-org-dept-${row.id}"),
+        )
+        // 部门图标占位（RN 5 PNG 无 Android 等价资源；色块 + tagLabel 首字符，TeamScreen 先例）
+        Box(
+            Modifier
+                .padding(start = 4.dp)
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.chatComponentBackground),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                (dept.type ?: dept.name.takeIf { it.isNotEmpty() } ?: row.id).take(1),
+                color = colors.auxiliaryText,
+                fontSize = 14.sp,
+            )
+        }
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    dept.name.ifEmpty { row.id },
+                    color = colors.titleText,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (hasToggle) {
+                    Text(
+                        if (expanded) "⌄" else "›",
+                        color = colors.auxiliaryText,
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+            }
+            dept.usersCountIncludeChildren?.let { count ->
+                Text(
+                    interpolate(
+                        context.t("createchannelmembers_deptpeoplecount"),
+                        mapOf(
+                            "count" to count.toString(),
+                            "suffix" to context.t("createchannelmembers_peoplesuffix"),
+                        ),
+                    ),
+                    color = colors.auxiliaryText,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/** 三态 checkbox（RN Checkbox state checked/unchecked/indeterminate）。Material3 无 tri-state 原生件，Checkbox + indeterminate 视觉以图标近似。 */
+@Composable
+private fun TriStateCheckbox(state: ForwardDeptCheckState, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        when (state) {
+            ForwardDeptCheckState.CHECKED -> Checkbox(checked = true, onCheckedChange = { onClick() })
+            ForwardDeptCheckState.UNCHECKED -> Checkbox(checked = false, onCheckedChange = { onClick() })
+            ForwardDeptCheckState.INDETERMINATE ->
+                Checkbox(checked = false, onCheckedChange = { onClick() }, enabled = false)
         }
     }
 }
