@@ -83,6 +83,8 @@ import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.contacts.ui.TeamScreen
 import cn.appia.im.feature.roominfo.RoomInfoActions
+import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
+import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
 import cn.appia.im.feature.roominfo.ui.RoomMembersScreen
 import cn.appia.im.feature.login.AuthApi
@@ -199,11 +201,11 @@ data class RoomInfoRoute(val rid: String, val roomType: String = "c")
 @Serializable
 data class RoomMembersRoute(val rid: String, val roomType: String = "c", val mode: String = "list")
 
-// TODO(T6): RoomAnnouncementScreen（RN navigate('RoomAnnouncement', {rid, t})）
+// T6 已落地（公告屏）：RN navigate('RoomAnnouncement', {rid, t})
 @Serializable
 data class RoomAnnouncementRoute(val rid: String, val roomType: String = "c")
 
-// TODO(T7): RoomChannelNameEditScreen（RN navigate('RoomChannelNameEdit', {rid, t})）
+// T7 已落地（改名屏）：RN navigate('RoomChannelNameEdit', {rid, t})
 @Serializable
 data class RoomChannelNameEditRoute(val rid: String, val roomType: String = "c")
 
@@ -853,8 +855,78 @@ fun AppiaNavHost(
                 )
             }
         }
-        composable<RoomAnnouncementRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
-        composable<RoomChannelNameEditRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
+        // 公告屏（M4-T7）：列表/编辑双态 + rooms.info 刷新回写 + announcement.bot 上传；
+        // 附件点击路由（图片/媒体/文档预览）与 RoomRoute 同款映射。
+        composable<RoomAnnouncementRoute> { entry ->
+            val route = entry.toRoute<RoomAnnouncementRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
+                    .collectAsState(initial = null)
+                val actions = remember(db) { RoomInfoActions(deps.sdk, db) }
+                RoomAnnouncementScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    chat = chatRow,
+                    currentUserId = auth?.user?.id,
+                    globalRoles = auth?.user?.roles.orEmpty(),
+                    serverUrl = serverUrl,
+                    token = auth?.token,
+                    sdk = deps.sdk,
+                    actions = actions,
+                    onBack = { nav.popBackStack() },
+                    onAttachmentNav = { target ->
+                        when (target) {
+                            is AttachmentNav.Images -> nav.navigate(
+                                MediaViewerRoute(
+                                    imagesJson = loginRouteJson.encodeToString(target.images),
+                                    initialIndex = target.initialIndex,
+                                ),
+                            )
+                            is AttachmentNav.Media -> nav.navigate(
+                                MediaPlayerRoute(url = target.url, title = target.title.orEmpty(), isAudio = target.isAudio),
+                            )
+                            is AttachmentNav.Doc -> nav.navigate(
+                                DocPreviewRoute(
+                                    title = target.params.title,
+                                    fileId = target.params.fileId,
+                                    downloadUrl = target.params.downloadUrl,
+                                    fileType = target.params.fileType,
+                                ),
+                            )
+                        }
+                    },
+                )
+            }
+        }
+        // 改名屏（M4-T7）：fname/dname max80 → saveRoomSettings {roomName}；invalid-room-name 友好 Alert。
+        composable<RoomChannelNameEditRoute> { entry ->
+            val route = entry.toRoute<RoomChannelNameEditRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
+                    .collectAsState(initial = null)
+                RoomChannelNameEditScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    chat = chatRow,
+                    sdk = deps.sdk,
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
         composable<CreateChannelMembersRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         composable<MemberProfileRoute> { Text(LocalContext.current.t("feature_not_implemented")) }
         // M4 T6 通讯录双树：hrm/v2.users.list 数据源 + TeamScreen（deptId 空=根视图）

@@ -4,6 +4,7 @@ import cn.appia.im.core.database.AppiaDatabase
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.api.RoomNotificationSettings
 import cn.appia.im.core.network.api.RoomSettingsApi
+import cn.appia.im.core.network.api.RoomsApi
 import cn.appia.im.core.network.api.SaveRoomSettingsParams
 import cn.appia.im.core.network.api.SubscriptionsApi
 
@@ -64,6 +65,42 @@ class RoomInfoActions(internal val sdk: RocketSdk, private val db: AppiaDatabase
     suspend fun leaveRoom(rid: String, roomType: String) {
         RoomSettingsApi.postLeaveRoom(sdk, rid, roomType)
     }
+
+    /**
+     * RN refreshRoomAnnouncementsFromApi（lib/chat/refreshRoomAnnouncements.ts:25-58）：
+     * `rooms.info` 补全本地 chats 行公告两列——响应 room 缺 success / 行不存在 / 两键全缺 →
+     * 静默跳过；键存在才写（toJsonColumn：串直存、对象/数组 JSON 序列化、null 透传 null）。
+     * 增量 rooms.get 可能从未带回 announcements 历史列表，进公告页时主动拉一次。
+     */
+    suspend fun refreshRoomAnnouncements(rid: String) {
+        val res = try {
+            RoomsApi.getRoomInfo(sdk, rid)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return // 网络失败仍展示本地已有 announcement（RN catch 同）
+        }
+        val obj = res as? kotlinx.serialization.json.JsonObject ?: return
+        // RN `!res?.success` → 跳过（refreshRoomAnnouncements.ts:27）；sdk.get 平铺后 success 仍在顶层
+        if (obj["success"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } != "true") return
+        val room = obj["room"] as? kotlinx.serialization.json.JsonObject ?: return
+        val hasAnnouncement = room.containsKey("announcement")
+        val hasAnnouncements = room.containsKey("announcements")
+        if (!hasAnnouncement && !hasAnnouncements) return
+
+        val row = db.chatDao().getById(rid) ?: return // 本地无 chat 行则忽略（RN find catch 同义）
+        var next = row
+        if (hasAnnouncement) next = next.copy(announcement = room["announcement"].toJsonColumn())
+        if (hasAnnouncements) next = next.copy(announcements = room["announcements"].toJsonColumn())
+        db.chatDao().update(next)
+    }
+}
+
+/** RN toJsonColumn：null/JSON null→null、串原样、对象/数组 JSON 序列化（解不动 null——RN stringify catch 同义）。 */
+private fun kotlinx.serialization.json.JsonElement?.toJsonColumn(): String? = when (this) {
+    null, kotlinx.serialization.json.JsonNull -> null
+    is kotlinx.serialization.json.JsonPrimitive -> content
+    else -> runCatching { toString() }.getOrNull()
 }
 
 /** RN updateChatAppiaUsageLocal :17：JSON.stringify(usage)（无空数组路径——空存 undefined）。 */

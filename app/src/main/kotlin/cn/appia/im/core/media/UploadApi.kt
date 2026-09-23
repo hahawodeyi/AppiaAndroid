@@ -16,6 +16,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okio.BufferedSink
 import java.io.File
 import kotlin.random.Random
@@ -166,6 +167,35 @@ object UploadApi {
         if (md != null) put("md", md)
         if (messageId != null) put("messageId", messageId)
     })
+
+    /**
+     * RN uploadAnnouncementBotFile（services/media/uploadAnnouncementFile.ts:26-62）：
+     * `POST /api/v1/admin/file/upload/announcement.bot` multipart——file part 带
+     * filename/type（RNFetchBlob 三字段 name/filename/type 逐项对照）；响应 url 取
+     * `url ?? file.url`；`/file-upload` → `/file-proxy` 改写。鉴权头走 AuthInterceptor。
+     * 空（0 字节）文件抛（RN uploadAnnouncementBotFromUri size===0 同义）。
+     */
+    suspend fun uploadAnnouncementBot(
+        sdk: RocketSdk,
+        localPath: String,
+        fileName: String,
+        mimeType: String,
+    ): String = withContext(Dispatchers.IO) {
+        val file = File(localPath)
+        if (file.length() == 0L) throw IllegalStateException("empty file")
+        val mediaType = runCatching { mimeType.toMediaType() }
+            .getOrDefault("application/octet-stream".toMediaType())
+        val body = file.asRequestBody(mediaType)
+        val multipart = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", fileName, body)
+            .build()
+        val json = sdk.postMultipart("admin/file/upload/announcement.bot", multipart)
+        val obj = json as? JsonObject ?: throw IllegalStateException("Upload response missing url")
+        val raw = obj.str("url") ?: (obj["file"] as? JsonObject).str("url")
+            ?: throw IllegalStateException("Upload response missing url")
+        raw.replace("/file-upload", "/file-proxy")
+    }
 
     /** RN :431 `res?.messageId ?? res?.message?._id`；缺省 null（RN undefined）。 */
     fun multiAttachmentsServerId(res: JsonElement?): String? {

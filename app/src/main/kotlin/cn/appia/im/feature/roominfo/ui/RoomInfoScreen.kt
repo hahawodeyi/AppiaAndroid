@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.core.chat.getAnnouncementPreviewText
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.RocketSdk
@@ -219,7 +220,10 @@ fun RoomInfoScreen(
     var usageDrawerVisible by remember { mutableStateOf(false) }
 
     val displayName = chat?.let { roomInfoTitle(it) }.orEmpty()
-    val announcementPreview = chat?.announcement?.trim().orEmpty() // T6 公告解析接入前的原文预览
+    // T7：公告预览解析（RN getAnnouncementPreviewText——文件分隔拆分/多公告取最新/HTML 剥离）
+    val announcementPreview = remember(chat?.announcement, chat?.announcements) {
+        getAnnouncementPreviewText(chat?.announcement, chat?.announcements)
+    }
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
         RoomHeader(title = context.t("roominfo_title"), onBack = onBack)
