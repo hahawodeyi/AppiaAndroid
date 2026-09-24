@@ -134,6 +134,8 @@ fun SwipeableChatRow(
     onPress: (ChatEntity) -> Unit = {},
     onLongPress: (ChatEntity) -> Unit = {},
     modifier: Modifier = Modifier,
+    /** 提及 label 真名（M5-T4）：透传 ChatRow → resolveLastMessagePreview。 */
+    useRealName: Boolean = true,
 ) {
     val colors = LocalAppiaColors.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -219,6 +221,7 @@ fun SwipeableChatRow(
                 avatarUrl = avatarUrl,
                 onPress = onPress,
                 onLongPress = onLongPress,
+                useRealName = useRealName,
             )
         }
     }

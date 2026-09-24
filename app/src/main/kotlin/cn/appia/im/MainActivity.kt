@@ -47,6 +47,7 @@ import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.BuildConfig
 import cn.appia.im.core.realtime.NetworkMonitor
 import cn.appia.im.core.realtime.RoomStreamManager
+import cn.appia.im.core.settings.rememberPublicSettingBoolean
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.domain.session.BackgroundScope
 import cn.appia.im.domain.session.RoleRefresher
@@ -495,6 +496,10 @@ fun AppiaNavHost(
                 // 横幅数据源收集在装配处（ChatListScreen 收原值，测试可直接给参）
                 val phase by gateway.phase.collectAsState()
                 val online by deps.networkMonitor.online.collectAsState()
+                // 提及 label 真名（M5-T4 / RN RoomItemLastMessage:44）：会话列表预览表读
+                val useRealName = rememberPublicSettingBoolean(
+                    deps.dbManager.active.settingDao(), "UI_Use_Real_Name", default = true,
+                )
                 // NetworkMonitor 生命周期（RN startNetworkMonitoring 挂载语义）：进列表注册、离屏注销
                 DisposableEffect(Unit) {
                     deps.networkMonitor.start()
@@ -505,6 +510,7 @@ fun AppiaNavHost(
                     deps = deps,
                     phase = phase,
                     networkOnline = online,
+                    useRealName = useRealName,
                     onOpenRoom = { rid, title, roomType -> nav.navigate(RoomRoute(rid, title, roomType)) },
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
                     onOpenContacts = { nav.navigate(TeamRoute()) },
@@ -534,6 +540,9 @@ fun AppiaNavHost(
                     },
                 )
                 LaunchedEffect(route.rid, route.roomType) { vm.openRoom(route.rid, route.roomType) }
+                // 真名显示（M5-T4 / RN RoomMessageRow:108 usePublicSettingBoolean('UI_Use_Real_Name', true)）：
+                // 装配处表读一次 StateFlow，参数下发 MessageRow 头部 + InlineEnv 提及 label
+                val useRealName = rememberPublicSettingBoolean(db.settingDao(), "UI_Use_Real_Name", default = true)
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 val draftController = remember(db) { DraftController(DraftRepository(db), deps.scope) }
@@ -606,6 +615,7 @@ fun AppiaNavHost(
                     currentUsername = auth?.user?.username,
                     serverUrl = serverUrl,
                     token = auth?.token,
+                    useRealName = useRealName,
                     draftController = draftController,
                     onSend = { msg, md -> orchestrator.enqueueTextMessage(route.rid, msg, md) },
                     onSendFiles = { files, msg, md -> orchestrator.enqueueFileMessage(route.rid, files, msg, md) },
@@ -785,6 +795,10 @@ fun AppiaNavHost(
             } else {
                 val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
                 val auth = remember { deps.store.load() }
+                // 真名显示（M5-T4 / RN ForwardMessageScreen RoomMessageRow:108）：转发详情消息行表读
+                val useRealName = rememberPublicSettingBoolean(
+                    deps.dbManager.active.settingDao(), "UI_Use_Real_Name", default = true,
+                )
                 ForwardDetailScreen(
                     msgDataJson = route.msgDataJson,
                     title = route.title,
@@ -792,6 +806,7 @@ fun AppiaNavHost(
                     currentUsername = auth?.user?.username,
                     serverUrl = serverUrl,
                     token = auth?.token,
+                    useRealName = useRealName,
                     // 附件查看路由（T7 同款）：内层消息附件可点击
                     onAttachmentNav = { target ->
                         when (target) {

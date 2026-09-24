@@ -27,6 +27,10 @@ class MessageRowHelpersTest {
         val h = buildMessageHeaderDisplay(message(alias = "Bobby"))
         assertEquals("Bobby", h.authorPrimary)
         assertEquals("@Bob", h.authorAliasSuffix)
+        // useRealName=false：loginName 退化 username（RN resolveMessageHeaderAuthor loginName 公式）
+        val h2 = buildMessageHeaderDisplay(message(alias = "Bobby"), useRealName = false)
+        assertEquals("Bobby", h2.authorPrimary)
+        assertEquals("@bob", h2.authorAliasSuffix)
     }
 
     @Test
@@ -40,6 +44,43 @@ class MessageRowHelpersTest {
     fun `roomSender shows room name`() {
         val h = buildMessageHeaderDisplay(message(roomSender = """{"fname":"Team X"}"""))
         assertEquals("Team X", h.authorPrimary)
+    }
+
+    // ── M5-T4：UI_Use_Real_Name 两态（缺省 true；false = RN loginName 退化 username）──
+
+    @Test
+    fun `useRealName false falls back to username for author`() {
+        assertEquals("bob", buildMessageHeaderDisplay(message(), useRealName = false).authorPrimary)
+        // roomSender 分支早退不受 useRealName（RN resolveMessageHeaderAuthor 同）
+        assertEquals(
+            "Team X",
+            buildMessageHeaderDisplay(message(roomSender = """{"fname":"Team X"}"""), useRealName = false).authorPrimary,
+        )
+    }
+
+    @Test
+    fun `useRealName false mention label shows username`() {
+        // RN AtMention:36：useRealName && name ? name : username ?? mention
+        assertEquals(
+            MentionDisplay(MentionKind.OTHER, "bob"),
+            resolveMentionDisplay(mentions, "bob", "me", useRealName = false),
+        )
+        // ME 色判定不受 useRealName（mention === username 比较同）
+        assertEquals(
+            MentionDisplay(MentionKind.ME, "bob"),
+            resolveMentionDisplay(mentions, "bob", "bob", useRealName = false),
+        )
+        // name 空用户两态同落 username（兜底路径共用）
+        assertEquals(
+            MentionDisplay(MentionKind.OTHER, "carol"),
+            resolveMentionDisplay(mentions, "carol", "me", useRealName = false),
+        )
+    }
+
+    @Test
+    fun `buildInlineEnv threads useRealName into env`() {
+        assertEquals(false, buildInlineEnv(emptyList(), null, null, useRealName = false).useRealName)
+        assertEquals(true, buildInlineEnv(emptyList(), null, null).useRealName)
     }
 
     // ── 头像 URL（RN getMessageSenderAvatarUri 单聊路径）──

@@ -10,8 +10,12 @@ import org.junit.jupiter.api.Test
  */
 class LastMessagePreviewTest {
 
-    private fun resolve(lastMessage: String?, currentUserId: String? = "me", previewTableLabel: String? = null) =
-        resolveLastMessagePreview(chatRow("r1", last_message = lastMessage), currentUserId, previewTableLabel)
+    private fun resolve(
+        lastMessage: String?,
+        currentUserId: String? = "me",
+        previewTableLabel: String? = null,
+        useRealName: Boolean = true,
+    ) = resolveLastMessagePreview(chatRow("r1", last_message = lastMessage), currentUserId, previewTableLabel, useRealName)
 
     private fun text(result: PreviewResult): String = (result as PreviewResult.Text).text
 
@@ -309,5 +313,35 @@ class LastMessagePreviewTest {
         val lm = """{"msg":"@alice hi","u":{"username":"bob"},"mentions":"not-an-array",
             "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"alice"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
         assertEquals("bob：@alice hi", text(resolve(lm.replace("\n", ""))))
+    }
+
+    // ---------- M5-T4：UI_Use_Real_Name 两态（RN RoomItemLastMessage:44 → AtMention:36） ----------
+
+    @Test
+    fun `useRealName false preview mention label shows username`() {
+        val lm = """{"msg":"@alice hi","u":{"username":"bob","name":"Bob"},"mentions":[{"_id":"u1","username":"alice","name":"Alice"}],
+            "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"alice"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        // false → @username；发送人前缀 otherSenderPrefix（name||username）不读 useRealName，仍显 name
+        assertEquals("Bob：@alice hi", text(resolve(lm.replace("\n", ""), useRealName = false)))
+    }
+
+    @Test
+    fun `useRealName true default keeps name in preview`() {
+        val lm = """{"msg":"@alice hi","u":{"username":"bob"},"mentions":[{"_id":"u1","username":"alice","name":"Alice"}],
+            "md":[{"type":"PARAGRAPH","value":[{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"alice"}},{"type":"PLAIN_TEXT","value":" hi"}]}]}"""
+        assertEquals("bob：@Alice hi", text(resolve(lm.replace("\n", ""))))
+    }
+
+    @Test
+    fun `useRealName false msg fallback mention shows username`() {
+        val lm = """{"msg":"@alice hello","u":{"username":"bob"},"mentions":[{"_id":"u1","username":"alice","name":"Alice"}]}"""
+        assertEquals("bob：@alice hello", text(resolve(lm, useRealName = false)))
+    }
+
+    @Test
+    fun `useRealName false sender prefix still prefers name`() {
+        // RN otherSenderPrefix 与 useRealName 无关：u.name 恒优先
+        val lm = """{"msg":"plain","u":{"username":"bob","name":"Bob"},"mentions":[]}"""
+        assertEquals("Bob：plain", text(resolve(lm, useRealName = false)))
     }
 }

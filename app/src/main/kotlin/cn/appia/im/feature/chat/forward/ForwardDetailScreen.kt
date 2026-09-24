@@ -39,6 +39,8 @@ fun ForwardDetailScreen(
     token: String?,
     onAttachmentNav: (AttachmentNav) -> Unit = {},
     onOpenForwardMerge: (msgData: String, title: String) -> Unit = { _, _ -> },
+    /** 真名显示（M5-T4 / RN ForwardMessageScreen RoomMessageRow:108 UI_Use_Real_Name，缺行 true）。 */
+    useRealName: Boolean = true,
     onBack: () -> Unit,
 ) {
     val colors = LocalAppiaColors.current
@@ -76,6 +78,7 @@ fun ForwardDetailScreen(
                     currentUsername = currentUsername,
                     serverUrl = serverUrl,
                     token = token,
+                    useRealName = useRealName,
                     onResend = {},
                     onAttachmentNav = onAttachmentNav,
                     onOpenForwardMerge = onOpenForwardMerge,

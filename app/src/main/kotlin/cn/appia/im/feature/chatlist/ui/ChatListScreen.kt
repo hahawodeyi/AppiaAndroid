@@ -75,6 +75,8 @@ fun ChatListScreen(
     onOpenContacts: () -> Unit = {},
     // 我的二维码名片入口（T9）：RN ProfileScreen → MyCard；ProfileScreen 为 M5 域，暂挂顶栏菜单
     onOpenMyCard: () -> Unit = {},
+    // 提及 label 真名（M5-T4 / RN RoomItemLastMessage UI_Use_Real_Name）：装配处 observeById 表读传入
+    useRealName: Boolean = true,
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -254,6 +256,7 @@ fun ChatListScreen(
                             // 双身份：标题/自直接助手判定走 user.id，预览前缀判自己走 user.username
                             currentUserId = currentUserId,
                             currentUsername = currentUsername,
+                            useRealName = useRealName,
                             avatarUrl = chatAvatarUrl(
                                 serverUrl,
                                 chat.name,

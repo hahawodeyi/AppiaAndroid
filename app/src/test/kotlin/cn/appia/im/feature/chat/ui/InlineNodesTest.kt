@@ -245,6 +245,18 @@ class InlineNodesTest {
     }
 
     @Test
+    fun `mention env useRealName false shows username with mention color`() {
+        // RN AtMention:36（M5-T4）：useRealName=false → matchedUser.username；命中色不变
+        val result = build(
+            listOf(MdMentionUser(PlainText("bob"))),
+            InlineEnv(mentions = mentions, currentUsername = "me", useRealName = false),
+        )
+        assertEquals("bob", result.annotated.text)
+        assertEquals(colors.mentionOther, styleFor(result, "bob").color)
+        assertEquals(FontWeight.SemiBold, styleFor(result, "bob").fontWeight)
+    }
+
+    @Test
     fun `mention all and here keep group color raw label`() {
         val result = build(listOf(PlainText("@"), MdMentionUser(PlainText("all"))))
         assertEquals("@all", result.annotated.text)

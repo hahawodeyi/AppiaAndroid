@@ -82,7 +82,7 @@ internal data class InlineColors(
     val mentionOther: Color,
 )
 
-/** 行内渲染环境（mentions/自定义表情/链接点击）：MessageBody 注入，T13 组装接线。 */
+/** 行内渲染环境（mentions/自定义表情/链接点击/useRealName）：MessageBody 注入，T13 组装接线。 */
 internal data class InlineEnv(
     val mentions: List<MentionUser> = emptyList(),
     val currentUsername: String? = null,
@@ -91,6 +91,12 @@ internal data class InlineEnv(
     val baseUrl: String? = null,
     /** 链接点击（RN onLinkPress）；null 时 InlineNodes 兜底系统浏览器。 */
     val onLinkPress: ((String) -> Unit)? = null,
+    /**
+     * 提及显示名用真名（M5-T4 / RN MarkdownContext useRealName → AtMention:34-36
+     * `useRealName && name ? name : username`）。缺省 true＝RN 四消费点缺省
+     * （UI_Use_Real_Name 缺行回 true）；提及 label 之外的渲染不读它。
+     */
+    val useRealName: Boolean = true,
 )
 
 /** 构建产物：串 + 待渲染自定义表情（id=shortCode → 信息，Composable 层转 inlineContent）。 */
@@ -218,7 +224,7 @@ private fun AnnotatedString.Builder.appendNode(
 
         is MdMentionUser -> {
             val mention = (node.value as? PlainText)?.value.orEmpty()
-            val display = resolveMentionDisplay(env.mentions, mention, env.currentUsername)
+            val display = resolveMentionDisplay(env.mentions, mention, env.currentUsername, env.useRealName)
             val style = when (display.kind) {
                 MentionKind.GROUP -> acc.copy(color = colors.mentionGroup, fontWeight = MENTION_WEIGHT)
                 MentionKind.ME -> acc.copy(color = colors.mentionMe, fontWeight = MENTION_WEIGHT)

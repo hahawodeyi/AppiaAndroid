@@ -1,7 +1,12 @@
 package cn.appia.im.core.settings
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import cn.appia.im.core.database.dao.SettingDao
 import cn.appia.im.core.database.entity.SettingEntity
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -231,3 +236,15 @@ object ServerSettingRegistry {
  */
 suspend fun SettingDao.publicSettingBoolean(id: String, default: Boolean = false): Boolean =
     getById(id)?.value_as_boolean ?: default
+
+/**
+ * RN usePublicSettingBoolean hook 等价的 Compose 消费形态（M5-T4 首消费方定形态——T1 报告留的口子）：
+ * observeById 表读 + collectAsState，缺行/布尔列 null 回 [default]。UI 响应式（行变化即重组）；
+ * 一次性读用 [publicSettingBoolean]。
+ */
+@Composable
+fun rememberPublicSettingBoolean(dao: SettingDao, id: String, default: Boolean = false): Boolean {
+    val row by remember(dao, id) { dao.observeById(id).map { it?.value_as_boolean } }
+        .collectAsState(initial = default)
+    return row ?: default
+}

@@ -94,7 +94,7 @@ internal fun parseMessageUser(uRaw: String): ParsedMessageUser =
         )
     }.getOrDefault(ParsedMessageUser())
 
-// ── 头部展示（RN buildMessageHeaderDisplay；M2 useRealName 恒 true＝RN UI_Use_Real_Name 缺省）──
+// ── 头部展示（RN buildMessageHeaderDisplay；M5-T4 useRealName = UI_Use_Real_Name 表读，缺行 true＝RN 缺省）──
 
 internal data class MessageHeaderDisplay(
     val authorPrimary: String,
@@ -200,18 +200,20 @@ data class MentionDisplay(val kind: MentionKind, val label: String)
 
 /**
  * RN AtMention 数据源语义：@all/@here → 群色、label 原样；mentions 数组按 username 命中 →
- * 显示 `name || username || mention`（无 @），mention === 自己 username → mentionMeColor，
- * 否则 mentionOtherColor；未命中 → `@mention` 普通正文（空 mention 渲染为空）。
- * 纯函数、无 Compose 依赖：MessageRow 正文与 M3-T5 新行内管线共用，勿另写一份。
+ * 显示 `(useRealName && name) || username || mention`（无 @，M5-T4 useRealName = UI_Use_Real_Name
+ * 表读），mention === 自己 username → mentionMeColor，否则 mentionOtherColor；
+ * 未命中 → `@mention` 普通正文（空 mention 渲染为空）。
+ * 纯函数、无 Compose 依赖：MessageRow 正文/chatlist 预览 LastMessagePreview 共用，勿另写一份。
  */
 fun resolveMentionDisplay(
     mentions: List<MentionUser>,
     mention: String,
     currentUsername: String?,
+    useRealName: Boolean = true,
 ): MentionDisplay = when {
     mention == "all" || mention == "here" -> MentionDisplay(MentionKind.GROUP, mention)
     else -> mentions.find { it.username == mention }?.let { u ->
-        val label = u.name?.trim().takeUnless { it.isNullOrEmpty() }
+        val label = (if (useRealName) u.name?.trim().takeUnless { it.isNullOrEmpty() } else null)
             ?: u.username?.trim().takeUnless { it.isNullOrEmpty() }
             ?: mention
         MentionDisplay(
@@ -222,8 +224,9 @@ fun resolveMentionDisplay(
 }
 
 /**
- * 行内渲染环境装配（RN MessageBody props：mentions/username/baseUrl/getCustomEmoji）。
- * getCustomEmoji 由 RoomScreen 注入（T3 EmojiResolver 缝）；此处缺省 null 走查表文本。
+ * 行内渲染环境装配（RN MessageBody props：mentions/username/baseUrl/getCustomEmoji/useRealName）。
+ * getCustomEmoji 由 RoomScreen 注入（T3 EmojiResolver 缝）；useRealName（M5-T4）= UI_Use_Real_Name
+ * 表读，装配处 observeById 派发，缺行 true＝RN 缺省。
  */
 internal fun buildInlineEnv(
     mentions: List<MentionUser>,
@@ -231,12 +234,14 @@ internal fun buildInlineEnv(
     baseUrl: String?,
     getCustomEmoji: ((String) -> ResolvedEmoji?)? = null,
     onLinkPress: ((String) -> Unit)? = null,
+    useRealName: Boolean = true,
 ): InlineEnv = InlineEnv(
     mentions = mentions,
     currentUsername = currentUsername,
     getCustomEmoji = getCustomEmoji,
     baseUrl = baseUrl,
     onLinkPress = onLinkPress,
+    useRealName = useRealName,
 )
 
 /**
@@ -280,13 +285,15 @@ fun MessageRow(
     onKatexClick: ((String) -> Unit)? = null,
     /** 附件重试（T13）：失败附件点击 → SendOrchestrator.retryFile。 */
     onRetryAttachment: (messageId: String, attachmentId: String) -> Unit = { _, _ -> },
+    /** 发送者名/提及 label 是否用真名（M5-T4 / RN usePublicSettingBoolean('UI_Use_Real_Name', true)）。 */
+    useRealName: Boolean = true,
 ) {
     val colors = LocalAppiaColors.current
     // pointerInput 捕获的是首个组合的 lambda：经 rememberUpdatedState 每次事件读最新回调，
     // 防 RoomScreen 侧守卫（多选态/只读房）变化后长按走旧判定
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnClick by rememberUpdatedState(onClick)
-    val header = remember(message) { buildMessageHeaderDisplay(message) }
+    val header = remember(message, useRealName) { buildMessageHeaderDisplay(message, useRealName) }
     val parsed = remember(message) { parseMessageUser(message.u) }
     val isOwn = !currentUserId.isNullOrEmpty() && parsed._id == currentUserId
     // size 请求值 = 渲染 dp×密度取整（RN formatUrl PixelRatio.get()*size 同款；台账 #9 顺带）
@@ -416,8 +423,8 @@ fun MessageRow(
                         }
                         val showEditedWithoutMd = isMessageEdited(message) && message.md.isNullOrEmpty()
                         val mentions = remember(message) { parseMentions(message.mentions) }
-                        val env = remember(message, currentUsername, serverUrl, getCustomEmoji) {
-                            buildInlineEnv(mentions, currentUsername, serverUrl, getCustomEmoji)
+                        val env = remember(message, currentUsername, serverUrl, getCustomEmoji, useRealName) {
+                            buildInlineEnv(mentions, currentUsername, serverUrl, getCustomEmoji, useRealName = useRealName)
                         }
                         if (md != null) {
                             MessageBody(

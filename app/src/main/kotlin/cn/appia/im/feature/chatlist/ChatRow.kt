@@ -104,6 +104,8 @@ fun ChatRow(
     onPress: (ChatEntity) -> Unit = {},
     onLongPress: (ChatEntity) -> Unit = {},
     modifier: Modifier = Modifier,
+    /** 提及 label 真名（M5-T4 / RN RoomItemLastMessage:44 UI_Use_Real_Name，缺行 true）。 */
+    useRealName: Boolean = true,
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -117,7 +119,7 @@ fun ChatRow(
     val date = formatRoomListTime(chatListActivityMillis(chat).toLong()) { key, args ->
         args.entries.fold(context.t(key)) { acc, (k, v) -> acc.replace("{{$k}}", v) }
     }
-    val previewText = when (val p = resolveLastMessagePreview(chat, currentUsername)) {
+    val previewText = when (val p = resolveLastMessagePreview(chat, currentUsername, useRealName = useRealName)) {
         is PreviewResult.Text -> p.text
         is PreviewResult.Template -> {
             var s = context.t(p.key)

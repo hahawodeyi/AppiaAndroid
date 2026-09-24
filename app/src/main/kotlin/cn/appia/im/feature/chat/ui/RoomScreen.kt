@@ -223,6 +223,8 @@ fun RoomScreen(
     onRetryAttachment: suspend (String, String) -> Unit = { _, _ -> },
     /** 房间信息页入口（M4-T4 / RN openRoomInfo：标题点击 + 更多钮）——装配处 navigate(RoomInfoRoute)。 */
     onOpenRoomInfo: (() -> Unit)? = null,
+    /** 真名显示（M5-T4 / RN usePublicSettingBoolean('UI_Use_Real_Name', true)）：装配处 observeById 表读，缺行 true。 */
+    useRealName: Boolean = true,
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -580,6 +582,7 @@ fun RoomScreen(
                                         currentUsername = currentUsername,
                                         serverUrl = serverUrl,
                                         token = token,
+                                        useRealName = useRealName,
                                         onResend = onResend,
                                         onAttachmentNav = onAttachmentNav,
                                         // 表情回应（T8）：行内反应条点击 → 乐观翻转 + chat.react（装配处实现）
