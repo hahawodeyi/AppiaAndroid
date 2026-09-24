@@ -85,9 +85,15 @@ class PresenceJudgmentsTest {
 
     @Test
     fun `profile text state is online only even when dot shows away`() {
-        // 文字态仅 online（useMemberProfile 口径）；绿点 online/away——两判定分离
-        assertTrue(TUserStatus.ONLINE == TUserStatus.ONLINE && shouldShowOnlineDot(TUserStatus.ONLINE))
-        assertTrue(shouldShowOnlineDot(TUserStatus.AWAY) && TUserStatus.AWAY != TUserStatus.ONLINE)
+        // RN useMemberProfile :115 isOnline=(statusConnection ?? status)=='online'——仅 online；
+        // 绿点 online/away：两判定分离（away 绿点亮、文字态 false）
+        assertTrue(isOnlineTextStatus("online", null))
+        assertTrue(isOnlineTextStatus("Online", "away")) // statusConnection 优先
+        assertFalse(isOnlineTextStatus("away", null))
+        assertFalse(isOnlineTextStatus("busy", "offline"))
+        assertFalse(isOnlineTextStatus(null, "away"))
+        assertFalse(isOnlineTextStatus(null, null))
+        assertTrue(shouldShowOnlineDot(TUserStatus.AWAY) && !isOnlineTextStatus("away", null))
     }
 
     // ---- 双层降级（store ?? fallback）----

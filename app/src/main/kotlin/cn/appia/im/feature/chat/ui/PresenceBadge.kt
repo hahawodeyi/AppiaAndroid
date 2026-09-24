@@ -56,7 +56,10 @@ fun presenceBadge(
     LaunchedEffect(effectiveId, username) {
         if (effectiveId != null) {
             PresenceBatcher.requestUserPresence(effectiveId)
-        } else if (!username.isNullOrEmpty() && !cn.appia.im.domain.presence.isBotUserId(userId)) {
+        } else if (!username.isNullOrEmpty() &&
+            !cn.appia.im.domain.presence.isBotUserId(userId) &&
+            !cn.appia.im.domain.presence.isBotUsername(username) // RN useUserPresence needsResolve：bot 行不浪费 users.info
+        ) {
             UsernameIdResolver.scheduleResolve(username)
         }
     }

@@ -155,4 +155,20 @@ class PresenceBatcherTest {
         awaitCond("fetch attempted") { presenceRequests.get() == 1 }
         assertEquals(null, PresenceStore.snapshot("u1")) // 静默失败不落 store
     }
+
+    @Test
+    fun `success without users array does not merge offline entries`() = runBlocking {
+        // RN :28 `success && Array.isArray(users)` 双守卫——users 缺失/非数组不合并（不落 OFFLINE）
+        presenceBody = """{"success":true}"""
+        PresenceBatcher.requestUserPresence("u1")
+        PresenceBatcher.flushNow()
+        awaitCond("fetch attempted") { presenceRequests.get() == 1 }
+        assertEquals(null, PresenceStore.snapshot("u1"))
+
+        presenceBody = """{"success":true,"users":{"u1":"online"}}""" // 非数组
+        PresenceBatcher.requestUserPresence("u2")
+        PresenceBatcher.flushNow()
+        awaitCond("second fetch") { presenceRequests.get() == 2 }
+        assertEquals(null, PresenceStore.snapshot("u2"))
+    }
 }

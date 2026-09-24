@@ -75,10 +75,13 @@ object PresenceBatcher {
         val currentSdk = sdk ?: return
         try {
             val result = currentSdk.get("users.presence", mapOf("ids" to ids.joinToString(",")))
-            if ((result as? JsonObject)?.get("success")?.jsonPrimitive?.booleanOrNull == true) {
-                val users = (result["users"] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+            // RN :28-29 `result?.success && Array.isArray(result.users)` 双守卫：users 缺失/非数组
+            // 不合并（对齐 RN——缺失条目 OFFLINE 兜底仅在 users 为数组的响应内生效），下批重试
+            val users = (result as? JsonObject)?.let { it["users"] as? JsonArray } ?: emptyList()
+            if ((result as? JsonObject)?.get("success")?.jsonPrimitive?.booleanOrNull == true && users.isNotEmpty()) {
+                val usersById = users.mapNotNull { it as? JsonObject }
                 val batch = ids.associateWith { id ->
-                    val user = users.firstOrNull { it.str("_id") == id }
+                    val user = usersById.firstOrNull { it.str("_id") == id }
                     PresenceStore.ActiveUserEntry(
                         status = mapContactStatusToTUserStatus(user?.str("status")) ?: TUserStatus.OFFLINE,
                         statusText = user?.str("statusText"),

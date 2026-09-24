@@ -57,12 +57,20 @@ fun mapContactStatusToTUserStatus(raw: String?): TUserStatus? = when (raw?.trim(
 
 /**
  * RN shouldShowOnlineDot：bot（id/username 含 '.bot'）剔除；**仅 online/away** 显示绿点。
- * 名片 isOnline 文字态（RN useMemberProfile/useTeamUser：仅 online）是另一判定，勿合并。
+ * 名片 isOnline 文字态（[isOnlineTextStatus]，仅 online）是另一判定，勿合并。
  */
 fun shouldShowOnlineDot(status: TUserStatus?, userId: String? = null, username: String? = null): Boolean {
     if (isBotUserId(userId) || isBotUsername(username)) return false
     return status == TUserStatus.ONLINE || status == TUserStatus.AWAY
 }
+
+/**
+ * RN useMemberProfile.ts:115 isOnline 文字态判定：`(statusConnection ?? status).toLowerCase() === 'online'`
+ * ——**仅 online**（away 不算），与绿点判定（online/away）分离。取 profile 原始字段而非 presence
+ * store（RN 同源）。RN 当前无渲染点（grep 证实——hook 计算未消费），M5 状态编辑任务接。
+ */
+fun isOnlineTextStatus(statusConnection: String?, status: String?): Boolean =
+    (statusConnection ?: status)?.trim()?.lowercase() == "online"
 
 /**
  * RN resolveDirectPeerUserId（lib/presence/resolveDirectPeerUserId.ts）：
