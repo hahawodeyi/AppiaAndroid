@@ -4,11 +4,13 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.concurrent.ConcurrentHashMap
 
 // MMKV native .so 在 JVM/Robolectric 下无法加载（UnsatisfiedLinkError），
 // 故单测以内存 fake 验证 KvStore 契约行为；MmkvKvStore 为 MMKV 薄委托，由真机/Maestro 冒烟覆盖。
+// ConcurrentHashMap：被测代码跨线程读写（如 RoleRefresher 后台 fetch 合并写、主线程断言读）。
 class InMemoryKvStore : KvStore {
-    private val map = HashMap<String, Any>()
+    private val map = ConcurrentHashMap<String, Any>()
 
     override fun putString(key: String, value: String) { map[key] = value }
     override fun getString(key: String, defValue: String): String = map[key] as? String ?: defValue

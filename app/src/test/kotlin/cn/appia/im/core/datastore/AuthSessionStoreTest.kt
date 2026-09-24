@@ -99,4 +99,48 @@ class AuthSessionStoreTest {
         assertNull(store.currentUsername)
         assertNull(AuthSessionStore(kv).currentUsername) // 清后新实例也不回填
     }
+
+    /** M5-T2：mergeUserRoles 对照 RN authStore.ts:123-127——整体替换 roles（非并集）。 */
+    @Test
+    fun `mergeUserRoles replaces roles array and updates flow`() {
+        store.save(session)
+        assertTrue(store.roles.value.isEmpty())
+
+        store.mergeUserRoles("u-1", listOf("admin", "user"))
+        assertEquals(listOf("admin", "user"), store.roles.value)
+        assertEquals(listOf("admin", "user"), store.load()?.user?.roles)
+
+        // 再合并 = 替换（RN `[...roles]` 整组覆盖，不是 accumulate）
+        store.mergeUserRoles("u-1", listOf("leader"))
+        assertEquals(listOf("leader"), store.roles.value)
+    }
+
+    /** M5-T2 加固：userId 不匹配（组织切换/登出后在途响应）不串写；未登录忽略。 */
+    @Test
+    fun `mergeUserRoles ignores mismatched user and missing session`() {
+        store.save(session)
+        store.mergeUserRoles("u-other", listOf("admin"))
+        assertTrue(store.roles.value.isEmpty())
+        assertNull(store.load()?.user?.roles)
+
+        store.clear()
+        store.mergeUserRoles("u-1", listOf("admin"))
+        assertNull(store.load())
+    }
+
+    /** M5-T2：roles 流生命周期（save 覆盖 / clear 清空 / 冷启动从持久化恢复）。 */
+    @Test
+    fun `roles flow follows save clear and cold start`() {
+        assertTrue(store.roles.value.isEmpty()) // 未登录空
+
+        store.save(session.copy(user = session.user.copy(roles = listOf("admin"))))
+        assertEquals(listOf("admin"), store.roles.value)
+
+        store.clear()
+        assertTrue(store.roles.value.isEmpty())
+
+        // 冷启动：构造时从 KV 恢复
+        store.save(session.copy(user = session.user.copy(roles = listOf("leader"))))
+        assertEquals(listOf("leader"), AuthSessionStore(kv).roles.value)
+    }
 }

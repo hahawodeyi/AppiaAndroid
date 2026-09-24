@@ -87,6 +87,10 @@ class RealtimeSessionManagerTest {
     private var syncGate: CompletableDeferred<Unit>? = null
     private var failSync = false
 
+    /** M5-T2：bootstrap extras user roles 步记录（setUp 管理器默认注入录音 lambda）。 */
+    private val rolesCalls = AtomicInteger(0)
+    private val rolesForces = CopyOnWriteArrayList<Boolean>()
+
     private var subsBody = "{}"
     private var roomsBody = "{}"
     private var emojiBody: String? = null
@@ -134,6 +138,10 @@ class RealtimeSessionManagerTest {
                 if (failSync) throw IOException("sync boom")
             },
             onSessionExpired = { expiredCalls.incrementAndGet() },
+            refreshUserRoles = { force ->
+                rolesCalls.incrementAndGet()
+                rolesForces.add(force)
+            },
             scope = newScope(),
         )
     }
@@ -722,6 +730,38 @@ class RealtimeSessionManagerTest {
         } finally {
             // 不清库：本测试独占 tok-stream 会话；teardown 由 @After 兜底
         }
+    }
+
+    // ---- M5-T2：bootstrap extras user roles 步（RN session.ts:625 syncCurrentUserRoles({force:true})）----
+
+    @Test
+    fun `bootstrap extras invoke user roles refresh with force`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+
+        manager.bootstrap(host, "tok-roles", userId = "uid-1")
+
+        awaitCond("roles refreshed") { rolesCalls.get() >= 1 }
+        awaitCond("subs done") { ws.subCount() >= 6 }
+        assertEquals(true, rolesForces.first())
+    }
+
+    @Test
+    fun `user roles refresh failure is warned not fatal`() = runBlocking {
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        val throwing = RealtimeSessionManager(
+            sdk = sdk,
+            dbManager = dbManager,
+            syncInitial = {},
+            refreshUserRoles = { throw IOException("roles boom") },
+            onSessionExpired = { expiredCalls.incrementAndGet() },
+            scope = newScope(),
+        )
+
+        throwing.bootstrap(host, "tok-roles-fail", userId = "uid-1")
+
+        // extras 吞异常（warn）：bootstrap 主体不受影响，DDP 订阅照常完成
+        awaitCond("subs done") { ws.subCount() >= 6 }
+        assertNotNull(throwing.sessionKeyForTest)
     }
 
     // ---- prepareSocketConnection 收敛点（T4 预检裁定：AuthApi 未来复用） ----

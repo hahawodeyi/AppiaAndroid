@@ -1,6 +1,8 @@
 package cn.appia.im.core.datastore
 
 import cn.appia.im.core.network.AuthUser
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -32,16 +34,37 @@ class AuthSessionStore @Inject constructor(private val kv: KvStore) {
     /**
      * 当前用户名热路径缓存（M4-T10 fix Minor-2）：RoomStreamManager 每帧 hint 记录读取，
      * 免逐帧 KV 读 + 全 session JSON 反序列化（DDP IO 线程）。save/clear 即失效点
-     * （登录/组织切换 applySession 汇入 login→save，登出→clear——无第三条写路径）；
+     * （登录/组织切换 applySession 汇入 login→save，登出→clear，M5-T2 mergeUserRoles 亦经 save——
+     * 无绕过 save 的写路径）；
      * 首帧惰性回填：进程重启恢复（只 load 不 save）后首读现读一次。@Volatile：主线程写、IO 线程读。
      */
     @Volatile
     private var cachedUsername: String? = null
 
+    /**
+     * 全局角色响应式读（M5-T2：RoomInfo/RoomMembers 等装配层 collectAsState）。
+     * 初始值取持久化会话（进程重启恢复等价 RN rehydrate 后 store 内 roles）。
+     */
+    private val rolesState = MutableStateFlow(load()?.user?.roles.orEmpty())
+
+    /** 角色流：save/clear/mergeUserRoles 三条写路径均汇入，UI collect 自动刷新。 */
+    val roles: StateFlow<List<String>> get() = rolesState
+
     /** RN login authStore.ts:98-99：三字段整体覆盖写入（无增量合并）。 */
     fun save(session: AuthSession) {
         kv.putString(KEY, sessionJson.encodeToString(AuthSession.serializer(), session))
         cachedUsername = session.user.username
+        rolesState.value = session.user.roles.orEmpty()
+    }
+
+    /**
+     * RN mergeUserRoles authStore.ts:123-127（语义是整体替换 roles 数组，非并集）+ userId 防串写加固：
+     * 组织切换/登出后在途响应不得把旧用户角色写到新会话（RN 无此守卫）。未登录静默忽略。
+     */
+    fun mergeUserRoles(userId: String, roles: List<String>) {
+        val session = load() ?: return
+        if (session.user.id != userId) return
+        save(session.copy(user = session.user.copy(roles = roles.ifEmpty { null })))
     }
 
     /**
@@ -63,6 +86,7 @@ class AuthSessionStore @Inject constructor(private val kv: KvStore) {
     fun clear() {
         kv.remove(KEY)
         cachedUsername = null
+        rolesState.value = emptyList()
     }
 
     /** RN `Boolean(token && user && serverUrl)`（authStore.ts:187）：空串视为缺失。 */

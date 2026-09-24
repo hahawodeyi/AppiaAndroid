@@ -57,7 +57,7 @@ import java.util.concurrent.atomic.AtomicLong
  *   ├─ 6 generation 检查 → 中止（:585-587）              runFinalizeOnce（:173-186）:
  *   ├─ 7 presence 占位（:589-592，M5）                     needsResume → resume + 重订阅 6 条全局流；
  *   ├─ 8 sessionKey = key（:594）                          resume 失败且失效文本匹配（:96-105）→
- *   └─ 9 extras fire-and-forget 占位（:596-629，M5）        SessionExpiredBus + 登出回调；失败回滚标记
+ *   └─ 9 extras fire-and-forget（:596-629，M4/M5 补全）     SessionExpiredBus + 登出回调；失败回滚标记
  * teardown（:672-694 全清单）：取消在途 → 清态 → 停监听 → clearRestSession → disconnect；幂等可重入
  * ```
  * 并发语义（JS 单线程 → Kotlin 映射）：generation 计数用 AtomicLong；bootstrap 注册/合并用 Mutex
@@ -74,6 +74,11 @@ class RealtimeSessionManager(
     private val dbManager: DatabaseManager,
     /** 初始 REST 会话同步（T9 RoomsSyncRepository.sync；T11 串联注入）。失败仅 warn 不阻断（RN :579-583）。 */
     private val syncInitial: suspend () -> Unit,
+    /**
+     * 全局角色刷新（M5-T2，RN :625 syncCurrentUserRoles({force:true})）：bootstrap extras 最后一步，
+     * 失败仅 warn 不阻断（RN :626-628 try/catch warn）。注入 RoleRefresher::refresh。
+     */
+    private val refreshUserRoles: suspend (force: Boolean) -> Unit = {},
     /** DDP 会话失效识别后的登出路径回调（RN :340 authStore.logout 的注入等价；T11 接 AuthRepository）。 */
     private val onSessionExpired: () -> Unit = {},
     /** App 级单例作用域（绑定裁定：SupervisorJob + Dispatchers.IO；单例无需 close）。 */
@@ -383,6 +388,7 @@ class RealtimeSessionManager(
      * DAO 整表替换；RoomScreen → MessageRow → InlineEnv / buildEditContent 查表消费）。
      * M4-T2：permissions 步实现（RN session.ts:617 syncPermissionsFromServer → permissions.listAll →
      * PermissionsStore；消费侧 hasRoomPermission/canEditRoomSettings 走 store + 默认映射兜底）。
+     * M5-T2：user roles 步实现（RN session.ts:625 syncCurrentUserRoles({force:true}) → RoleRefresher）。
      */
     private fun launchBootstrapExtras(generationAtStart: Long) {
         extrasJob = scope.launch {
@@ -392,7 +398,13 @@ class RealtimeSessionManager(
                     "public settings" -> syncPublicSettings()
                     "custom emojis" -> syncCustomEmojis()
                     "permissions" -> syncPermissions()
-                    else -> Log.d(TAG, "bootstrap extra [$step] placeholder (M5)")
+                    "user roles" -> try {
+                        refreshUserRoles(true)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "user roles sync skipped or failed", e)
+                    }
                 }
             }
         }

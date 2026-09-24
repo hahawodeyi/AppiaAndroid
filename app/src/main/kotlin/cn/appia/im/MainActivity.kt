@@ -49,6 +49,7 @@ import cn.appia.im.core.realtime.NetworkMonitor
 import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.theme.AppiaTheme
 import cn.appia.im.domain.session.BackgroundScope
+import cn.appia.im.domain.session.RoleRefresher
 import cn.appia.im.domain.session.RoomAccessLostBus
 import cn.appia.im.domain.session.RoomAccessLoss
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
@@ -270,6 +271,8 @@ class RouteDeps(
     val kv: KvStore,
     val roomStreams: RoomStreamManager,
     val networkMonitor: NetworkMonitor,
+    /** M5-T2 装配层 focus 触发（RN useCanEditRoomSettings.ts:44-56）；UI 测试 null 免触网。 */
+    val roleRefresher: RoleRefresher? = null,
 )
 
 private const val NAV_TAG = "roomRoute"
@@ -895,12 +898,16 @@ fun AppiaNavHost(
                 val actions = remember(db) { RoomInfoActions(deps.sdk, db) }
                 // RN useFocusEffect 同位：进页兜底 sync permissions.listAll（登录 bootstrap 失败仅 warn，此处补拉）
                 LaunchedEffect(Unit) { runCatching { PermissionsApi.syncPermissions(deps.sdk) } }
+                // M5-T2 RN useFocusEffect 同位（useCanEditRoomSettings.ts:44-56）：进页刷新全局角色
+                LaunchedEffect(Unit) { deps.roleRefresher?.refresh() }
+                // M4 遗留 §4.5-1 修复：roles 走响应式流（remember 快照不随 refresh 更新）
+                val globalRoles by deps.store.roles.collectAsState()
                 RoomInfoScreen(
                     rid = route.rid,
                     roomType = route.roomType,
                     chat = chatRow,
                     currentUserId = auth?.user?.id,
-                    globalRoles = auth?.user?.roles.orEmpty(),
+                    globalRoles = globalRoles,
                     serverUrl = serverUrl,
                     token = auth?.token,
                     actions = actions,
@@ -955,13 +962,16 @@ fun AppiaNavHost(
                 val db = remember(serverUrl) {
                     deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
                 }
+                // M5-T2 RN useFocusEffect 同位（useCanRemoveRoomMember.ts:41）：进页刷新全局角色
+                LaunchedEffect(Unit) { deps.roleRefresher?.refresh() }
+                val globalRoles by deps.store.roles.collectAsState()
                 RoomMembersScreen(
                     rid = route.rid,
                     roomType = route.roomType,
                     mode = route.mode,
                     sdk = deps.sdk,
                     currentUserId = auth?.user?.id,
-                    globalRoles = auth?.user?.roles.orEmpty(),
+                    globalRoles = globalRoles,
                     serverUrl = serverUrl,
                     token = auth?.token,
                     onBack = { nav.popBackStack() },
@@ -995,12 +1005,15 @@ fun AppiaNavHost(
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 val actions = remember(db) { RoomInfoActions(deps.sdk, db) }
+                // M5-T2 RN useFocusEffect 同位（useCanEditRoomSettings.ts:44-56）：进页刷新全局角色
+                LaunchedEffect(Unit) { deps.roleRefresher?.refresh() }
+                val globalRoles by deps.store.roles.collectAsState()
                 RoomAnnouncementScreen(
                     rid = route.rid,
                     roomType = route.roomType,
                     chat = chatRow,
                     currentUserId = auth?.user?.id,
-                    globalRoles = auth?.user?.roles.orEmpty(),
+                    globalRoles = globalRoles,
                     serverUrl = serverUrl,
                     token = auth?.token,
                     sdk = deps.sdk,
@@ -1256,6 +1269,17 @@ class MainActivity : ComponentActivity() {
     @BackgroundScope
     lateinit var backgroundScope: CoroutineScope
 
+    @Inject
+    lateinit var roleRefresher: RoleRefresher
+
+    /** RN MainNavigator.tsx:60 AppState 'active' → syncCurrentUserRoles()（30s 节流内置）。 */
+    override fun onResume() {
+        super.onResume()
+        if (authStore.isAuthenticated) {
+            backgroundScope.launch { roleRefresher.refresh() }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 首帧判定在 setContent 前完成（同步读 MMKV 持久化会话）：有会话直落 Main（RN
@@ -1282,6 +1306,7 @@ class MainActivity : ComponentActivity() {
                             kv,
                             roomStreams,
                             networkMonitor,
+                            roleRefresher,
                         ),
                     )
                 }

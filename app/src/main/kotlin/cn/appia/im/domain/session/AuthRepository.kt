@@ -191,12 +191,14 @@ object SessionModule {
         store: AuthSessionStore,
         kv: KvStore,
         roomStreams: RoomStreamManager,
+        roles: RoleRefresher,
     ): RealtimeSessionManager {
         val syncInitial: suspend () -> Unit = {
             val serverUrl = store.load()?.serverUrl.orEmpty()
             RoomsSyncRepository(sdk, dbManager, kv, serverUrl).sync(RoomsSyncRepository.Mode.BOOTSTRAP)
         }
-        val manager = RealtimeSessionManager(sdk, dbManager, syncInitial)
+        // M5-T2：bootstrap extras user roles 步（RN :625 syncCurrentUserRoles({force:true})）
+        val manager = RealtimeSessionManager(sdk, dbManager, syncInitial, roles::refresh)
         val notifyScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + backgroundScopeHandler)
         val notifyUser = NotifyUserPersistence(
             dbManager = dbManager,
