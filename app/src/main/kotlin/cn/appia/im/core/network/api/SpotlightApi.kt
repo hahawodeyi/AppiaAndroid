@@ -102,6 +102,83 @@ object SpotlightApi {
         )
         return parseForwardSelectSearch(raw)
     }
+
+    /**
+     * 全局搜索默认聚合段（RN buildGlobalSearchSpotlightParams(defaultGlobalSearchParams)）：
+     * `[text, [], {users:true,rooms:true,includeFederatedRooms:true,messages:true,files:true},
+     * null, 60,60,60, false]`——users/rooms/usersInRooms/messages/files 五类全开，
+     * 无 isMessageFull/mentions 键。空词返回空响应形状不发请求（RN emptySpotlightResponse）。
+     */
+    suspend fun fetchGlobalSearch(sdk: RocketSdk, searchText: String): JsonElement {
+        val text = searchText.trim()
+        if (text.isEmpty()) return emptySpotlightResponse
+        return sdk.methodCall("spotlightv2", defaultGlobalSearchParamsArray(text)) ?: emptySpotlightResponse
+    }
+
+    /**
+     * 完整消息段（RN buildMessagesFullSearchParams，对齐旧版 allSearch({isMessageFull:true})）：
+     * `[text, [], {users:false,rooms:false,includeFederatedRooms:true,messages:true,
+     * isMessageFull:true,files:false}, null, 60,60,60, false]`；
+     * `offset` 非 null 时作为第 9 元素追加（RN messagesOffset 条件 push）。
+     */
+    suspend fun fetchMessagesFull(
+        sdk: RocketSdk,
+        searchText: String,
+        offset: Int? = null,
+    ): JsonElement {
+        val text = searchText.trim()
+        if (text.isEmpty()) return emptySpotlightResponse
+        return sdk.methodCall("spotlightv2", messagesFullParamsArray(text, offset)) ?: emptySpotlightResponse
+    }
+}
+
+/** RN emptySpotlightResponse（spotlightV2GlobalSearch.ts:67-73）：空词空响应形状。 */
+internal val emptySpotlightResponse: JsonObject = buildJsonObject {
+    put("users", JsonArray(emptyList()))
+    put("rooms", JsonArray(emptyList()))
+    put("usersInRooms", JsonArray(emptyList()))
+    put("messages", buildJsonObject { put("rooms", JsonArray(emptyList())) })
+    put("files", JsonArray(emptyList()))
+}
+
+/** RN defaultGlobalSearchParams → buildGlobalSearchSpotlightParams 参数数组逐位。 */
+internal fun defaultGlobalSearchParamsArray(text: String): List<JsonElement> = listOf(
+    JsonPrimitive(text),
+    JsonArray(emptyList()),
+    buildJsonObject {
+        put("users", true)
+        put("rooms", true)
+        put("includeFederatedRooms", true)
+        put("messages", true)
+        put("files", true)
+    },
+    JsonNull,
+    JsonPrimitive(60),
+    JsonPrimitive(60),
+    JsonPrimitive(60),
+    JsonPrimitive(false),
+)
+
+/** RN buildMessagesFullSearchParams → 参数数组逐位（offset 非 null 时第 9 位追加）。 */
+internal fun messagesFullParamsArray(text: String, offset: Int? = null): List<JsonElement> {
+    val base = listOf(
+        JsonPrimitive(text),
+        JsonArray(emptyList()),
+        buildJsonObject {
+            put("users", false)
+            put("rooms", false)
+            put("includeFederatedRooms", true)
+            put("messages", true)
+            put("isMessageFull", true)
+            put("files", false)
+        },
+        JsonNull,
+        JsonPrimitive(60),
+        JsonPrimitive(60),
+        JsonPrimitive(60),
+        JsonPrimitive(false),
+    )
+    return if (offset != null) base + JsonPrimitive(offset) else base
 }
 
 private fun JsonObject.str(key: String): String? =

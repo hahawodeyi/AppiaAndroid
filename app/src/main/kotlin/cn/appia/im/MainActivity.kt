@@ -78,6 +78,7 @@ import cn.appia.im.core.network.api.ForwardApi
 import cn.appia.im.core.network.api.PermissionsApi
 import cn.appia.im.core.network.api.ReadReceiptsApi
 import cn.appia.im.core.network.api.RoomsApi
+import cn.appia.im.core.network.api.FilesSearchApi
 import cn.appia.im.core.network.api.SpotlightApi
 import cn.appia.im.core.media.UploadApi
 import cn.appia.im.feature.chat.MessageEditController
@@ -96,6 +97,13 @@ import cn.appia.im.feature.contacts.ui.CreateChannelMembersScreen
 import cn.appia.im.feature.contacts.ui.MyCardScreen
 import cn.appia.im.feature.contacts.ui.MemberProfileScreen
 import cn.appia.im.feature.contacts.ui.TeamScreen
+import cn.appia.im.feature.search.GlobalSearchViewModel
+import cn.appia.im.feature.search.interpolate
+import cn.appia.im.feature.search.pickGlobalSearchFileLink
+import cn.appia.im.feature.search.globalSearchUploadFileId
+import cn.appia.im.feature.search.ui.GlobalSearchMessageDetailScreen
+import cn.appia.im.feature.search.ui.GlobalSearchScreen
+import cn.appia.im.feature.chat.ui.buildDocPreviewParamsFromFileLink
 import cn.appia.im.feature.roominfo.RoomInfoActions
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
 import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
@@ -251,6 +259,20 @@ data object MyCardRoute
 /** 通讯录双树（M4 T6）：deptId 空 = 根视图（PMT/L1D 双 tab），非空 = 子部门视图（push）。 */
 @Serializable
 data class TeamRoute(val deptId: String? = null)
+
+/** 全局搜索（M5-T5，RN navigate('GlobalSearch', { initialQuery? })）。 */
+@Serializable
+data class GlobalSearchRoute(val initialQuery: String = "")
+
+/** 全局搜索消息详情（M5-T5，RN navigate('GlobalSearchMessageDetail', {rid,title,roomType,searchText,...})）。 */
+@Serializable
+data class GlobalSearchMessageDetailRoute(
+    val rid: String,
+    val title: String = "",
+    val roomType: String = "c",
+    val searchText: String = "",
+    val avatarName: String? = null,
+)
 
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
 const val MENTION_SELECTED_KEY = "mention_selected"
@@ -515,6 +537,8 @@ fun AppiaNavHost(
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
                     onOpenContacts = { nav.navigate(TeamRoute()) },
                     onOpenMyCard = { nav.navigate(MyCardRoute) },
+                    // 全局搜索入口（M5-T5 / RN RoomListSearchBar onFocusNavigate）
+                    onOpenSearch = { nav.navigate(GlobalSearchRoute()) },
                 )
             }
         }
@@ -1211,6 +1235,143 @@ fun AppiaNavHost(
                         nav.navigate(MemberProfileRoute(username = username, userId = userId))
                     },
                     onOpenDept = { deptId -> nav.navigate(TeamRoute(deptId = deptId)) },
+                )
+            }
+        }
+        // 全局搜索（M5-T5 / RN screens/GlobalSearchScreen）：spotlight 三段 + files cursor 分页；
+        // contact → openDirectMessage 链（resolveDirectChatRid knownRid 本地确证后采用）；
+        // 频道/房间 → 平跳 RoomRoute（tSearch bump 为 T8 接线）
+        composable<GlobalSearchRoute> { entry ->
+            val route = entry.toRoute<GlobalSearchRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val context = LocalContext.current
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                val tResolver = remember {
+                    { key: String, args: Map<String, String> -> interpolate(context.t(key), args) }
+                }
+                val viewModel = remember(serverUrl) {
+                    GlobalSearchViewModel(
+                        fetchGlobalSearch = { q -> SpotlightApi.fetchGlobalSearch(deps.sdk, q) },
+                        fetchMessagesFull = { q -> SpotlightApi.fetchMessagesFull(deps.sdk, q) },
+                        fetchFilesPage = { q, cursor -> FilesSearchApi.search(deps.sdk, q, cursor) },
+                        chatsFlow = db.chatDao().observeList(),
+                        currentUserId = auth?.user?.id,
+                        scope = deps.scope,
+                        t = tResolver,
+                    )
+                }
+                // 深链 initialQuery 种入（RN route.params.initialQuery 初值）
+                LaunchedEffect(Unit) {
+                    if (route.initialQuery.isNotBlank()) viewModel.onQueryChanged(route.initialQuery)
+                }
+                val state by viewModel.state.collectAsState()
+                GlobalSearchScreen(
+                    initialQuery = route.initialQuery,
+                    state = state,
+                    serverUrl = serverUrl,
+                    currentUserId = auth?.user?.id,
+                    token = auth?.token,
+                    onQueryChanged = viewModel::onQueryChanged,
+                    onLoadMoreFiles = viewModel::loadMoreFiles,
+                    // contact → openDirectMessage 链三段（RN openDirectMessage knownRid 语义：
+                    // spotlight 回退成 username 的 rid 会被 resolveDirectChatRid 本地确证拒绝）
+                    onOpenContact = { username, title, knownRid ->
+                        deps.scope.launch {
+                            val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username, knownRid)
+                            if (rid != null) {
+                                nav.navigate(RoomRoute(rid = rid, title = title, roomType = "d"))
+                            } else {
+                                Toast.makeText(
+                                    context, context.t("globalsearch_opendmfailed"), Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    },
+                    onOpenRoom = { rid, title, roomType ->
+                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType))
+                    },
+                    onOpenMessageDetail = { row ->
+                        nav.navigate(
+                            GlobalSearchMessageDetailRoute(
+                                rid = row.rid,
+                                title = row.title,
+                                roomType = row.roomType,
+                                searchText = state.query,
+                                avatarName = row.avatarName,
+                            ),
+                        )
+                    },
+                    onOpenFile = { file ->
+                        val link = pickGlobalSearchFileLink(file.raw)
+                        val userId = auth?.user?.id.orEmpty()
+                        val token = auth?.token.orEmpty()
+                        if (link == null || serverUrl.isBlank() || userId.isEmpty() || token.isEmpty()) {
+                            Toast.makeText(
+                                context, context.t("globalsearch_fileopenfailed"), Toast.LENGTH_SHORT,
+                            ).show()
+                            return@GlobalSearchScreen
+                        }
+                        val params = buildDocPreviewParamsFromFileLink(
+                            title = file.name.ifEmpty { context.t("docpreview_untitled") },
+                            fileLink = link,
+                            fileUrl = null,
+                            userId = userId,
+                            token = token,
+                            server = serverUrl,
+                            fileIdFallback = globalSearchUploadFileId(file.raw),
+                        )
+                        nav.navigate(
+                            DocPreviewRoute(
+                                title = params.title,
+                                fileId = params.fileId,
+                                downloadUrl = params.downloadUrl,
+                                fileType = params.fileType,
+                            ),
+                        )
+                    },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        // 全局搜索消息详情（M5-T5 / RN GlobalSearchMessageDetailScreen）：chat.search 50 分页去重止步
+        composable<GlobalSearchMessageDetailRoute> { entry ->
+            val route = entry.toRoute<GlobalSearchMessageDetailRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                // 发送者名 useRealName 门控（T4 评审转发要求：与房内显示一致）
+                val useRealName = rememberPublicSettingBoolean(
+                    db.settingDao(), "UI_Use_Real_Name", default = true,
+                )
+                GlobalSearchMessageDetailScreen(
+                    rid = route.rid,
+                    title = route.title,
+                    roomType = route.roomType,
+                    searchText = route.searchText,
+                    avatarName = route.avatarName,
+                    sdk = deps.sdk,
+                    serverUrl = serverUrl,
+                    currentUserId = auth?.user?.id,
+                    token = auth?.token,
+                    useRealName = useRealName,
+                    // 频道条 → 平跳进房（tSearch bump 为 T8）
+                    onOpenRoom = { rid, title, roomType ->
+                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType))
+                    },
+                    // 消息行跳转高亮为 T6 接线；当前缺省回退平跳进房（onJumpTo = null）
+                    onJumpTo = null,
+                    onBack = { nav.popBackStack() },
                 )
             }
         }

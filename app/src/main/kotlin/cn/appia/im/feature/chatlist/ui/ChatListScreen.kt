@@ -77,6 +77,8 @@ fun ChatListScreen(
     onOpenMyCard: () -> Unit = {},
     // 提及 label 真名（M5-T4 / RN RoomItemLastMessage UI_Use_Real_Name）：装配处 observeById 表读传入
     useRealName: Boolean = true,
+    // 全局搜索入口（M5-T5 / RN RoomListSearchBar onFocusNavigate → navigate('GlobalSearch'))
+    onOpenSearch: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -162,7 +164,7 @@ fun ChatListScreen(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // search 入口占位（全局搜索 M5；RN 搜索框已隐藏，留 Maestro 定位点）
+            // search 入口（M5-T5 接线：RN RoomListSearchBar onFocusNavigate → GlobalSearch；保留 Maestro 定位点）
             Text(
                 "⌕",
                 color = colors.headerTintColor,
@@ -170,6 +172,7 @@ fun ChatListScreen(
                 modifier = Modifier
                     .size(40.dp)
                     .wrapContentSize(Alignment.Center)
+                    .clickable(onClick = onOpenSearch)
                     .testTag("qa-room-list-search"),
             )
             Box {

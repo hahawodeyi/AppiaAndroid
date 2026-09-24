@@ -202,4 +202,93 @@ class SpotlightApiTest {
             users,
         )
     }
+
+    // \u2500\u2500 \u5168\u5c40\u641c\u7d22\uff08M5-T5\uff0cRN buildGlobalSearchSpotlightParams \u9010\u4f4d\uff09\u2500\u2500
+
+    /** RN defaultGlobalSearchParams \u2192 `[q, [], {users,rooms,includeFederatedRooms,messages,files}, null, 60,60,60, false]`\u3002 */
+    @Test
+    fun `global search default params array matches RN bit by bit`() = runBlocking {
+        server.enqueue(MockResponse().setBody(envelope("{}")))
+        SpotlightApi.fetchGlobalSearch(newSdk(), " \u5f20 ")
+
+        val req = server.takeRequest()
+        assertEquals("/api/v1/method.call/spotlightv2", req.path)
+        val outer = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+        val message = Json.parseToJsonElement(outer["message"]!!.jsonPrimitive.content).jsonObject
+        assertEquals("spotlightv2", message["method"]!!.jsonPrimitive.content)
+        val params = message["params"]!!.jsonArray
+        assertEquals("\u5f20", params[0].jsonPrimitive.content)
+        assertEquals(JsonArray(emptyList()), params[1])
+        assertEquals(
+            JsonObject(
+                mapOf(
+                    "users" to JsonPrimitive(true),
+                    "rooms" to JsonPrimitive(true),
+                    "includeFederatedRooms" to JsonPrimitive(true),
+                    "messages" to JsonPrimitive(true),
+                    "files" to JsonPrimitive(true),
+                ),
+            ),
+            params[2],
+        )
+        assertEquals(JsonNull, params[3])
+        assertEquals(60, params[4].jsonPrimitive.content.toInt())
+        assertEquals(60, params[5].jsonPrimitive.content.toInt())
+        assertEquals(60, params[6].jsonPrimitive.content.toInt())
+        assertEquals(false, params[7].jsonPrimitive.content.toBoolean())
+        assertEquals(8, params.size)
+    }
+
+    /** RN buildMessagesFullSearchParams\uff1aisMessageFull:true + users/rooms/files:false\uff088 \u5143\u7d20\uff09\u3002 */
+    @Test
+    fun `messages full params array matches RN bit by bit`() = runBlocking {
+        server.enqueue(MockResponse().setBody(envelope("{}")))
+        SpotlightApi.fetchMessagesFull(newSdk(), "doc")
+
+        val req = server.takeRequest()
+        val outer = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+        val message = Json.parseToJsonElement(outer["message"]!!.jsonPrimitive.content).jsonObject
+        val params = message["params"]!!.jsonArray
+        assertEquals("doc", params[0].jsonPrimitive.content)
+        assertEquals(
+            JsonObject(
+                mapOf(
+                    "users" to JsonPrimitive(false),
+                    "rooms" to JsonPrimitive(false),
+                    "includeFederatedRooms" to JsonPrimitive(true),
+                    "messages" to JsonPrimitive(true),
+                    "isMessageFull" to JsonPrimitive(true),
+                    "files" to JsonPrimitive(false),
+                ),
+            ),
+            params[2],
+        )
+        assertEquals(JsonNull, params[3])
+        assertEquals(60, params[4].jsonPrimitive.content.toInt())
+        assertEquals(60, params[5].jsonPrimitive.content.toInt())
+        assertEquals(60, params[6].jsonPrimitive.content.toInt())
+        assertEquals(false, params[7].jsonPrimitive.content.toBoolean())
+        assertEquals(8, params.size)
+    }
+
+    /** RN messagesOffset \u6761\u4ef6 push\uff1a\u975e null \u65f6\u7b2c 9 \u5143\u7d20\u8ffd\u52a0\u3002 */
+    @Test
+    fun `messages full appends offset as ninth element`() = runBlocking {
+        server.enqueue(MockResponse().setBody(envelope("{}")))
+        SpotlightApi.fetchMessagesFull(newSdk(), "doc", offset = 20)
+
+        val req = server.takeRequest()
+        val outer = Json.parseToJsonElement(req.body.readUtf8()).jsonObject
+        val message = Json.parseToJsonElement(outer["message"]!!.jsonPrimitive.content).jsonObject
+        val params = message["params"]!!.jsonArray
+        assertEquals(9, params.size)
+        assertEquals(20, params[8].jsonPrimitive.content.toInt())
+    }
+
+    @Test
+    fun `blank global search returns empty shape without request`() = runBlocking {
+        val raw = SpotlightApi.fetchGlobalSearch(newSdk(), "   ")
+        assertEquals(emptySpotlightResponse, raw)
+        assertEquals(0, server.requestCount)
+    }
 }
