@@ -213,10 +213,16 @@ private fun ReceiptTab(
     }
 }
 
-/** 单行：40dp 圆头像（initial 垫底 + Coil AsyncImage 鉴权 URL）+ 名字。RN ReceiptListItem 同构。 */
+/** 单行：40dp 圆头像（initial 垫底 + Coil AsyncImage 鉴权 URL）+ presence 绿点 + 名字。RN ReceiptListItem 同构。 */
 @Composable
 private fun ReceiptListItem(user: ReadReceiptUser, avatarUrl: String?, name: String) {
     val colors = LocalAppiaColors.current
+    val presence = presenceBadge(
+        userId = user._id,
+        username = user.username,
+        fallbackStatus = null,
+        avatarSize = 40.dp,
+    )
     Row(
         Modifier
             .fillMaxWidth()
@@ -238,6 +244,7 @@ private fun ReceiptListItem(user: ReadReceiptUser, avatarUrl: String?, name: Str
                     modifier = Modifier.size(40.dp).clip(CircleShape),
                 )
             }
+            presence()
         }
         Text(
             name,

@@ -241,6 +241,8 @@ fun RoomInfoScreen(
                 DirectAvatarCard(
                     displayName = displayName,
                     otherUsername = chat?.name.orEmpty(),
+                    // M5-T3：单聊 peer 绿点（RN RoomInfo :71 directPeerUserId——uids 剔除自己）
+                    presenceUserId = cn.appia.im.domain.presence.resolveDirectPeerUserId(chat?.uids, currentUserId),
                     avatarUrl = memberAvatarUrl(
                         serverUrl, chat?.name.orEmpty(), currentUserId, token,
                         with(density) { 50.dp.roundToPx() },
@@ -551,6 +553,7 @@ private fun MembersCard(
                         MemberAvatar(
                             avatarUrl = memberAvatarUrl(serverUrl, member.username, currentUserId, token, avatarSizePx),
                             fallbackLabel = member.name ?: member.username,
+                            presenceUserId = member._id.takeIf { it.isNotEmpty() }, // RN :254 member._id
                         )
                         Text(
                             member.name ?: member.username,
@@ -616,9 +619,20 @@ private fun SlotAction(label: String, symbol: String, onPress: () -> Unit, tag: 
     }
 }
 
-/** 成员头像：initial 垫底 + AsyncImage（RN DirectAvatar fallbackLabel 同义）。 */
+/** 成员头像：initial 垫底 + AsyncImage（RN DirectAvatar fallbackLabel 同义）+ presence 绿点。 */
 @Composable
-private fun MemberAvatar(avatarUrl: String?, fallbackLabel: String) {
+private fun MemberAvatar(
+    avatarUrl: String?,
+    fallbackLabel: String,
+    presenceUserId: String? = null,
+    username: String? = null,
+) {
+    val presence = cn.appia.im.feature.chat.ui.presenceBadge(
+        userId = presenceUserId,
+        username = username,
+        fallbackStatus = null,
+        avatarSize = 50.dp,
+    )
     Box(
         Modifier
             .size(50.dp)
@@ -632,6 +646,7 @@ private fun MemberAvatar(avatarUrl: String?, fallbackLabel: String) {
             fontSize = 18.sp,
         )
         AsyncImage(model = avatarUrl, contentDescription = null, modifier = Modifier.matchParentSize())
+        presence()
     }
 }
 
@@ -640,6 +655,7 @@ private fun MemberAvatar(avatarUrl: String?, fallbackLabel: String) {
 private fun DirectAvatarCard(
     displayName: String,
     otherUsername: String,
+    presenceUserId: String?,
     avatarUrl: String?,
     onOpenProfile: () -> Unit,
     onAdd: () -> Unit,
@@ -660,7 +676,12 @@ private fun DirectAvatarCard(
                 .testTag("qa-roominfo-direct-peer"),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            MemberAvatar(avatarUrl = avatarUrl, fallbackLabel = displayName.ifEmpty { otherUsername })
+            MemberAvatar(
+                avatarUrl = avatarUrl,
+                fallbackLabel = displayName.ifEmpty { otherUsername },
+                presenceUserId = presenceUserId,
+                username = otherUsername.takeIf { it.isNotEmpty() },
+            )
             Text(
                 displayName.ifEmpty { otherUsername },
                 Modifier.padding(top = 4.dp),

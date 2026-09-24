@@ -1,5 +1,8 @@
 package cn.appia.im.feature.contacts
 
+import cn.appia.im.domain.presence.TUserStatus
+import cn.appia.im.domain.presence.isRocketChatUserId
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

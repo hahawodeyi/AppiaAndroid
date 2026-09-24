@@ -52,6 +52,7 @@ import cn.appia.im.core.chat.canConfirmCreateChannel
 import cn.appia.im.core.chat.filterPartnerGroups
 import cn.appia.im.core.chat.mapPartnerGroups
 import cn.appia.im.core.chat.mapRecentContactRows
+import cn.appia.im.feature.chat.ui.presenceBadge
 import cn.appia.im.core.chat.partnerGroupCheckState
 import cn.appia.im.core.chat.togglePartnerGroupUsers
 import cn.appia.im.core.database.DatabaseManager
@@ -642,6 +643,7 @@ fun CreateChannelMembersScreen(
                                     disabled = isUserDisabled(row.username),
                                     onToggle = { toggleUsername(row.username) },
                                     testTag = "qa-ccm-recent-row-${row.username}",
+                                    presenceUsername = row.username,
                                 )
                             }
                         }
@@ -687,6 +689,7 @@ fun CreateChannelMembersScreen(
                                     disabled = !agent.active || isUserDisabled(agent.username),
                                     onToggle = { toggleUsername(agent.username) },
                                     testTag = "qa-ccm-agent-row-${agent.username}",
+                                    presenceUsername = agent.username,
                                 )
                             }
                         }
@@ -879,8 +882,16 @@ private fun MemberRow(
     disabled: Boolean,
     onToggle: () -> Unit,
     testTag: String,
+    presenceUsername: String? = null, // M5-T3：RN resolvePresenceUserId（userMap _id）→ Android resolver 链
 ) {
     val colors = LocalAppiaColors.current
+    // M5-T3：单聊绿点（RN DirectAvatar presenceUserId；username 经 resolver 400ms 解析）
+    val presence = presenceBadge(
+        userId = null,
+        username = presenceUsername,
+        fallbackStatus = null,
+        avatarSize = 38.dp,
+    )
     Row(
         Modifier
             .fillMaxWidth()
@@ -899,6 +910,7 @@ private fun MemberRow(
             contentAlignment = Alignment.Center,
         ) {
             Text(title.take(1), color = colors.auxiliaryText, fontSize = 15.sp)
+            presence()
         }
         Column(Modifier.weight(1f).padding(start = 10.dp)) {
             Text(title, color = colors.titleText, fontSize = 15.sp, maxLines = 1)
@@ -965,6 +977,7 @@ private fun PartnerGroupBlock(
                     disabled = disabled(u.username),
                     onToggle = { onToggleUser(u.username) },
                     testTag = "qa-ccm-partner-row-${u.username}",
+                    presenceUsername = u.username,
                 )
             }
         }
@@ -1003,6 +1016,7 @@ private fun SearchResultsPane(
                         disabled = disabled(user.username),
                         onToggle = { onToggle(user.username) },
                         testTag = "qa-ccm-search-row-${user.username}",
+                        presenceUsername = user.username,
                     )
                 }
             }
@@ -1081,6 +1095,7 @@ private fun OrgTreePane(
                                         disabled = isUserDisabled(row.username),
                                         onToggle = { onToggleUser(row.username) },
                                         testTag = "qa-ccm-org-user-${row.username}",
+                                        presenceUsername = row.username,
                                     )
                                 }
                             }

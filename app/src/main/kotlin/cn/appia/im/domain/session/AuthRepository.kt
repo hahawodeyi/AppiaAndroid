@@ -216,12 +216,21 @@ object SessionModule {
         // M5-T1：public-settings-changed 流消费（RN publicSettingsStream.ts）——stream-notify-all
         // 分发 M1 已有（订阅/监听/注册表齐备），此处补首个业务 handler（permissions 先例同位）
         manager.setStreamHandler(StreamNames.NOTIFY_ALL, manager::handlePublicSettingsChanged)
+        // M5-T3：presence 三层接线——batcher/resolver 装配（同 scope）+ stream-user-presence
+        // 帧分发（监听在 manager wireBaseHandlers，订阅由 batcher flush 按需 subscribeRaw added）
+        cn.appia.im.domain.presence.PresenceBatcher.attach(sdk, notifyScope)
+        cn.appia.im.domain.presence.UsernameIdResolver.attach(sdk, notifyScope)
+        manager.setStreamHandler(StreamNames.USER_PRESENCE, manager::handleStreamUserPresence)
         // T6 重连收尾：全局流恢复后重订全部活跃房间流（RN session.ts:162）
         manager.addReconnectTail { roomStreams.resubscribeAllActiveRoomStreams() }
         // T6 teardown：清活跃房间流表 + notify-user 待 flush 队列（RN :676-677；网络退订随 disconnect）
         manager.addTeardownHook {
             roomStreams.onSessionTornDown()
             notifyUser.clearQueue()
+            // M5-T3：presence 三层清空（RN authStore logout :153 usePresenceStore.clear + Android
+            // 跨账号加固——username→id 缓存/订阅去重表/pending 一并清）
+            cn.appia.im.domain.presence.PresenceBatcher.reset()
+            cn.appia.im.domain.presence.UsernameIdResolver.reset()
         }
         return manager
     }

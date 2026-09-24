@@ -53,6 +53,7 @@ import cn.appia.im.core.network.api.RoomsApi
 import cn.appia.im.core.permissions.PermissionsStore
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.chat.ui.RoomHeader
+import cn.appia.im.feature.chat.ui.presenceBadge
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -525,6 +526,13 @@ private fun MemberItem(
                 if (checked) Text("✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
+        // M5-T3：presence 绿点（RN DirectAvatar presenceUserId={item._id}——仅 store 链）
+        val presence = cn.appia.im.feature.chat.ui.presenceBadge(
+            userId = member._id.takeIf { it.isNotEmpty() },
+            username = null,
+            fallbackStatus = null,
+            avatarSize = MEMBER_AVATAR_SIZE,
+        )
         Box(
             Modifier
                 .padding(start = if (removeMode && showCheckbox) 12.dp else 0.dp)
@@ -543,6 +551,7 @@ private fun MemberItem(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
             )
+            presence()
         }
         Row(
             Modifier

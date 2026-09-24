@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.sp
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.LocalAppiaColors
+import cn.appia.im.domain.presence.resolveDirectPeerUserId
+import cn.appia.im.feature.chat.ui.presenceBadge
 import coil3.compose.AsyncImage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -159,6 +161,14 @@ fun ChatRow(
             if (chat.f) {
                 Text("★", Modifier.align(Alignment.TopEnd), color = StarGold, fontSize = 14.sp)
             }
+            // M5-T3：单聊绿点（RN RoomAvatar 直连分支——resolveDirectPeerUserId 链：
+            // uids 剔除自己取 peer；仅 store 链，无 fallback/username）
+            presenceBadge(
+                userId = if (chat.t == "d") resolveDirectPeerUserId(chat.uids, currentUserId) else null,
+                username = null,
+                fallbackStatus = null,
+                avatarSize = 48.dp,
+            )()
         }
 
         Column(Modifier.weight(1f).padding(start = 10.dp, end = 16.dp, top = 10.dp, bottom = 10.dp)) {

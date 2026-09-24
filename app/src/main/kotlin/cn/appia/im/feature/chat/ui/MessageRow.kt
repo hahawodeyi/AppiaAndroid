@@ -328,6 +328,13 @@ fun MessageRow(
             )
         }
         // 头像固定列：initial 垫底 + Coil AsyncImage（鉴权 rc_token/rc_uid + etag v）
+        // + presence 绿点（M5-T3 / RN DirectAvatar presenceUserId=senderId）
+        val presence = presenceBadge(
+            userId = parsed._id,
+            username = parsed.username,
+            fallbackStatus = null, // 消息行无通讯录 fallback（RN 同——仅 store 链）
+            avatarSize = AVATAR_SIZE,
+        )
         Box(Modifier.padding(top = 4.dp).size(AVATAR_SIZE), contentAlignment = Alignment.Center) {
             Box(
                 Modifier.size(AVATAR_SIZE).clip(CircleShape).background(colors.chatComponentBackground),
@@ -346,6 +353,7 @@ fun MessageRow(
                     modifier = Modifier.size(AVATAR_SIZE).clip(CircleShape),
                 )
             }
+            presence()
         }
 
         Column(Modifier.weight(1f).padding(start = 10.dp)) {

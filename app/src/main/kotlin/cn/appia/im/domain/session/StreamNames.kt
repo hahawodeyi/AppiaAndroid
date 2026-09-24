@@ -11,6 +11,9 @@ object StreamNames {
     const val ROLES = "stream-roles"
     const val NOTIFY_ALL = "stream-notify-all"
 
+    /** M5-T3：presence 增量流（RN batchRequestPresence :47 按需 subscribeRaw added；非全局六流）。 */
+    const val USER_PRESENCE = "stream-user-presence"
+
     // ---- eventName（sub.params[0]）----
     const val SUBSCRIPTIONS_CHANGED = "subscriptions-changed"
     const val ROOMS_CHANGED = "rooms-changed"

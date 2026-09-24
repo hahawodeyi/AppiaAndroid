@@ -1,5 +1,9 @@
 package cn.appia.im.feature.contacts
 
+import cn.appia.im.domain.presence.TUserStatus
+import cn.appia.im.domain.presence.isRocketChatUserId
+import cn.appia.im.domain.presence.mapContactStatusToTUserStatus
+import cn.appia.im.domain.presence.pickContactPresenceRaw
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -9,8 +13,9 @@ import kotlinx.serialization.json.contentOrNull
 
 /**
  * 通讯录团队模型（RN src/lib/team/teamModels.ts 逐行移植）+
- * employeeUtils.getEmployeeDesc + presence 判定链（pickContactPresenceRaw/
- * mapContactStatusToTUserStatus/pickPresenceUserId/isRocketChatUserId/isBotUserId）。
+ * employeeUtils.getEmployeeDesc。
+ * presence 判定链（TUserStatus/isRocketChatUserId/…）M5-T3 迁入 domain/presence——
+ * 本文件保留 contacts 侧组合（pickPresenceUserId），纯判定反向引用。
  * 纯函数无 IO；UI 侧由 [ui.TeamScreen] 消费。
  */
 
@@ -63,9 +68,6 @@ data class TeamDepartment(
     val usersCountIncludeChildren: Int? = null,
     val countIncludeChildren: Map<String, Int> = emptyMap(),
 )
-
-/** RN TUserStatus（presence 展示态）。 */
-enum class TUserStatus { ONLINE, AWAY, BUSY, OFFLINE }
 
 /** RN TeamMember。 */
 data class TeamMember(
@@ -142,49 +144,15 @@ data class TeamFlatListModel(
 /** RN TeamHomeSearchResult。 */
 data class TeamHomeSearchResult(val departments: List<TeamDeptSummary>, val members: List<TeamMember>)
 
-// ── presence 判定链（RN lib/presence/*）──
+// ── presence 判定链（RN lib/presence/*——M5-T3 迁 domain/presence，本文件仅剩 contacts 组合）──
 
-private val METEOR_ID_RE = Regex("^[0-9a-zA-Z]{17}$")
-private const val DEPT_KEY_PREFIX = "EMT-"
-
-/** RN isBotUser.isBotUserId：含 '.bot' 即 bot。 */
-internal fun isBotUserId(userId: String?): Boolean = userId?.contains(".bot") == true
-
-/**
- * RN isRocketChatUserId：EMT- 部门 key / bot / 与 username 相同的 _id 排除；
- * 17 位 Meteor id 通过；含 '.' 的 username 形态排除；其余 ≥6 字符通过。
- */
-internal fun isRocketChatUserId(id: String?, username: String? = null): Boolean {
-    val trimmed = id?.trim().orEmpty()
-    if (trimmed.isEmpty() || isBotUserId(trimmed)) return false
-    if (trimmed.startsWith(DEPT_KEY_PREFIX)) return false
-    val normalizedUsername = username?.trim().orEmpty()
-    if (normalizedUsername.isNotEmpty() && trimmed == normalizedUsername) return false
-    if (METEOR_ID_RE.matches(trimmed)) return true
-    if (trimmed.contains('.')) return false
-    return trimmed.length >= 6
-}
-
-/** RN pickPresenceUserId：user._id 优先（须真 RC id），否则 userMap key；仅 username → null（T9 resolve 链）。 */
+/** RN pickPresenceUserId：user._id 优先（须真 RC id），否则 userMap key；仅 username → null（resolver 链）。 */
 internal fun pickPresenceUserId(user: TeamUser, userKey: String): String? {
     val fromUser = user._id?.trim().orEmpty()
     if (fromUser.isNotEmpty() && isRocketChatUserId(fromUser, user.username)) return fromUser
     val key = userKey.trim()
     if (key.isNotEmpty() && isRocketChatUserId(key, user.username)) return key
     return null
-}
-
-/** RN pickContactPresenceRaw：statusConnection ?? onlineStatus ?? status。 */
-internal fun pickContactPresenceRaw(user: TeamUser): String? =
-    user.statusConnection ?: user.onlineStatus ?: user.status
-
-/** RN mapContactStatusToTUserStatus：在线四态；未知/空 → null。 */
-internal fun mapContactStatusToTUserStatus(raw: String?): TUserStatus? = when (raw?.trim()?.lowercase()) {
-    "online" -> TUserStatus.ONLINE
-    "away" -> TUserStatus.AWAY
-    "busy" -> TUserStatus.BUSY
-    "offline" -> TUserStatus.OFFLINE
-    else -> null
 }
 
 // ── employeeUtils.getEmployeeDesc（\u 转义过中文检查钩子）──
@@ -237,7 +205,8 @@ private data class MemberSource(val userKey: String, val deptId: String)
 // ── 内部工具 ──
 
 private fun toOnlineStatus(user: TeamUser): Boolean {
-    val raw = pickContactPresenceRaw(user)?.lowercase().orEmpty()
+    val raw = pickContactPresenceRaw(user.statusConnection, user.onlineStatus, user.status)
+            ?.lowercase().orEmpty()
     return raw == "online" || raw == "away"
 }
 
@@ -285,7 +254,9 @@ private fun toMember(
         isSelf = isSelf,
         employeeDesc = getEmployeeDesc(user.employeeStatus, user.employeeType),
         presenceUserId = pickPresenceUserId(user, userKey),
-        presenceFallbackStatus = mapContactStatusToTUserStatus(pickContactPresenceRaw(user)),
+        presenceFallbackStatus = mapContactStatusToTUserStatus(
+            pickContactPresenceRaw(user.statusConnection, user.onlineStatus, user.status),
+        ),
     )
 }
 

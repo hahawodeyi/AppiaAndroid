@@ -367,8 +367,9 @@ class RealtimeSessionManager(
         // 步骤 6：generation 检查（RN :585-587）
         if (bootstrapGeneration.get() != generationAtStart) return
 
-        // 步骤 7：presence 占位（RN :589-592 requestUserPresence(selfId)——M5 接入）
-        Log.d(TAG, "requestUserPresence placeholder (M5)")
+        // 步骤 7：presence 预取（RN :589-592 requestUserPresence(selfId)——M5-T3 接入；
+        // 2s 防抖内首次 flush，username/uid 均有效）
+        lastUserId?.takeIf { it.isNotEmpty() }?.let { cn.appia.im.domain.presence.PresenceBatcher.requestUserPresence(it) }
 
         // 步骤 8：sessionKey 落定（RN :594）。检查+赋值与 reset/teardown 的清理同锁原子化
         // （评审 Important-2）：交错时必有一方整体先行，不会把已清的 sessionKey 写回
@@ -376,7 +377,6 @@ class RealtimeSessionManager(
             if (bootstrapGeneration.get() != generationAtStart) return
             sessionKey = key
         }
-
         // 步骤 9：后台 fire-and-forget 占位（RN :596-629，M5 补全）
         launchBootstrapExtras(generationAtStart)
     }
@@ -466,7 +466,22 @@ class RealtimeSessionManager(
     }
 
     /**
-     * RN syncCustomEmojis（services/emoji/syncCustomEmojis.ts）：GET emoji-custom.list →
+     * `stream-user-presence` 帧消费（RN session.ts:236-246 逐行）：[PresenceStreamParser.parse]
+     * 索引映射 → [PresenceStore.setUserStatus]。坏帧静默丢弃（RN 同）。
+     *
+     * 接入：SessionModule 经 [setStreamHandler] 注册（permissions/public-settings 先例）；
+     * 订阅本身由 PresenceBatcher flush 内 subscribeRaw 增量 added（RN batchRequestPresence :47，
+     * **不在 subscribeAuthenticatedStreams 六条全局流内**——按需订阅）。
+     */
+    fun handleStreamUserPresence(ddpMessage: JsonElement) {
+        val parsed = cn.appia.im.domain.presence.PresenceStreamParser.parse(ddpMessage) ?: return
+        cn.appia.im.domain.presence.PresenceStore.setUserStatus(
+            parsed.userId,
+            cn.appia.im.domain.presence.PresenceStore.ActiveUserEntry(parsed.status, parsed.statusText),
+        )
+    }
+
+    /** RN syncCustomEmojis（services/emoji/syncCustomEmojis.ts）：GET emoji-custom.list →
      * 整表替换（setCustomEmojis 语义；总纲 §4.4-2）——服务端删的表情不永驻。
      * 单次事务 replaceAll：observe() 不闪断（见 DAO KDoc）。
      */
@@ -672,6 +687,9 @@ class RealtimeSessionManager(
                 StreamNames.NOTIFY_LOGGED,
                 StreamNames.ROLES,
                 StreamNames.NOTIFY_ALL,
+                // M5-T3：presence 增量流监听（RN :237 wireLegacyStreamHandlers 同位）；
+                // 订阅由 PresenceBatcher 按需 subscribeRaw，此处仅帧分发
+                StreamNames.USER_PRESENCE,
             )) {
                 streamStops.add(
                     ddp.onStreamData(topic) { msg ->

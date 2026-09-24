@@ -87,7 +87,10 @@ fun MemberProfileScreen(
             return@LaunchedEffect
         }
         try {
-            profile = fetchMemberProfile(sdk, userId?.takeIf { it.isNotBlank() } ?: username)
+            val fetched = fetchMemberProfile(sdk, userId?.takeIf { it.isNotBlank() } ?: username)
+            profile = fetched
+            // M5-T3：users.info 已拿到 _id → 回写解析缓存（RN cachePresenceRcUserId :90）
+            fetched?._id?.let { cn.appia.im.domain.presence.UsernameIdResolver.cacheRcUserId(username, it) }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -141,6 +144,26 @@ fun MemberProfileScreen(
                     .padding(16.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // M5-T3 presence 双路（RN useMemberProfile：直传/override id 优先 isRocketChatUserId
+                    // 守卫，否则 profile._id 回写缓存经 resolver 命中；fallback=通讯录 status 三级原始串）
+                    val presenceUserId = cn.appia.im.domain.presence.pickEffectivePresenceUserId(
+                        userId?.takeIf { it.isNotBlank() },
+                        username,
+                        null,
+                    ) ?: cn.appia.im.domain.presence.pickEffectivePresenceUserId(
+                        profile?._id, username, null,
+                    )
+                    val fallbackStatus = cn.appia.im.domain.presence.mapContactStatusToTUserStatus(
+                        cn.appia.im.domain.presence.pickContactPresenceRaw(
+                            profile?.statusConnection, profile?.onlineStatus, profile?.status,
+                        ),
+                    )
+                    val presence = cn.appia.im.feature.chat.ui.presenceBadge(
+                        userId = presenceUserId,
+                        username = username,
+                        fallbackStatus = fallbackStatus,
+                        avatarSize = 60.dp,
+                    )
                     Box(
                         Modifier
                             .size(60.dp)
@@ -161,6 +184,7 @@ fun MemberProfileScreen(
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                         )
+                        presence()
                     }
                     Column(Modifier.padding(start = 12.dp)) {
                         Text(

@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.RocketSdk
-import cn.appia.im.core.theme.AppiaColors
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.contacts.BuildTeamFlatListParams
 import cn.appia.im.feature.contacts.BuildTeamHomeModelParams
@@ -54,6 +53,7 @@ import cn.appia.im.feature.contacts.TeamRootType
 import cn.appia.im.feature.contacts.buildTeamFlatList
 import cn.appia.im.feature.contacts.buildTeamHomeModel
 import cn.appia.im.feature.contacts.memberMatchesQuery
+import cn.appia.im.feature.chat.ui.presenceBadge
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 
@@ -626,7 +626,7 @@ private fun MemberRow(
     }
 }
 
-/** 头像：initial 垫底 + Coil AsyncImage + presence 绿点（status 回退——presence 基建 M5 落地前）。 */
+/** 头像：initial 垫底 + Coil AsyncImage + presence 绿点（store 双层合成 + 通讯录 fallback）。 */
 @Composable
 private fun MemberAvatar(
     member: TeamMember,
@@ -636,6 +636,12 @@ private fun MemberAvatar(
     size: Int,
 ) {
     val colors = LocalAppiaColors.current
+    val badge = presenceBadge(
+        userId = member.presenceUserId,
+        username = member.username,
+        fallbackStatus = member.presenceFallbackStatus,
+        avatarSize = size.dp,
+    )
     Box(
         Modifier
             .size(size.dp)
@@ -657,19 +663,8 @@ private fun MemberAvatar(
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
         )
-        // presence 绿点（RN DirectAvatar presenceFallbackStatus；online/away → 绿）
-        if (member.presenceFallbackStatus == cn.appia.im.feature.contacts.TUserStatus.ONLINE ||
-            member.presenceFallbackStatus == cn.appia.im.feature.contacts.TUserStatus.AWAY
-        ) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .size((size / 4).dp)
-                    .clip(RoundedCornerShape((size / 8).dp))
-                    .background(AppiaColors.status.online)
-                    .testTag("qa-team-presence-${member.username}"),
-            )
-        }
+        // presence 绿点（RN DirectAvatar：store ?? presenceFallbackStatus 双层，bot 剔除，online/away）
+        badge()
     }
 }
 
