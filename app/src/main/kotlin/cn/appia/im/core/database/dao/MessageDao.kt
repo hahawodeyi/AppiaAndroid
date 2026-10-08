@@ -82,8 +82,10 @@ interface MessageDao {
     fun observe(): Flow<List<MessageEntity>>
 
     /**
-     * 加密房本地文本搜索（M5-T7 / RN queryLocalRoomMessagesByText：`msg LIKE %q%`，
-     * Watermelon sanitizeLikeString 语义 = `\ % _` 转义；ESCAPE '\' 与 Room LIKE 默认一致）。
+     * 加密房本地文本搜索（M5-T7 / RN queryLocalRoomMessagesByText 的字面匹配面）：
+     * `msg LIKE %q%` + sanitizeLike 转义 + `ESCAPE '\'`。
+     * **故意分歧（评审 I1）**：RN watermelondb@0.28 sanitizeLikeString 为「非字母数字 → `_`」
+     * 通配退化（中文搜索变通配）；Android 为字面匹配（修正 RN 缺陷）。
      */
     @Query("SELECT * FROM messages WHERE rid = :rid AND msg LIKE :pattern ESCAPE '\\'")
     suspend fun getByRidLikeText(rid: String, pattern: String): List<MessageEntity>

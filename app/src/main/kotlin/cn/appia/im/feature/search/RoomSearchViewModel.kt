@@ -329,7 +329,11 @@ internal suspend fun fetchRoomMentionsPage(
     )
 }
 
-/** RN Q.sanitizeLikeString：`\ % _` 转义（Watermelon 语义，Room LIKE ESCAPE 见 DAO）。 */
+/**
+ * LIKE 通配符转义（`\ % _`），配合 MessageDao getByRidLikeText 的 `ESCAPE '\'` 成字面匹配。
+ * **故意分歧（评审 I1）**：RN watermelondb@0.28 sanitizeLikeString 实为「非字母数字 → `_` 通配」
+ * ——中文搜索退化为通配匹配；Android 为字面匹配（修正 RN 缺陷，T1 asBoolean 先例同款裁定）。
+ */
 internal fun sanitizeLike(s: String): String =
     s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 

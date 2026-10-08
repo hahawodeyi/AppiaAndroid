@@ -103,6 +103,7 @@ import cn.appia.im.feature.search.RoomSearchViewModel
 import cn.appia.im.feature.search.buildLocalLikePattern
 import cn.appia.im.feature.search.fetchRoomFiles
 import cn.appia.im.feature.search.fetchRoomMentionsPage
+import cn.appia.im.feature.search.isMediaVideoCell
 import cn.appia.im.feature.search.resolveRoomSearchFileUrl
 import cn.appia.im.feature.search.interpolate
 import cn.appia.im.feature.search.pickGlobalSearchFileLink
@@ -1569,13 +1570,26 @@ fun AppiaNavHost(
                             file, auth?.user?.id.orEmpty(), auth?.token.orEmpty(), serverUrl,
                         )
                         if (previewUrl.isNotEmpty()) {
-                            nav.navigate(
-                                MediaPlayerRoute(
-                                    url = previewUrl,
-                                    title = file.name,
-                                    isAudio = file.typeGroup == "audio",
-                                ),
-                            )
+                            if (isMediaVideoCell(file)) {
+                                // 视频/音频 → ExoPlayer（RN mediaType='video' 同义）
+                                nav.navigate(
+                                    MediaPlayerRoute(
+                                        url = previewUrl,
+                                        title = file.name,
+                                        isAudio = file.typeGroup == "audio",
+                                    ),
+                                )
+                            } else {
+                                // 评审 C1：图片 → 全屏图片查看器（RN UrlMediaPreviewPage image 场景；
+                                // 误走 ExoPlayer 会黑屏）——单图 MediaViewer 同 T7 附件链
+                                nav.navigate(
+                                    MediaViewerRoute(
+                                        imagesJson = loginRouteJson.encodeToString(
+                                            listOf(ViewerImage(url = previewUrl)),
+                                        ),
+                                    ),
+                                )
+                            }
                         }
                     },
                     // RN onPressMember :129-144：openDirectMessage 链（resolveDirectChatRid）
