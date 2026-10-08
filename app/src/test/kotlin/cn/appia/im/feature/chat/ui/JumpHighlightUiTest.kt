@@ -1,6 +1,7 @@
 package cn.appia.im.feature.chat.ui
 
 import android.app.Application
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -101,8 +102,9 @@ class JumpHighlightUiTest {
         }
         rule.waitForIdle()
         // 列表仍在（overlay 未挤占其测量）+ overlay 存在
-        rule.onNodeWithTag("qa-room-message-list").assertExists()
-        rule.onNodeWithTag("qa-jump-to-message-loading").assertExists()
-        rule.onNodeWithTag("qa-room-editor").assertExists()
+        // Mi2 rider：assertExists 同义反复（坏布局也过）——改 assertIsDisplayed 实证可见性
+        rule.onNodeWithTag("qa-room-message-list").assertIsDisplayed()
+        rule.onNodeWithTag("qa-jump-to-message-loading").assertIsDisplayed()
+        rule.onNodeWithTag("qa-room-editor").assertIsDisplayed()
     }
 }
