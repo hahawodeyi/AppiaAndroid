@@ -140,7 +140,9 @@ class ChatBumperTest {
         b.leaveRoom("rid-4")
         awaitTSearch("rid-4", 1_500.0)
 
-        // 重试已被取消：过了重试窗口后仍是离房 bump 值，不被旧时钟回写
+        // 重试已被取消：时钟推进到可区分值后再过重试窗口——若 cancel 失效，
+        // 未取消的重试会以新时钟写 9_000，断言随之失败（评审 I-1：防空转）
+        clock = 9_000
         delay(900)
         assertEquals(1_500.0, db.active.chatDao().getById("rid-4")!!.tSearch!!, 0.0)
     }
