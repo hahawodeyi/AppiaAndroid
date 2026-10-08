@@ -598,8 +598,10 @@ fun RoomScreen(
         RoomHeader(title = title, onBack = onBack, onTitleClick = onOpenRoomInfo)
 
         // 下拉刷新（M5-T6 修复 I1 / RN RoomMessageList RefreshControl :313-320 →
-        // RoomScreen handleRefresh :563-565 = exitJumpMode + refresh）：reverseLayout 列表
-        // 在最新端（offset 0）下拉触发，与 RN inverted FlatList 同沿。ChatListScreen 同款组件。
+        // RoomScreen handleRefresh :563-565 = exitJumpMode + refresh）。
+        // ponytail: reverseLayout 下最新端拉动会被列表向历史方向滚动消费——刷新手势实际只在
+        // 短房间/最旧端触发（RN inverted FlatList 同样限制，RN 靠列表层 RefreshControl 绕开）；
+        // 行为可用，凑合；若要对齐 RN「任意位置下拉刷新」，换自定义 nestedScroll 手势。ChatListScreen 同款组件。
         androidx.compose.material3.pulltorefresh.PullToRefreshBox(
             isRefreshing = state.isRefreshing,
             onRefresh = onRefresh,
@@ -733,12 +735,13 @@ fun RoomScreen(
                     )
                 }
             }
-        }
 
-        // 跳转定位加载浮层（M5-T6 / RN JumpToMessageLoadingOverlay：全屏半透明菊花，点击取消）
-        if (jumpState.isJumpLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                JumpLoadingOverlay(onCancel = { jumpController?.cancelJump() })
+            // 跳转定位加载浮层 / RN JumpToMessageLoadingOverlay：全屏半透明菊花，点击取消）。
+            // matchParentSize 叠加（评审测量，列表/输入栏占位不动 Modal 同效）。
+            if (jumpState.isJumpLoading) {
+                Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                    JumpLoadingOverlay(onCancel = { jumpController?.cancelJump() })
+                }
             }
         }
 

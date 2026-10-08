@@ -71,4 +71,38 @@ class JumpHighlightUiTest {
         rule.waitForIdle()
         assertEquals(1, cancelled)
     }
+
+    @Test
+    fun `jump loading overlay keeps message list laid out`() {
+        // 评审 I2 回归测试：isJumpLoading=true 时 overlay 叠加而非参与 Column 测量——
+        // 列表与输入栏占位不动（fillMaxSize 会把 weighted 兄弟挤到 0px 最长 15s）
+        rule.setContent {
+            AppiaTheme(isDark = false) {
+                RoomScreen(
+                    rid = "r1",
+                    title = "dev",
+                    state = cn.appia.im.feature.chat.RoomMessagesUiState(
+                        rid = "r1",
+                        messages = listOf(row("m1")),
+                    ),
+                    currentUserId = "me",
+                    currentUsername = "me",
+                    serverUrl = "",
+                    token = null,
+                    jumpState = cn.appia.im.feature.chat.MessageJumpUiState(isJumpLoading = true),
+                    draftController = null,
+                    editorController = cn.appia.im.feature.chat.editor.rememberChatInputBarController(),
+                    onSend = { _, _ -> },
+                    onResend = {},
+                    onBack = {},
+                    onLoadEarlier = {},
+                )
+            }
+        }
+        rule.waitForIdle()
+        // 列表仍在（overlay 未挤占其测量）+ overlay 存在
+        rule.onNodeWithTag("qa-room-message-list").assertExists()
+        rule.onNodeWithTag("qa-jump-to-message-loading").assertExists()
+        rule.onNodeWithTag("qa-room-editor").assertExists()
+    }
 }
