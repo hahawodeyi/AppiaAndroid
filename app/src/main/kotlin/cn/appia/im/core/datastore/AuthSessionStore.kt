@@ -68,6 +68,35 @@ class AuthSessionStore @Inject constructor(private val kv: KvStore) {
     }
 
     /**
+     * RN mergeUserPreferences authStore.ts:110-122：preferences 浅合并（delta 键覆盖；value 为
+     * JsonNull 时删除该键——JS `v === undefined` 分支的服务器形态等价）。未登录静默忽略。
+     * userId 守卫同 [mergeUserRoles]（RN 无此守卫，原生加固：防串写旧用户偏好）。
+     */
+    fun mergeUserPreferences(userId: String, delta: Map<String, kotlinx.serialization.json.JsonElement>) {
+        val session = load() ?: return
+        if (session.user.id != userId) return
+        val prev = session.user.preferences ?: kotlinx.serialization.json.JsonObject(emptyMap())
+        val next = kotlinx.serialization.json.JsonObject(
+            buildMap {
+                putAll(prev)
+                for ((k, v) in delta) {
+                    if (v is kotlinx.serialization.json.JsonNull) remove(k) else put(k, v)
+                }
+            },
+        )
+        save(session.copy(user = session.user.copy(preferences = next.takeIf { !it.isEmpty() })))
+    }
+
+    /**
+     * RN mergeStatusText authStore.ts:129-132：statusText 整体替换（users.setStatus 成功后回写）。
+     * 未登录静默忽略。
+     */
+    fun mergeStatusText(statusText: String) {
+        val session = load() ?: return
+        save(session.copy(user = session.user.copy(statusText = statusText)))
+    }
+
+    /**
      * RN merge/rehydrate authStore.ts:182-189：空存储/JSON 损坏/缺字段（含历史 user:null）→ null（未登录）。
      */
     fun load(): AuthSession? =

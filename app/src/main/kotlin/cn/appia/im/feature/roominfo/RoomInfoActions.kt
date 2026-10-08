@@ -42,6 +42,36 @@ class RoomInfoActions(internal val sdk: RocketSdk, private val db: AppiaDatabase
         }
     }
 
+    /**
+     * M5-T9 通知细项三键参数面（plan Produces：saveNotification 三键全参，'1'/'0' 字符串值）：
+     * 非 null 键才编码（JS undefined 键缺省同义）。mute 双键走 [setRoomMuted]（成对+本地写），
+     * muteGroupMentions 单键解耦——M5-T9 新增 [setRoomMentionsMuted]；RN 侧三键只定义于
+     * RoomNotificationSettings（roomSettings.ts:30-34），无第三键 UI 调用方。
+     */
+    suspend fun setRoomNotifications(
+        rid: String,
+        disableNotifications: Boolean? = null,
+        muteGroupMentions: Boolean? = null,
+        hideUnreadStatus: Boolean? = null,
+    ) {
+        RoomSettingsApi.postSaveRoomNotification(
+            sdk, rid,
+            RoomNotificationSettings(
+                disableNotifications = disableNotifications?.toWireString(),
+                muteGroupMentions = muteGroupMentions?.toWireString(),
+                hideUnreadStatus = hideUnreadStatus?.toWireString(),
+            ),
+        )
+    }
+
+    /**
+     * muteGroupMentions 单键写（与 mute 双键解耦——对照 RN 参数面三键）：仅发
+     * `{muteGroupMentions: '1'|'0'}`。RN 无本地列写调用方（chats.hide_mention_status 由
+     * subscription 增量回写）——服务端成功即返回，本地零改动。
+     */
+    suspend fun setRoomMentionsMuted(rid: String, muted: Boolean) =
+        setRoomNotifications(rid, muteGroupMentions = muted)
+
     /** RN setRoomPinnedOnServerAndLocal :53-62：favorite 成功后写 chats.f（失败本地零改动、异常上抛）。 */
     suspend fun setRoomPinned(rid: String, pinned: Boolean) {
         SubscriptionsApi.postRoomsFavorite(sdk, rid, pinned)
@@ -106,6 +136,9 @@ private fun kotlinx.serialization.json.JsonElement?.toJsonColumn(): String? = wh
 /** RN updateChatAppiaUsageLocal :17：JSON.stringify(usage)（无空数组路径——空存 undefined）。 */
 private fun encodeUsageJson(usage: List<String>): String =
     kotlinx.serialization.json.JsonArray(usage.map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
+
+/** saveNotification 三键统一 '1'/'0' 字符串编码（M5-T9 plan Produces 钉死）。 */
+internal fun Boolean.toWireString(): String = if (this) "1" else "0"
 
 // ── usage 门与格式化（RN roomUsageOptions.ts / formatRoomUsageDisplay.ts / parseAppiaUsage.ts）──
 

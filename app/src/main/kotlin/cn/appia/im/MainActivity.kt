@@ -118,6 +118,11 @@ import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
 import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
 import cn.appia.im.feature.roominfo.ui.RoomMembersScreen
+import cn.appia.im.feature.settings.ui.SettingsScreen
+import cn.appia.im.feature.settings.ui.MessageSettingScreen
+import cn.appia.im.feature.settings.ui.ProfileScreen
+import cn.appia.im.feature.settings.ui.StatusEditScreen
+import cn.appia.im.feature.settings.ClearLocalCache
 import cn.appia.im.feature.login.AuthApi
 import cn.appia.im.feature.login.CompanyServer
 import cn.appia.im.feature.login.LoginAreaCodeOption
@@ -276,9 +281,25 @@ data class CreateChannelMembersRoute(
 @Serializable
 data class MemberProfileRoute(val username: String, val userId: String? = null)
 
-/** 我的二维码名片（RN ProfileScreen → MyCard；ProfileScreen 为 M5 域——本任务先挂 ChatList 顶栏菜单）。 */
+/** 我的二维码名片（M4-T9 临时顶栏挂点已移除；M5-T9 迁正：ProfileScreen 二维码行唯一入口）。 */
 @Serializable
 data object MyCardRoute
+
+/** 个人资料（M5-T9 / RN ProfileScreen——只读基线：头像/姓名/用户名/二维码/邮箱/设置入口）。 */
+@Serializable
+data object ProfileRoute
+
+/** 设置（M5-T9 / RN SettingsScreen 五分区）。 */
+@Serializable
+data object SettingsRoute
+
+/** 消息设置（M5-T9 / RN MessageSettingScreen 两开关）。 */
+@Serializable
+data object MessageSettingRoute
+
+/** 工作签名编辑（M5-T9 / RN StatusEditScreen，maxLength 120）。 */
+@Serializable
+data object StatusEditRoute
 
 /** 通讯录双树（M4 T6）：deptId 空 = 根视图（PMT/L1D 双 tab），非空 = 子部门视图（push）。 */
 @Serializable
@@ -329,6 +350,8 @@ class RouteDeps(
     val networkMonitor: NetworkMonitor,
     /** M5-T2 装配层 focus 触发（RN useCanEditRoomSettings.ts:44-56）；UI 测试 null 免触网。 */
     val roleRefresher: RoleRefresher? = null,
+    /** 实时会话管理器（M5-T9 清除缓存链 teardown/re-bootstrap 共用单例）；UI 测试可 null。 */
+    val sessionManager: cn.appia.im.domain.session.RealtimeSessionManager? = null,
 )
 
 private const val NAV_TAG = "roomRoute"
@@ -569,7 +592,9 @@ fun AppiaNavHost(
                     onOpenRoom = { rid, title, roomType -> nav.navigate(RoomRoute(rid, title, roomType)) },
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
                     onOpenContacts = { nav.navigate(TeamRoute()) },
-                    onOpenMyCard = { nav.navigate(MyCardRoute) },
+                    // 个人资料/工作签名（M5-T9：MineMenu 底部行/签名行的菜单化迁移；MyCard 顶栏入口移除）
+                    onOpenProfile = { nav.navigate(ProfileRoute) },
+                    onOpenStatusEdit = { nav.navigate(StatusEditRoute) },
                     // 全局搜索入口（M5-T5 / RN RoomListSearchBar onFocusNavigate）
                     onOpenSearch = { nav.navigate(GlobalSearchRoute()) },
                 )
@@ -1271,8 +1296,8 @@ fun AppiaNavHost(
                 )
             }
         }
-        // 我的二维码名片（T9）：qrcode.query 7 级回退 + MediaStore 保存；ProfileScreen 入口为
-        // M5 域——本任务挂 ChatList 顶栏菜单（报告注明 M5 迁正）
+        // 我的二维码名片（M4-T9 建屏；M5-T9 迁正：入口唯一在 ProfileScreen 二维码行，
+        // 顶栏临时菜单项已删——Enterprise_Name 行 M5-T1 settings.public 已同步）
         composable<MyCardRoute> {
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
@@ -1295,6 +1320,79 @@ fun AppiaNavHost(
                     displayName = auth?.user?.name?.takeIf { it.isNotBlank() }
                         ?: auth?.user?.username.orEmpty(),
                     token = auth?.token,
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        // 个人资料（M5-T9 / RN ProfileScreen 只读基线）：头像/姓名/用户名/二维码（→MyCard 迁正
+        // 唯一入口）/邮箱/设置入口
+        composable<ProfileRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val session = remember { deps.store.load() }
+                val serverUrl = remember { session?.serverUrl.orEmpty() }
+                ProfileScreen(
+                    session = session,
+                    serverUrl = serverUrl,
+                    token = session?.token,
+                    onBack = { nav.popBackStack() },
+                    onOpenMyCard = { nav.navigate(MyCardRoute) },
+                    onOpenSettings = { nav.navigate(SettingsRoute) },
+                )
+            }
+        }
+        // 设置（M5-T9 / RN SettingsScreen 五分区）；语言段 T11 接（onLanguageChange 占位）
+        composable<SettingsRoute> {
+            val gateway = session
+            if (gateway == null || deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val context = LocalContext.current
+                val session = remember { deps.store.load() }
+                val clearCache = remember(session?.serverUrl, deps.sessionManager) {
+                    deps.sessionManager?.let { mgr ->
+                        ClearLocalCache(deps.store, deps.dbManager, mgr)
+                    }
+                }?.also { it.uploadsDir = java.io.File(context.cacheDir, "uploads") }
+                SettingsScreen(
+                    sdk = deps.sdk,
+                    store = deps.store,
+                    kv = deps.kv,
+                    clearCache = clearCache,
+                    onBack = { nav.popBackStack() },
+                    onLogout = {
+                        // 登出链与 ChatListScreen 手动登出同构（teardown+删库由 gateway.logout 内聚）
+                        if (gateway.logout()) goAuth()
+                    },
+                    onOpenMessageSetting = { nav.navigate(MessageSettingRoute) },
+                    // T11 接线点：语言段回调（LocaleController 落地后接管）
+                    onLanguageChange = { },
+                    // CustomQuickReply M6+ 域
+                    onOpenQuickReply = { },
+                )
+            }
+        }
+        // 消息设置（M5-T9 / RN MessageSettingScreen）
+        composable<MessageSettingRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                MessageSettingScreen(
+                    sdk = deps.sdk,
+                    store = deps.store,
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        // 工作签名编辑（M5-T9 / RN StatusEditScreen：users.setStatus + mergeStatusText）
+        composable<StatusEditRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                StatusEditScreen(
+                    sdk = deps.sdk,
+                    store = deps.store,
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -1728,6 +1826,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var roleRefresher: RoleRefresher
 
+    @Inject
+    lateinit var realtimeSessionManager: cn.appia.im.domain.session.RealtimeSessionManager
+
     /** RN MainNavigator.tsx:60 AppState 'active' → syncCurrentUserRoles()（30s 节流内置）。 */
     override fun onResume() {
         super.onResume()
@@ -1763,6 +1864,7 @@ class MainActivity : ComponentActivity() {
                             roomStreams,
                             networkMonitor,
                             roleRefresher,
+                            realtimeSessionManager,
                         ),
                     )
                 }

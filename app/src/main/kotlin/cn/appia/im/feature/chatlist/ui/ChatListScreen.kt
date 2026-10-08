@@ -73,8 +73,11 @@ fun ChatListScreen(
     onOpenRoom: (rid: String, title: String, roomType: String) -> Unit,
     onLogout: () -> Unit,
     onOpenContacts: () -> Unit = {},
-    // 我的二维码名片入口（T9）：RN ProfileScreen → MyCard；ProfileScreen 为 M5 域，暂挂顶栏菜单
-    onOpenMyCard: () -> Unit = {},
+    // 个人资料入口（M5-T9 / RN MineMenu 底部个人信息行 → Profile 的菜单化迁移）；
+    // MyCard 顶栏临时入口已移除（迁正 ProfileScreen 二维码行，不留双入口——pre-flight 裁定）
+    onOpenProfile: () -> Unit = {},
+    // 工作签名入口（M5-T9 / RN MineMenu 签名行 → StatusEdit 的菜单化迁移）
+    onOpenStatusEdit: () -> Unit = {},
     // 提及 label 真名（M5-T4 / RN RoomItemLastMessage UI_Use_Real_Name）：装配处 observeById 表读传入
     useRealName: Boolean = true,
     // 全局搜索入口（M5-T5 / RN RoomListSearchBar onFocusNavigate → navigate('GlobalSearch'))
@@ -196,14 +199,24 @@ fun ChatListScreen(
                         },
                         modifier = Modifier.testTag("qa-room-list-menu-contacts"),
                     )
-                    // 我的二维码名片（T9；RN ProfileScreen 域，M5 迁正）
+                    // 个人资料（M5-T9：RN MineMenu 底部个人信息行 → Profile 的菜单化迁移；
+                    // MyCard 顶栏临时入口同任务移除——正入口在 ProfileScreen 二维码行）
                     DropdownMenuItem(
-                        text = { Text(context.t("mycard_title")) },
+                        text = { Text(context.t("profile_title")) },
                         onClick = {
                             menuOpen = false
-                            onOpenMyCard()
+                            onOpenProfile()
                         },
-                        modifier = Modifier.testTag("qa-room-list-menu-my-card"),
+                        modifier = Modifier.testTag("qa-room-list-menu-profile"),
+                    )
+                    // 工作签名（M5-T9：RN MineMenu 签名行 → StatusEdit 的菜单化迁移）
+                    DropdownMenuItem(
+                        text = { Text(context.t("profile_editstatus")) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenStatusEdit()
+                        },
+                        modifier = Modifier.testTag("qa-room-list-menu-status-edit"),
                     )
                     DropdownMenuItem(
                         text = { Text(context.t("drawer_myenterprise")) },
