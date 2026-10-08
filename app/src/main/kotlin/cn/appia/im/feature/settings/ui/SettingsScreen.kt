@@ -90,6 +90,8 @@ fun SettingsScreen(
     onLanguageChange: (value: String) -> Unit = {},
     // CustomQuickReply 屏 M6+ 域：行渲染、导航参数化
     onOpenQuickReply: () -> Unit = {},
+    // T10：浏览器 pref inApp 时法律/检查更新链接走应用内 WebView（RN openLink → navigate InAppWeb）
+    onOpenInAppWeb: (url: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -139,9 +141,10 @@ fun SettingsScreen(
         })
     }
 
-    fun openUrl(url: String) {
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-    }
+    // T10：openLink 等价消费（RN SettingsScreen :138-142 onPressOpenUrl → lib/openLink/openLink.ts
+    // ——浏览器 pref inApp → 应用内 WebView；systemDefault → ACTION_VIEW；needVPN 白名单域强制应用内）
+    fun openUrl(url: String): Boolean =
+        cn.appia.im.feature.web.openLink(context, kv, url, onOpenInAppWeb)
 
     fun shareText(text: String) {
         runCatching {

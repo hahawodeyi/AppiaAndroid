@@ -119,6 +119,7 @@ import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
 import cn.appia.im.feature.roominfo.ui.RoomMembersScreen
 import cn.appia.im.feature.settings.ui.SettingsScreen
+import cn.appia.im.feature.web.InAppWebScreen
 import cn.appia.im.feature.settings.ui.MessageSettingScreen
 import cn.appia.im.feature.settings.ui.ProfileScreen
 import cn.appia.im.feature.settings.ui.StatusEditScreen
@@ -280,6 +281,18 @@ data class CreateChannelMembersRoute(
 // userMap 缺失冷路径回退——评审 fix I-1：双入口透传 _id，缺省仍走 username 回退）
 @Serializable
 data class MemberProfileRoute(val username: String, val userId: String? = null)
+
+/**
+ * 应用内 WebView（M5-T10，RN navigate('InAppWeb', {url, title?, needAuth?, source?})）：
+ * needAuth 白名单命中自动换 code；同源注入 rc Cookie；返回栈域外出栈。
+ */
+@Serializable
+data class InAppWebRoute(
+    val url: String,
+    val title: String = "",
+    val needAuth: Boolean = false,
+    val source: String? = null,
+)
 
 /** 我的二维码名片（M4-T9 临时顶栏挂点已移除；M5-T9 迁正：ProfileScreen 二维码行唯一入口）。 */
 @Serializable
@@ -1257,8 +1270,8 @@ fun AppiaNavHost(
                 )
             }
         }
-        // 成员名片（T9）：users.info + 发消息（openDirectMessage 链）/简历外链（ACTION_VIEW，
-        // 同 InlineNodes 外链裁定——RN InAppWeb 为 M5 域，报告入册）
+        // 成员名片（T9）：users.info + 发消息（openDirectMessage 链）/简历链接（M5-T10 迁正：
+        // navigate InAppWeb——RN MemberProfileScreen :280 直接 navigate('InAppWeb')）
         composable<MemberProfileRoute> { entry ->
             val route = entry.toRoute<MemberProfileRoute>()
             val context = LocalContext.current
@@ -1288,11 +1301,41 @@ fun AppiaNavHost(
                             }
                         }
                     },
-                    onOpenWeb = { url, _ ->
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
-                        }
+                    // 简历/个人页链接（M5-T10）：InAppWeb 应用内打开（RN 同位 navigate InAppWeb）
+                    onOpenWeb = { url, title ->
+                        nav.navigate(InAppWebRoute(url = url, title = title))
                     },
+                )
+            }
+        }
+        // 应用内 WebView 壳（M5-T10 / RN InAppWebScreen 最小版：白名单换码+同源 Cookie+返回栈；
+        // 泛微/石墨/WPS/会议拦截归 M7）
+        composable<InAppWebRoute> { entry ->
+            val route = entry.toRoute<InAppWebRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val auth = remember { deps.store.load() }
+                val serverUrl = remember { auth?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                var enterpriseId by remember { mutableStateOf("") }
+                LaunchedEffect(db) {
+                    enterpriseId = db.settingDao().getById("Enterprise_ID")?.value_as_string.orEmpty()
+                }
+                InAppWebScreen(
+                    url = route.url,
+                    title = route.title,
+                    needAuth = route.needAuth,
+                    source = route.source,
+                    sdk = deps.sdk,
+                    serverUrl = serverUrl,
+                    token = auth?.token,
+                    userId = auth?.user?.id,
+                    username = auth?.user?.username,
+                    enterpriseId = enterpriseId,
+                    onBack = { nav.popBackStack() },
                 )
             }
         }
@@ -1372,6 +1415,8 @@ fun AppiaNavHost(
                     onLanguageChange = { },
                     // CustomQuickReply M6+ 域
                     onOpenQuickReply = { },
+                    // T10：浏览器 pref inApp → 法律链接等走应用内 WebView（RN openLink）
+                    onOpenInAppWeb = { url -> nav.navigate(InAppWebRoute(url = url)) },
                 )
             }
         }
