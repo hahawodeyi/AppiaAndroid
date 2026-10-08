@@ -235,7 +235,8 @@ internal suspend fun fetchChatSearch(
 /**
  * 全局搜索消息详情（RN screens/GlobalSearchMessageDetailScreen）：
  * - chat.search 分页 50 / _id 去重 append / addedCount==0 止步
- * - 头部频道条 → 进房（平跳；tSearch bump 为 T8）；消息行 → onJumpTo（T6 跳转接线，缺省平跳进房）
+ * - 头部频道条 → 进房平跳；消息行 → onJumpTo（T6 跳转；缺省平跳进房）——两者均带
+ *   fromGlobalSearch 由 Room 侧 ChatBumper 双 bump（M5-T8 收口）
  * - 发送者名 useRealName 门控（UI_Use_Real_Name 与房内一致，T4 评审转发要求）
  */
 @Composable
@@ -325,7 +326,7 @@ fun GlobalSearchMessageDetailScreen(
     ) {
         RoomHeader(title = title, onBack = onBack)
 
-        // 频道条（RN renderListHeader :312-343）：进房平跳（tSearch bump 为 T8）
+        // 频道条（RN renderListHeader :312-343）：进房平跳（fromGlobalSearch 双 bump 在 Room 侧收口）
         Row(
             Modifier
                 .fillMaxWidth()
@@ -410,7 +411,7 @@ fun GlobalSearchMessageDetailScreen(
                         token = token,
                         onClick = {
                             if (!m._id.isEmpty()) {
-                                // T6 跳转高亮接线前的可达回退：平跳进房（同频道条）
+                                // onJumpTo 缺省回退：平跳进房（同频道条）
                                 onJumpTo?.invoke(m._id) ?: onOpenRoom(rid, title, roomType)
                             }
                         },

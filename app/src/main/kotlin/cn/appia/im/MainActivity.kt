@@ -55,6 +55,7 @@ import cn.appia.im.domain.session.RoomAccessLostBus
 import cn.appia.im.domain.session.RoomAccessLoss
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.core.chat.resolveDirectChatRid
+import cn.appia.im.domain.chat.ChatBumper
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.DraftRepository
 import cn.appia.im.feature.chat.MessageJumpUiState
@@ -184,6 +185,12 @@ data class RoomRoute(
      * M6 深链同径——DeepLink 直接以路由参数注入，屏幕侧零额外副作用。
      */
     val jumpToMessageId: String? = null,
+    /**
+     * 全局搜索进房标记（M5-T8 / RN Room route `fromGlobalSearch`）：驱动 ChatBumper
+     * 进房/离房双 bump（useBumpChatFromGlobalSearchOnFocus :11-27 等价——进房 bump + 800ms
+     * 重试，离房取消重试再兜底 bump，防停留期 DDP 覆盖清掉 tSearch）。
+     */
+    val fromGlobalSearch: Boolean = false,
 )
 
 /** 图片预览页路由（T7）：ViewerImage 列表 JSON 串（type-safe nav 不支持 List<自定义>，同 LoginRoute 裁定）。 */
@@ -597,6 +604,14 @@ fun AppiaNavHost(
                     },
                 )
                 LaunchedEffect(route.rid, route.roomType) { vm.openRoom(route.rid, route.roomType) }
+                // tSearch bump（M5-T8 / RN useBumpChatFromGlobalSearchOnFocus :11-27）：
+                // 仅搜索来源进房启用（fromGlobalSearch 路由参数）；进房 bump + 800ms 重试，
+                // 离房取消重试再兜底一次（防停留期 DDP rooms-changed 覆盖清掉 tSearch）。
+                val chatBumper = remember(db) { ChatBumper(db, deps.scope) }
+                DisposableEffect(route.rid, route.fromGlobalSearch) {
+                    if (route.fromGlobalSearch) chatBumper.enterRoom(route.rid)
+                    onDispose { if (route.fromGlobalSearch) chatBumper.leaveRoom(route.rid) }
+                }
                 // 跳转高亮（M5-T6 / RN useRoomMessageJump useEffect [jumpToMessageId] :291-296）：
                 // **只以路由参数（与控制器实例）为键**——openRoom 建好控制器后本 effect 才非空跳；
                 // 屏内 setJumpMessages 等状态写不经路由参数，不会回流触发（防死循环总纲约束）。
@@ -1323,7 +1338,7 @@ fun AppiaNavHost(
         }
         // 全局搜索（M5-T5 / RN screens/GlobalSearchScreen）：spotlight 三段 + files cursor 分页；
         // contact → openDirectMessage 链（resolveDirectChatRid knownRid 本地确证后采用）；
-        // 频道/房间 → 平跳 RoomRoute（tSearch bump 为 T8 接线）
+        // 频道/房间 → 平跳 RoomRoute；两者均带 fromGlobalSearch（M5-T8：Room 侧 tSearch 双 bump）
         composable<GlobalSearchRoute> { entry ->
             val route = entry.toRoute<GlobalSearchRoute>()
             if (deps == null) {
@@ -1368,7 +1383,8 @@ fun AppiaNavHost(
                         deps.scope.launch {
                             val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username, knownRid)
                             if (rid != null) {
-                                nav.navigate(RoomRoute(rid = rid, title = title, roomType = "d"))
+                                // RN openDirectMessage :162-166 fromGlobalSearch 分支（bump 归 Room 侧统一收口）
+                                nav.navigate(RoomRoute(rid = rid, title = title, roomType = "d", fromGlobalSearch = true))
                             } else {
                                 Toast.makeText(
                                     context, context.t("globalsearch_opendmfailed"), Toast.LENGTH_SHORT,
@@ -1376,8 +1392,9 @@ fun AppiaNavHost(
                             }
                         }
                     },
+                    // RN navigateRoomFromGlobalSearch :17-26（tSearch bump 由 Room 侧 fromGlobalSearch 双 bump 承接）
                     onOpenRoom = { rid, title, roomType ->
-                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType))
+                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType, fromGlobalSearch = true))
                     },
                     onOpenMessageDetail = { row ->
                         nav.navigate(
@@ -1448,12 +1465,13 @@ fun AppiaNavHost(
                     currentUserId = auth?.user?.id,
                     token = auth?.token,
                     useRealName = useRealName,
-                    // 频道条 → 平跳进房（tSearch bump 为 T8）
+                    // 频道条 → 平跳进房（RN onPressChannel :177-185 bump+fromGlobalSearch；
+                    // bump 由 Room 侧 fromGlobalSearch 双 bump 承接）
                     onOpenRoom = { rid, title, roomType ->
-                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType))
+                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType, fromGlobalSearch = true))
                     },
-                    // 消息行跳转高亮（M5-T6 / RN onPressMessage :189-196：RoomRoute + jumpToMessageId）。
-                    // RN 附带 fromGlobalSearch（双 bump tSearch 归 T8 接线）。
+                    // 消息行跳转高亮（M5-T6 / RN onPressMessage :187-200：RoomRoute + jumpToMessageId
+                    // + fromGlobalSearch——tSearch 双 bump 在 Room 侧收口）。
                     onJumpTo = { messageId ->
                         nav.navigate(
                             RoomRoute(
@@ -1461,6 +1479,7 @@ fun AppiaNavHost(
                                 title = route.title,
                                 roomType = route.roomType,
                                 jumpToMessageId = messageId,
+                                fromGlobalSearch = true,
                             ),
                         )
                     },
