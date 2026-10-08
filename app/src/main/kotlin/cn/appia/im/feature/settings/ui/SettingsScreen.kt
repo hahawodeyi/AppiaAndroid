@@ -80,6 +80,9 @@ fun SettingsScreen(
     store: AuthSessionStore,
     kv: KvStore,
     clearCache: ClearLocalCache?,
+    /** 清除缓存协程宿主（评审 I-1）：应用级 scope（RouteDeps.scope 装配缝）——中途 popBackStack
+     *  不得取消 teardown→删库→重引导链（RN run() 闭包脱离屏幕存活同义）。null 回退屏幕 scope（测试）。 */
+    clearCacheScope: kotlinx.coroutines.CoroutineScope? = null,
     onBack: () -> Unit,
     onLogout: () -> Unit,
     onOpenMessageSetting: () -> Unit = {},
@@ -448,7 +451,9 @@ fun SettingsScreen(
                         ConfirmAction.CLEAR_CACHE -> {
                             if (clearCache == null) return@TextButton
                             clearing = true
-                            scope.launch {
+                            // 评审 I-1：应用级 scope——屏幕销毁不取消链路（teardown 后必须重引导）；
+                            // clearing/info 状态写在屏幕已销毁时是 no-op 写快照，迟到完成零 UI 副作用
+                            (clearCacheScope ?: scope).launch {
                                 try {
                                     clearCache.clear()
                                     info = context.t("settings_clear_cache_done_title") to

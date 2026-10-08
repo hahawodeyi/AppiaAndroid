@@ -1360,6 +1360,8 @@ fun AppiaNavHost(
                     store = deps.store,
                     kv = deps.kv,
                     clearCache = clearCache,
+                    // 评审 I-1：清除缓存协程挂应用级 scope（popBackStack 不取消 teardown→重引导链）
+                    clearCacheScope = deps.scope,
                     onBack = { nav.popBackStack() },
                     onLogout = {
                         // 登出链与 ChatListScreen 手动登出同构（teardown+删库由 gateway.logout 内聚）
