@@ -785,7 +785,12 @@ fun AppiaNavHost(
                         )
                     },
                     onJumpToast = { key ->
-                        Toast.makeText(roomCtx, roomCtx.t(key), Toast.LENGTH_SHORT).show()
+                        // 控制器协程跑在 app 级 BackgroundScope（IO 线程）：Toast 需主线程
+                        // （评审 C1——TenTapEditorBridge mainHandler 同款）。
+                        val msg = roomCtx.t(key)
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            Toast.makeText(roomCtx, msg, Toast.LENGTH_SHORT).show()
+                        }
                     },
                     // 下拉刷新（RN handleRefresh :563-565：exitJumpMode → refresh）
                     onRefresh = {
