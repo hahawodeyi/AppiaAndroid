@@ -241,6 +241,8 @@ fun RoomScreen(
     onJumpToast: (String) -> Unit = {},
     /** 下拉刷新（装配处：exitJumpMode → vm.refresh，RN handleRefresh :563-565）。 */
     onRefresh: () -> Unit = {},
+    /** 房间内搜索入口（M5-T7 / RN openRoomSearch：头部搜索钮 → navigate RoomSearch）。 */
+    onOpenRoomSearch: (() -> Unit)? = null,
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -595,7 +597,27 @@ fun RoomScreen(
     }
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
-        RoomHeader(title = title, onBack = onBack, onTitleClick = onOpenRoomInfo)
+        RoomHeader(
+            title = title,
+            onBack = onBack,
+            onTitleClick = onOpenRoomInfo,
+            // 房间内搜索入口（M5-T7 / RN headerRight searchA11yLabel）：放大镜钮
+            headerAction = onOpenRoomSearch?.let { open ->
+                {
+                    Text(
+                        "⌕",
+                        color = colors.headerTintColor,
+                        fontSize = 20.sp,
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(36.dp)
+                            .wrapContentSize(Alignment.Center)
+                            .clickable(onClick = open)
+                            .testTag("qa-room-header-search"),
+                    )
+                }
+            },
+        )
 
         // 下拉刷新（M5-T6 修复 I1 / RN RoomMessageList RefreshControl :313-320 →
         // RoomScreen handleRefresh :563-565 = exitJumpMode + refresh）。

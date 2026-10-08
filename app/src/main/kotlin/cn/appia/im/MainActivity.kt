@@ -99,11 +99,17 @@ import cn.appia.im.feature.contacts.ui.MyCardScreen
 import cn.appia.im.feature.contacts.ui.MemberProfileScreen
 import cn.appia.im.feature.contacts.ui.TeamScreen
 import cn.appia.im.feature.search.GlobalSearchViewModel
+import cn.appia.im.feature.search.RoomSearchViewModel
+import cn.appia.im.feature.search.buildLocalLikePattern
+import cn.appia.im.feature.search.fetchRoomFiles
+import cn.appia.im.feature.search.fetchRoomMentionsPage
+import cn.appia.im.feature.search.resolveRoomSearchFileUrl
 import cn.appia.im.feature.search.interpolate
 import cn.appia.im.feature.search.pickGlobalSearchFileLink
 import cn.appia.im.feature.search.globalSearchUploadFileId
 import cn.appia.im.feature.search.ui.GlobalSearchMessageDetailScreen
 import cn.appia.im.feature.search.ui.GlobalSearchScreen
+import cn.appia.im.feature.search.ui.RoomSearchScreen
 import cn.appia.im.feature.chat.ui.buildDocPreviewParamsFromFileLink
 import cn.appia.im.feature.roominfo.RoomInfoActions
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
@@ -273,6 +279,15 @@ data class TeamRoute(val deptId: String? = null)
 /** 全局搜索（M5-T5，RN navigate('GlobalSearch', { initialQuery? })）。 */
 @Serializable
 data class GlobalSearchRoute(val initialQuery: String = "")
+
+/** 房间内搜索（M5-T7，RN navigation.push('RoomSearch', {rid, t, title, encrypted})）。 */
+@Serializable
+data class RoomSearchRoute(
+    val rid: String,
+    val roomType: String = "c",
+    val title: String = "",
+    val encrypted: Boolean = false,
+)
 
 /** 全局搜索消息详情（M5-T5，RN navigate('GlobalSearchMessageDetail', {rid,title,roomType,searchText,...})）。 */
 @Serializable
@@ -796,6 +811,17 @@ fun AppiaNavHost(
                     onRefresh = {
                         jumpController?.exitJumpMode()
                         vm.refresh()
+                    },
+                    // 房间内搜索入口（M5-T7 / RN openRoomSearch :334-341：rid/t/encrypted）
+                    onOpenRoomSearch = {
+                        nav.navigate(
+                            RoomSearchRoute(
+                                rid = route.rid,
+                                roomType = route.roomType,
+                                title = resolveRoomHeaderTitle(route.title, chatRow),
+                                encrypted = chatRow?.encrypted == true,
+                            ),
+                        )
                     },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->
@@ -1436,6 +1462,161 @@ fun AppiaNavHost(
                                 jumpToMessageId = messageId,
                             ),
                         )
+                    },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        // 房间内搜索（M5-T7 / RN screens/RoomSearchScreen）：6/4 tab by 房型；
+        // messages/links/mentions 复用 MessageRow 链；加密房本地 LIKE；
+        // 消息行点击 = goBack + RoomRoute(jumpToMessageId)（T6 跳转路由参数机制）。
+        composable<RoomSearchRoute> { entry ->
+            val route = entry.toRoute<RoomSearchRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val context = LocalContext.current
+                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
+                val db = remember(serverUrl) {
+                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+                }
+                val auth = remember { deps.store.load() }
+                // 真名显示（M4 前例 / RN RoomSearchMessageTabList → RoomMessageRow :108）
+                val useRealName = rememberPublicSettingBoolean(
+                    db.settingDao(), "UI_Use_Real_Name", default = true,
+                )
+                val viewModel = remember(route.rid) {
+                    RoomSearchViewModel(
+                        rid = route.rid,
+                        roomType = route.roomType,
+                        encrypted = route.encrypted,
+                        currentUserId = auth?.user?.id,
+                        fetchChatSearch = { searchText, offset ->
+                            // RN getChatSearch：chat.search（count 50 / notIncludeFile=true）
+                            cn.appia.im.feature.search.ui.fetchChatSearch(
+                                deps.sdk, route.rid, searchText, offset = offset,
+                            )
+                        },
+                        fetchFilesPage = { searchText, offset, fileType ->
+                            fetchRoomFiles(deps.sdk, route.rid, route.roomType, offset, searchText, fileType)
+                        },
+                        fetchMentionsPage = { offset ->
+                            fetchRoomMentionsPage(deps.sdk, route.rid, route.roomType, offset, auth?.user?.id.orEmpty())
+                        },
+                        fetchMembers = { RoomsApi.getAppiaRoomMembersV2(deps.sdk, route.rid) },
+                        localMessageSearch = { rid, searchText ->
+                            db.messageDao().getByRidLikeText(rid, buildLocalLikePattern(searchText))
+                        },
+                        scope = deps.scope,
+                    )
+                }
+                val state by viewModel.state.collectAsState()
+                val activeTab by viewModel.activeTab.collectAsState()
+                RoomSearchScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    state = state,
+                    visibleTabs = viewModel.visibleTabs,
+                    activeTab = activeTab,
+                    useRealName = useRealName,
+                    serverUrl = serverUrl,
+                    currentUserId = auth?.user?.id,
+                    currentUsername = auth?.user?.username,
+                    token = auth?.token,
+                    onQueryChanged = viewModel::onQueryChanged,
+                    onTabSelected = viewModel::setActiveTab,
+                    onLoadMoreMessages = viewModel::loadMoreMessages,
+                    onLoadMoreFiles = viewModel::loadMoreFiles,
+                    onLoadMoreMedia = viewModel::loadMoreMedia,
+                    onLoadMoreMentions = viewModel::loadMoreMentions,
+                    // RN onPressMessage :77-83：goBack + jumpToMessage（T6 路由参数机制）
+                    onMessageClick = { message ->
+                        nav.popBackStack() // 先退出搜索屏（RN navigation.goBack）
+                        nav.navigate(
+                            RoomRoute(
+                                rid = route.rid,
+                                title = route.title,
+                                roomType = route.roomType,
+                                jumpToMessageId = message._id,
+                            ),
+                        )
+                    },
+                    // RN onPressFile :97-115：DocPreview 链（buildDocPreviewParamsFromFileLink）
+                    onOpenFile = { file ->
+                        val link = file.url?.trim().takeUnless { it.isNullOrEmpty() }
+                            ?: "/file-proxy/${file.id}/${file.name}"
+                        val params = buildDocPreviewParamsFromFileLink(
+                            title = file.name.ifEmpty { context.t("docpreview_untitled") },
+                            fileLink = link,
+                            fileUrl = file.url,
+                            userId = auth?.user?.id.orEmpty(),
+                            token = auth?.token.orEmpty(),
+                            server = serverUrl,
+                            fileIdFallback = file.id,
+                        )
+                        nav.navigate(
+                            DocPreviewRoute(
+                                title = params.title,
+                                fileId = params.fileId,
+                                downloadUrl = params.downloadUrl,
+                                fileType = params.fileType,
+                            ),
+                        )
+                    },
+                    // RN onPressMedia :117-127：UrlMediaPreview（Android MediaPlayer 等价路由）
+                    onOpenMedia = { file ->
+                        val previewUrl = resolveRoomSearchFileUrl(
+                            file, auth?.user?.id.orEmpty(), auth?.token.orEmpty(), serverUrl,
+                        )
+                        if (previewUrl.isNotEmpty()) {
+                            nav.navigate(
+                                MediaPlayerRoute(
+                                    url = previewUrl,
+                                    title = file.name,
+                                    isAudio = file.typeGroup == "audio",
+                                ),
+                            )
+                        }
+                    },
+                    // RN onPressMember :129-144：openDirectMessage 链（resolveDirectChatRid）
+                    onOpenMember = { member ->
+                        val username = member.username.trim()
+                        if (username.isEmpty() || username == auth?.user?.username) return@RoomSearchScreen
+                        deps.scope.launch {
+                            val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
+                            if (rid != null) {
+                                nav.navigate(RoomRoute(rid = rid, title = member.name ?: username, roomType = "d"))
+                            } else {
+                                Toast.makeText(
+                                    context, context.t("globalsearch_opendmfailed"), Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    },
+                    // 行内附件点击（T7 路由同款：图片/视频/音频/文档）
+                    onAttachmentNav = { target ->
+                        when (target) {
+                            is AttachmentNav.Images -> nav.navigate(
+                                MediaViewerRoute(
+                                    imagesJson = loginRouteJson.encodeToString(target.images),
+                                    initialIndex = target.initialIndex,
+                                ),
+                            )
+                            is AttachmentNav.Media -> nav.navigate(
+                                MediaPlayerRoute(url = target.url, title = target.title.orEmpty(), isAudio = target.isAudio),
+                            )
+                            is AttachmentNav.Doc -> nav.navigate(
+                                DocPreviewRoute(
+                                    title = target.params.title,
+                                    fileId = target.params.fileId,
+                                    downloadUrl = target.params.downloadUrl,
+                                    fileType = target.params.fileType,
+                                ),
+                            )
+                        }
+                    },
+                    onOpenForwardMerge = { msgData, title ->
+                        nav.navigate(ForwardDetailRoute(msgDataJson = msgData, title = title))
                     },
                     onBack = { nav.popBackStack() },
                 )

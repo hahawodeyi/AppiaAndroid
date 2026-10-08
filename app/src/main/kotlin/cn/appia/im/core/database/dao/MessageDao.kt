@@ -80,4 +80,11 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages")
     fun observe(): Flow<List<MessageEntity>>
+
+    /**
+     * 加密房本地文本搜索（M5-T7 / RN queryLocalRoomMessagesByText：`msg LIKE %q%`，
+     * Watermelon sanitizeLikeString 语义 = `\ % _` 转义；ESCAPE '\' 与 Room LIKE 默认一致）。
+     */
+    @Query("SELECT * FROM messages WHERE rid = :rid AND msg LIKE :pattern ESCAPE '\\'")
+    suspend fun getByRidLikeText(rid: String, pattern: String): List<MessageEntity>
 }

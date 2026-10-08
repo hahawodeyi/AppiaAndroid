@@ -18,11 +18,12 @@ data class MentionCandidate(
     val displayName: String,
 ) : java.io.Serializable
 
-/** RN IRoomMemberRow 子集（mention 候选只用这几列）。 */
+/** RN IRoomMemberRow 子集（mention 候选只用这几列；jobName 为 M5-T7 房间内搜索成员过滤/展示列）。 */
 data class RoomMemberRow(
     val _id: String,
     val username: String,
     val name: String?,
+    val jobName: String? = null,
     val orderNumber: Double? = null,
 )
 
@@ -58,6 +59,7 @@ fun parseAppiaRoomMembersV2(raw: JsonElement?): List<RoomMemberRow> {
                     _id = (user["_id"] as? JsonPrimitive)?.contentOrNull ?: uname,
                     username = uname,
                     name = (user["name"] as? JsonPrimitive)?.contentOrNull,
+                    jobName = (user["jobName"] as? JsonPrimitive)?.contentOrNull,
                     orderNumber = (user["orderNumber"] as? JsonPrimitive)?.doubleOrNull,
                 )
             }
