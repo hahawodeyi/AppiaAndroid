@@ -3,7 +3,11 @@ package cn.appia.im.feature.chat
 import cn.appia.im.core.database.AppiaDatabase
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.messaging.RoomHistoryRepository
+import cn.appia.im.core.network.RocketSdk
+import cn.appia.im.core.network.api.MessageJumpApi
+import cn.appia.im.core.network.api.SurroundingRaw
 import cn.appia.im.domain.chat.ChatMerger
+import cn.appia.im.domain.chat.resolveMessageForJump
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -62,10 +66,21 @@ class RoomMessagesViewModel(
     private val scope: CoroutineScope,
     /** 进房兜底超时（RN INITIAL_LOAD_TIMEOUT_MS :15）；测试注入短值。 */
     private val initialLoadTimeoutMs: Long = INITIAL_LOAD_TIMEOUT_MS,
+    /** 跳转 resolve/拉取通道（M5-T6）：null = 无会话层（纯 UI 测试）→ 跳转恒 not-found。 */
+    private val sdk: RocketSdk? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(RoomMessagesUiState())
     val state: StateFlow<RoomMessagesUiState> = _state
+
+    /**
+     * 跳转控制器（M5-T6 / RN useRoomMessageJump per-mount 等价——随 openRoom 重建、
+     * 退房 dispose；宿主 VM 使状态过旋转让住）。跳转域全部状态（jumpMessages 替换源/
+     * 高亮/加载浮层/loadingEarlier）归控制器，与本 VM 的实时窗口互不读写
+     * （防 DDP 覆盖的结构性来源：RN 同构——jumpMessages 在 hook，paginated 在分页 hook）。
+     */
+    var jump: MessageJumpController? = null
+        private set
 
     private val genCounter = AtomicInteger(0)
     private var roomJob: Job? = null
@@ -77,13 +92,34 @@ class RoomMessagesViewModel(
      */
     override fun onCleared() {
         roomJob?.cancel()
+        jump?.dispose()
     }
 
     /** 进房/换房（RN useLayoutEffect [rid] :46-59）：全量重置分页状态后起本代收集与一次性 settle。 */
     fun openRoom(rid: String, roomType: String) {
         val gen = genCounter.incrementAndGet()
         roomJob?.cancel()
-        roomJob = null
+        jump?.dispose() // 换房作废旧跳转在途（RN unmount cleanup :298-306）
+        jump = if (rid.isEmpty()) {
+            null
+        } else {
+            MessageJumpController(
+                scope = scope,
+                rid = rid,
+                roomType = roomType,
+                resolve = { id ->
+                    if (sdk == null) null else resolveMessageForJump(db, sdk, id)
+                },
+                fetchSurrounding = { id, r ->
+                    if (sdk == null) {
+                        SurroundingRaw(emptyList(), moreBefore = false, moreAfter = false)
+                    } else {
+                        MessageJumpApi.loadSurrounding(sdk, id, r)
+                    }
+                },
+                currentMessages = { _state.value.messages },
+            )
+        }
         _state.value = RoomMessagesUiState(
             loadGen = gen,
             rid = rid,

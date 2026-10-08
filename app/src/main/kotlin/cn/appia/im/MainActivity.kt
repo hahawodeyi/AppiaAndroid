@@ -57,6 +57,7 @@ import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.core.chat.resolveDirectChatRid
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.DraftRepository
+import cn.appia.im.feature.chat.MessageJumpUiState
 import cn.appia.im.feature.chat.RecallActions
 import cn.appia.im.feature.chat.RoomMessagesViewModel
 import cn.appia.im.feature.chat.RoomReadMarker
@@ -167,7 +168,16 @@ data object MainRoute
 
 /** RN RoomScreen 路由参数（rid + 标题兜底 + 房间类型，RoomListScreen T11 串联入口）。 */
 @Serializable
-data class RoomRoute(val rid: String, val title: String = "", val roomType: String = "c")
+data class RoomRoute(
+    val rid: String,
+    val title: String = "",
+    val roomType: String = "c",
+    /**
+     * 跳转高亮（M5-T6 / RN RoomView route `jumpToMessageId`）：目标消息 id。
+     * M6 深链同径——DeepLink 直接以路由参数注入，屏幕侧零额外副作用。
+     */
+    val jumpToMessageId: String? = null,
+)
 
 /** 图片预览页路由（T7）：ViewerImage 列表 JSON 串（type-safe nav 不支持 List<自定义>，同 LoginRoute 裁定）。 */
 @Serializable
@@ -544,6 +554,8 @@ fun AppiaNavHost(
         }
         composable<RoomRoute> { entry ->
             val route = entry.toRoute<RoomRoute>()
+            // 跳转 toast 用 Context（组合期捕获，回调期使用——M5-T6）
+            val roomCtx = LocalContext.current
             if (deps == null) {
                 // 无会话层注入（纯 Auth 栈 UI 测试）；RoomScreen 自身由 RoomScreenTest 直测
                 Text(LocalContext.current.t("feature_not_implemented"))
@@ -559,11 +571,28 @@ fun AppiaNavHost(
                     key = "room-messages:$serverUrl:${route.rid}",
                     factory = viewModelFactory {
                         initializer {
-                            RoomMessagesViewModel(RoomHistoryRepository(deps.sdk, db), db, deps.scope)
+                            RoomMessagesViewModel(
+                                RoomHistoryRepository(deps.sdk, db),
+                                db,
+                                deps.scope,
+                                sdk = deps.sdk, // M5-T6：跳转 resolve（chat.getMessage）/loadSurroundingMessages
+                            )
                         }
                     },
                 )
                 LaunchedEffect(route.rid, route.roomType) { vm.openRoom(route.rid, route.roomType) }
+                // 跳转高亮（M5-T6 / RN useRoomMessageJump useEffect [jumpToMessageId] :291-296）：
+                // **只以路由参数（与控制器实例）为键**——openRoom 建好控制器后本 effect 才非空跳；
+                // 屏内 setJumpMessages 等状态写不经路由参数，不会回流触发（防死循环总纲约束）。
+                val jumpController = vm.jump
+                val jumpState by (jumpController?.state
+                    ?: remember { kotlinx.coroutines.flow.MutableStateFlow(MessageJumpUiState()) })
+                    .collectAsState()
+                LaunchedEffect(route.jumpToMessageId, route.rid, jumpController) {
+                    if (!route.jumpToMessageId.isNullOrEmpty() && jumpController != null) {
+                        jumpController.jumpTo(route.rid, route.jumpToMessageId)
+                    }
+                }
                 // 真名显示（M5-T4 / RN RoomMessageRow:108 usePublicSettingBoolean('UI_Use_Real_Name', true)）：
                 // 装配处表读一次 StateFlow，参数下发 MessageRow 头部 + InlineEnv 提及 label
                 val useRealName = rememberPublicSettingBoolean(db.settingDao(), "UI_Use_Real_Name", default = true)
@@ -741,6 +770,28 @@ fun AppiaNavHost(
                     },
                     // 房间信息页入口（M4-T4 / RN openRoomInfo：标题点击）
                     onOpenRoomInfo = { nav.navigate(RoomInfoRoute(rid = route.rid, roomType = route.roomType)) },
+                    // 跳转高亮（M5-T6）：控制器随 VM（换房重建）；跨房重导航与 toast 在此注入
+                    // （跨房 = RoomRoute(jumpToMessageId) 重导航，M6 深链同径）。
+                    jumpController = jumpController,
+                    jumpState = jumpState,
+                    onCrossRoomJump = { targetRid, targetRoomType, messageId ->
+                        nav.navigate(
+                            RoomRoute(
+                                rid = targetRid,
+                                title = route.title,
+                                roomType = targetRoomType,
+                                jumpToMessageId = messageId,
+                            ),
+                        )
+                    },
+                    onJumpToast = { key ->
+                        Toast.makeText(roomCtx, roomCtx.t(key), Toast.LENGTH_SHORT).show()
+                    },
+                    // 下拉刷新（RN handleRefresh :563-565：exitJumpMode → refresh）
+                    onRefresh = {
+                        jumpController?.exitJumpMode()
+                        vm.refresh()
+                    },
                     // 附件查看路由（T7）：图片网格/视频/音频/文档点击 → 预览/播放/文档页
                     onAttachmentNav = { target ->
                         when (target) {
@@ -1369,8 +1420,18 @@ fun AppiaNavHost(
                     onOpenRoom = { rid, title, roomType ->
                         nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType))
                     },
-                    // 消息行跳转高亮为 T6 接线；当前缺省回退平跳进房（onJumpTo = null）
-                    onJumpTo = null,
+                    // 消息行跳转高亮（M5-T6 / RN onPressMessage :189-196：RoomRoute + jumpToMessageId）。
+                    // RN 附带 fromGlobalSearch（双 bump tSearch 归 T8 接线）。
+                    onJumpTo = { messageId ->
+                        nav.navigate(
+                            RoomRoute(
+                                rid = route.rid,
+                                title = route.title,
+                                roomType = route.roomType,
+                                jumpToMessageId = messageId,
+                            ),
+                        )
+                    },
                     onBack = { nav.popBackStack() },
                 )
             }

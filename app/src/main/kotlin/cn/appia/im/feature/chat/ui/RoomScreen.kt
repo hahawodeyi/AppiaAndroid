@@ -58,6 +58,8 @@ import cn.appia.im.core.messaging.rootToJsonElement
 import cn.appia.im.feature.chat.DraftController
 import cn.appia.im.feature.chat.MessageAction
 import cn.appia.im.feature.chat.MessageActionContext
+import cn.appia.im.feature.chat.MessageJumpController
+import cn.appia.im.feature.chat.MessageJumpUiState
 import cn.appia.im.feature.chat.MessageMultiSelectStore
 import cn.appia.im.feature.chat.MentionCandidate
 import cn.appia.im.feature.chat.PendingAttachment
@@ -225,6 +227,20 @@ fun RoomScreen(
     onOpenRoomInfo: (() -> Unit)? = null,
     /** 真名显示（M5-T4 / RN usePublicSettingBoolean('UI_Use_Real_Name', true)）：装配处 observeById 表读，缺行 true。 */
     useRealName: Boolean = true,
+    /**
+     * 跳转高亮（M5-T6 / RN useRoomMessageJump）：装配处经 `LaunchedEffect(路由参数)` 调起
+     * [MessageJumpController.jumpTo]——本屏只消费控制器状态，**不订阅路由**（防死循环：
+     * setJumpMessages 等内部写不出现在路由参数上，重进房不自动重跳）。
+     * [jumpState] 单独传值（装配处 collectAsState）：UI 测试可不建控制器直驱渲染。
+     */
+    jumpController: MessageJumpController? = null,
+    jumpState: MessageJumpUiState = MessageJumpUiState(),
+    /** 跨房重导航（控制器 navigate-room 分支 → 装配处 RoomRoute(jumpToMessageId)，M6 深链同径）。 */
+    onCrossRoomJump: (rid: String, roomType: String, messageId: String) -> Unit = { _, _, _ -> },
+    /** 跳转 toast（not-found/failed/timeout 三键，装配处持 Context 出 i18n）。 */
+    onJumpToast: (String) -> Unit = {},
+    /** 下拉刷新（装配处：exitJumpMode → vm.refresh，RN handleRefresh :563-565）。 */
+    onRefresh: () -> Unit = {},
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -233,24 +249,70 @@ fun RoomScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     // rollback 分组（T11 / RN applyDisplayMessageTransforms + filterVisible）：连续同 rollbacker
-    // 归组后过滤 hidden 条，再走日期分隔（RN visibleMessages 同序）
-    val display = remember(state.messages) { applyDisplayMessageTransforms(state.messages) }
+    // 归组后过滤 hidden 条，再走日期分隔（RN visibleMessages 同序）；
+    // 跳转态（M5-T6）源切换：jumpMessages 替换实时窗口（RN useRoomMessageJump displayMessages
+    // = jumpMessages ?? paginated :103-106）；两源互不写 = 防 DDP 覆盖的结构性保证
+    val activeMessages = jumpState.jumpMessages ?: state.messages
+    val display = remember(activeMessages) { applyDisplayMessageTransforms(activeMessages) }
     val visible = remember(display) { filterVisibleDisplayMessages(display) }
     val rollbackGroups = remember(display) {
         display.mapNotNull { d -> d.rollbackGroup?.let { d.message._id to it } }.toMap()
     }
     val items = remember(visible) { buildRoomListItems(visible.map { it.message }) }
+    // RN onEndReached（inverted 列表末端 = 最旧）：接近列表顶端触发 loadEarlier；跳转态改走
+    // 控制器整窗替换（RN onLoadEarlier = isJumpMode ? loadEarlierInJumpMode : ... :1088）
     val latestState by rememberUpdatedState(state)
     val latestOnLoadEarlier by rememberUpdatedState(onLoadEarlier)
+    // 跳转态（M5-T6）：effect 体内读最新值（jumpState/jumpController 随重组换引用）
+    val latestJumpState by rememberUpdatedState(jumpState)
+    val latestJumpController by rememberUpdatedState(jumpController)
+    val latestOnCrossRoomJump by rememberUpdatedState(onCrossRoomJump)
+    val latestOnJumpToast by rememberUpdatedState(onJumpToast)
 
-    // RN onEndReached（inverted 列表末端 = 最旧）：接近列表顶端触发 loadEarlier
+    // 控制器缝注入（M5-T6）：滚动（items key 查索引 + 居中）、跨房重导航、toast。
+    // rememberUpdatedState 每帧同步：scrollToMessage 长存活 lambda 读最新 items/listState，
+    // 不捕获陈旧列表（controller 上的 seam 只在控制器重建时重新绑定）。
+    val latestItems by rememberUpdatedState(items)
+    if (jumpController != null) {
+        LaunchedEffect(jumpController) {
+            jumpController.onCrossRoomJump = { targetRid, rt, messageId ->
+                latestOnCrossRoomJump(targetRid, rt, messageId)
+            }
+            jumpController.onToast = { key -> latestOnJumpToast(key) }
+        }
+        DisposableEffect(jumpController) {
+            jumpController.scrollToMessage = { targetId ->
+                // RN resolveVisibleMessageId 已由控制器完成（hidden 组已归并）；
+                // 此处的 key 映射处理 DateSeparator 与目标项的贴合（滚动到分隔+消息复合项）
+                val idx = latestItems.indexOfFirst { it is RoomListItem.Message && it.message._id == targetId }
+                if (idx < 0) {
+                    false
+                } else {
+                    // RN scrollToIndex viewPosition 0.5 的 Compose 等价：滚过半屏居中
+                    //（viewportEndOffset-viewportStartOffset 为视口 px，取一半作居中 scrollOffset）
+                    scope.launch {
+                        val info = listState.layoutInfo
+                        val halfViewport = (info.viewportEndOffset - info.viewportStartOffset) / 2
+                        listState.animateScrollToItem(idx, scrollOffset = -halfViewport)
+                    }
+                    true
+                }
+            }
+            // 控制器存活期 < 屏组合期（VM 越旋转、组合销毁即 dispose），不在此 dispose
+            // ——由 VM.onCleared/openRoom 收口（RN unmount cleanup 等价）
+            onDispose { jumpController.scrollToMessage = { false } }
+        }
+    }
     LaunchedEffect(listState, items) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: 0 }
             .distinctUntilChanged()
             .collect { lastVisible ->
-                if (items.isNotEmpty() && lastVisible >= items.size - 3 &&
-                    latestState.hasMoreEarlier && !latestState.isLoadingEarlier
-                ) {
+                if (items.isEmpty() || lastVisible < items.size - 3) return@collect
+                if (latestJumpState.isJumpMode) {
+                    if (!latestJumpState.isLoadingEarlierInJump) {
+                        latestJumpController?.loadEarlierInJumpMode()
+                    }
+                } else if (latestState.hasMoreEarlier && !latestState.isLoadingEarlier) {
                     latestOnLoadEarlier()
                 }
             }
@@ -507,6 +569,8 @@ fun RoomScreen(
                 authUserId = currentUserId,
             )
             onSendFiles(files, finalMsg, fileMd)
+            // 发送即退跳转态回实时源（M5-T6 / RN exitJumpAndScrollToLatest :129-132 :753）
+            jumpController?.exitJumpMode()
             pendingAttachments.clear()
             controller.clearEditor()
             draftController?.clearAfterSend(rid)
@@ -523,6 +587,8 @@ fun RoomScreen(
             authUserId = currentUserId,
         )
         onSend(finalMsg, md)
+        // 发送即退跳转态回实时源（M5-T6 / RN exitJumpAndScrollToLatest）
+        jumpController?.exitJumpMode()
         controller.clearEditor()
         draftController?.clearAfterSend(rid)
         replyTo = null // RN :821/:926 发送后清回复态
@@ -532,7 +598,7 @@ fun RoomScreen(
         RoomHeader(title = title, onBack = onBack, onTitleClick = onOpenRoomInfo)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (state.messages.isEmpty()) {
+            if (activeMessages.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (state.isInitialLoading) {
                         CircularProgressIndicator(Modifier.testTag("qa-room-message-list-loading"))
@@ -583,6 +649,8 @@ fun RoomScreen(
                                         serverUrl = serverUrl,
                                         token = token,
                                         useRealName = useRealName,
+                                        // 跳转高亮（M5-T6 / RN highlighted={highlightedMessageId === item.id}）
+                                        highlighted = jumpState.highlightedMessageId == item.message._id,
                                         onResend = onResend,
                                         onAttachmentNav = onAttachmentNav,
                                         // 表情回应（T8）：行内反应条点击 → 乐观翻转 + chat.react（装配处实现）
@@ -657,6 +725,11 @@ fun RoomScreen(
                             .testTag("qa-room-scroll-to-bottom"),
                     )
                 }
+            }
+
+            // 跳转定位加载浮层（M5-T6 / RN JumpToMessageLoadingOverlay：全屏半透明菊花，点击取消）
+            if (jumpState.isJumpLoading) {
+                JumpLoadingOverlay(onCancel = { jumpController?.cancelJump() })
             }
         }
 
@@ -1039,6 +1112,24 @@ fun RoomScreen(
             KatexFormulaOverlay(math = formula, onClose = { katexOverlayFormula = null })
         }
     }
+
+/**
+ * 跳转定位加载浮层（M5-T6 / RN components/JumpToMessageLoadingOverlay :17-47 逐形）：
+ * 半透明（50%）全屏背景 + 大号白色菊花；整面点击 = 取消（cancelJump：作废在途 + 退回实时源）。
+ */
+@Composable
+internal fun JumpLoadingOverlay(onCancel: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0x80000000))
+            .clickable(onClick = onCancel)
+            .testTag("qa-jump-to-message-loading"),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(color = Color(0xFFF5F5F5))
+    }
+}
 
 /** RN MessageDateSeparator：线 + `yyyy年M月d日` + 线。（T9 起与 ForwardDetailScreen 共用） */
 @Composable

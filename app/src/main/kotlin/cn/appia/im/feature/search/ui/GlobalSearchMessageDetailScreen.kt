@@ -38,6 +38,7 @@ import cn.appia.im.core.i18n.t
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.chat.ui.RoomHeader
+import cn.appia.im.feature.chat.ui.presenceBadge
 import cn.appia.im.feature.chatlist.chatAvatarUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -472,6 +473,13 @@ private fun MessageDetailRow(
             if (avatarUrl != null) {
                 AsyncImage(model = avatarUrl, contentDescription = null, modifier = Modifier.size(36.dp))
             }
+            // presence 绿点（M5-T3 rider / RN :234-235 DirectAvatar presenceUserId=presenceUsername）
+            presenceBadge(
+                userId = message.senderId,
+                username = message.senderUsername,
+                fallbackStatus = null,
+                avatarSize = 36.dp,
+            )()
         }
         Column(
             Modifier

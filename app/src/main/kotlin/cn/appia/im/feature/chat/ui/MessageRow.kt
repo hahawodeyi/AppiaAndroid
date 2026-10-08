@@ -61,6 +61,9 @@ private val AVATAR_SIZE = 36.dp
 /** RN RoomMessageRow/index.tsx bubbleBgColor：自己浅蓝，他人主题背景（不走色板）。 */
 private val OwnBubbleColor = Color(0xFFCCE6FF)
 
+/** RN RoomMessageRow/styles.ts highlighted：跳转高亮底色 #FFF7D6（M5-T6）。 */
+val JumpHighlightColor = Color(0xFFFFF7D6)
+
 /** RN roomMessageRowUtils ANNOUNCEMENT_TYPES：排除后与 RN 同走普通行渲染（非公告样式）。 */
 private val ANNOUNCEMENT_TYPES =
     setOf("room_created_announcement", "room_changed_announcement", "room_deleted_announcement")
@@ -287,6 +290,8 @@ fun MessageRow(
     onRetryAttachment: (messageId: String, attachmentId: String) -> Unit = { _, _ -> },
     /** 发送者名/提及 label 是否用真名（M5-T4 / RN usePublicSettingBoolean('UI_Use_Real_Name', true)）。 */
     useRealName: Boolean = true,
+    /** 跳转高亮（M5-T6 / RN RoomMessageRow `highlighted`）：整行底色 #FFF7D6 + qa-message-highlighted tag。 */
+    highlighted: Boolean = false,
 ) {
     val colors = LocalAppiaColors.current
     // pointerInput 捕获的是首个组合的 lambda：经 rememberUpdatedState 每次事件读最新回调，
@@ -311,6 +316,9 @@ fun MessageRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // RN highlighted && styles.highlighted：跳转高亮底色 #FFF7D6（M5-T6 / styles.ts :9-11）
+            .background(if (highlighted) JumpHighlightColor else androidx.compose.ui.graphics.Color.Transparent)
+            .testTag(if (highlighted) "qa-message-highlighted" else "qa-room-message-row")
             // pointerInput 而非 combinedClickable：后者会合并行内子节点语义（testTag 不可见，
             // ReactionBar/回执 UI 测试碎）；detectTapGestures 零语义变更。RN delayLongPress=500
             // 对应 Compose 系统长按时长（~400ms），行为一致。
