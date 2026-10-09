@@ -168,6 +168,22 @@ cn.appia.im/
 
 **本里程碑流程教训（入册）**：① Activity 基类迁移类改动（ComponentActivity→AppCompatActivity）必须模拟器实启验证——测试套件不触 MainActivity，T11 主题崩溃 C-1 全靠终审字节码级核验+实启抓出；② 代理基础设施劣化期（停滞/529）控制器直接接管实现/评审是有效降级路径，但须在台账明示"控制器亲评/亲实现"以保审计链。
 
+## 4.7 M6 遗留与 M7 前置任务（2026-10-09 M6 终审裁定，不得静默丢失）
+
+**写 M7 计划时必须列为显式任务行**：
+1. **泛微/石墨/WPS/会议外链拦截族**（M6 计划边界留 M7）：InAppWeb 的 Weavertoken 注入/石墨参数/WPS 入口改写/BACK_CLOSE_URL_SEGMENTS+ant-agent 强制出栈/会议外链 openAntMeetingWeb/postMessage 桥——RN needAuthWhitelist+resolveWebViewUrl+InAppWebScreen 全套拦截逻辑移植
+2. **跨组织未读刷新**（终审搭车项 backlog #9）：推送到达时跨组织未读刷新（RN onNotification 分流的一支）——receiver KDoc 已改正 M7 归属
+3. **GlobalSearch initialQuery seed-once guard**（终审搭车项 backlog #10）：VM 升 entry 级后旋转重播种隐患——深链带搜索词场景前必修
+4. **agents 管理动作**（M4 起挂账）：编辑/禁用/恢复/创建智能体入口 + agents 搜索字段/副标题对齐（总纲 §4.5-6 未消化部分）
+5. **M6 minor 批量收编**（见 backlog-m6.md 全清单）：T9-M9 ServerInfoApi 吞 CE 顺修（M7 触网任务搭车）等
+6. **运维域交接确认**（非代码）：①自更新 URL 须指向 AA universal 包（AA 不产 per-ABI，COMMA_INDEX 机制兼容多 URL）②EMAS 控制台如需 debug 真机收推送须补 cn.appia.im.debug 注册（现 PUSH_10102 预期拒绝）③google-services.json 补 debug client 条目=FCM debug 根治（现 release-only 条件应用）
+
+**M10 前置注意**（终审 T4-M-4）：payload parser 现丢弃 callMsg/raw ejson 原始字段——M10 语音分流需 parser 暴露原始 ejson，不能只扩参（已记 T4 台账+backlog）。
+
+**可带走**（终审 triage）：T2 bootstrap KDoc 措辞/FCM taskNames 启发式裸 build 边界/T1 RoomMembers 冗余 db remember/KDoc "子 SupervisorJob" 措辞/T6 19+ 位数字抛异常（服务端可控不可达）/T8 toIntOrNull 静默回退 M11 收紧——均低危有记录。
+
+**本里程碑流程教训（入册）**：①模拟器走查再次抓出测试不可见真 bug（meta-data 整型 appkey CCE——Bundle.getString 对整型抛异常非返 null，getString→getInt 回退模式永远走不到）——SDK init/manifest 解析类代码必须实启验证 logcat；②简报中的 RN 事实须实现者二次核实（T2 im_default 通道重要性简报笔误被实现者披露纠正；T6 coerce 简化等价声明被评审反例驳倒）——"简报写了"不等于"RN 是这样"。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
