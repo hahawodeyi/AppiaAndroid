@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +38,7 @@ import androidx.navigation.toRoute
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.datastore.KvStore
+import cn.appia.im.core.i18n.LocaleController
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.messaging.RoomHistoryRepository
 import cn.appia.im.core.messaging.getSendOrchestrator
@@ -554,6 +556,8 @@ fun AppiaNavHost(
                 externalAlert = loginAlert,
                 onConsumeExternalAlert = { loginAlert = null },
                 state = state,
+                // T11：登录头语言切换（RN AuthHeaderLanguageSwitch 挂件）
+                languageKv = deps?.kv,
             )
         }
         composable<AreaCodeRoute> { entry ->
@@ -1411,8 +1415,8 @@ fun AppiaNavHost(
                         if (gateway.logout()) goAuth()
                     },
                     onOpenMessageSetting = { nav.navigate(MessageSettingRoute) },
-                    // T11 接线点：语言段回调（LocaleController 落地后接管）
-                    onLanguageChange = { },
+                    // T11：语言段接管（per-app locale 三态，AppCompat 自动重建 Resources）
+                    onLanguageChange = { value -> LocaleController.apply(deps.kv, value) },
                     // CustomQuickReply M6+ 域
                     onOpenQuickReply = { },
                     // T10：浏览器 pref inApp → 法律链接等走应用内 WebView（RN openLink）
@@ -1842,7 +1846,7 @@ fun AppiaNavHost(
 }
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var session: SessionBootstrapOrchestrator
@@ -1886,6 +1890,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // T11：冷启动恢复 per-app locale（MMKV 偏好在，AppCompat 重建 Resources）
+        LocaleController.restore(kv)
         // 首帧判定在 setContent 前完成（同步读 MMKV 持久化会话）：有会话直落 Main（RN
         // RootNavigator.tsx:66-95 首帧即定 Auth/Main，无闪屏）；Main 内再异步 bootstrap（RN 同构）
         val startAuthenticated = session.hasRestorableSession()

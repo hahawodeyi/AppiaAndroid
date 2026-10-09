@@ -241,7 +241,7 @@ fun SettingsScreen(
                     ),
                     onChange = { next ->
                         languageValue = next
-                        // T11 接线：LocaleController 落地后接管（值透传回调，T9 不越界）
+                        // T11：MainActivity 装配 LocaleController.apply（per-app locale 即时生效）
                         onLanguageChange(next)
                     },
                     tag = "settings-row-language",

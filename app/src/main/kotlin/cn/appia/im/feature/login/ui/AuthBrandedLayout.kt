@@ -40,13 +40,13 @@ internal object LoginTheme {
  * Auth 域共享品牌布局（对照 RN AuthBrandedLayout.tsx）：
  * 蓝色品牌头（RN headerImageTouchPassthrough 214dp 蓝底）+ 白色欢迎标题 + 白色圆角卡片表单区。
  * 企业码页与登录页共用；`footer` 承载版本行等卡片底部内容。
- * RN 的 `headerAccessory`（AuthHeaderLanguageSwitch 应用内语言切换）未移植：
- * Android 侧 i18n 尚无应用内语言覆盖基建（M0 跟随系统语言），待语言基建任务补齐。
+ * `headerAccessory` 承载 AuthHeaderLanguageSwitch（T11：应用内语言切换下拉）。
  */
 @Composable
 fun AuthBrandedLayout(
     title: String,
     modifier: Modifier = Modifier,
+    headerAccessory: (@Composable () -> Unit)? = null,
     footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -77,6 +77,7 @@ fun AuthBrandedLayout(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(bottom = 52.dp),
             )
+            headerAccessory?.invoke()
         }
         Column(
             Modifier

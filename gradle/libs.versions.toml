@@ -39,6 +39,7 @@ compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-mani
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
+appcompat = { group = "androidx.appcompat", name = "appcompat", version = "1.7.1" }
 
 # 网络
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }

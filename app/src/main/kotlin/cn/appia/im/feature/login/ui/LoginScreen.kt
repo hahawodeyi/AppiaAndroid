@@ -489,6 +489,8 @@ fun LoginScreen(
     onConsumeExternalAlert: () -> Unit = {},
     enablePasswordLogin: Boolean = ENABLE_PASSWORD_LOGIN,
     state: LoginState = rememberLoginState(servers, onLoginSuccess),
+    // T11：登录头语言切换（RN AuthHeaderLanguageSwitch）；null = 不渲染（测试）
+    languageKv: cn.appia.im.core.datastore.KvStore? = null,
 ) {
     // RN:146-149/:410-412 servers 丢失/为空直接回企业码页（稳态列表 + replace）
     if (servers.isEmpty()) {
@@ -513,7 +515,12 @@ fun LoginScreen(
         if (server.isNotEmpty()) state.setCasAvailability(state.deps.fetchCasUrl(server))
     }
 
-    AuthBrandedLayout(title = t("enterprise_welcome")) {
+    AuthBrandedLayout(
+        title = t("enterprise_welcome"),
+        headerAccessory = languageKv?.let { kv ->
+            { AuthHeaderLanguageSwitch(kv, locale) }
+        },
+    ) {
         // 登录方式头（RN:421-454）：门控开显示双 Tab，关则居中「短信登录」标题
         if (enablePasswordLogin) {
             Row(

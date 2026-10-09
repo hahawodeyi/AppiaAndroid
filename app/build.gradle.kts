@@ -95,6 +95,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.core.ktx)
+    implementation(libs.appcompat)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.coroutines.android)
