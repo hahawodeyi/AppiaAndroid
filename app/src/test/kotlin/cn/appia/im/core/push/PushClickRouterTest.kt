@@ -73,7 +73,8 @@ class PushClickRouterTest {
 
     private class Fixture(serverUrl: String?) {
         val queue = PendingPushNavigation()
-        val router = PushClickRouter(queue = queue, currentServerProvider = { serverUrl })
+        // afterEnqueue no-op：本类只测入队语义（drain 联动见「前台点击即时派发」用例）
+        val router = PushClickRouter(queue = queue, currentServerProvider = { serverUrl }, afterEnqueue = {})
     }
 
     @Test
@@ -125,5 +126,29 @@ class PushClickRouterTest {
         val fx = Fixture(null)
         fx.router.onNotificationOpened("General", "hello", canonicalExtra(ejsonRoom))
         assertEquals(1, fx.queue.drain().size)
+    }
+
+    // 终审 I-1：前台点托盘通知无生命周期转换（三 drain 点全不触发）——
+    // RN 入队只是兜底（nav 就绪即派发）→ 入队后补幂等 drain 即时进房
+    @Test
+    fun `foreground click drains immediately after enqueue`() {
+        val queue = PendingPushNavigation()
+        val navigated = mutableListOf<PendingPushNavigation.Intent>()
+        val drainer = PushNavigationDrainer(
+            queue = queue,
+            isAuthenticated = { true },
+            scheduleDelayed = { _, _ -> val noop: () -> Unit = {}; noop },
+        ).apply {
+            navigate = { navigated += it }
+            onNavReady()
+        }
+        val router = PushClickRouter(
+            queue = queue,
+            currentServerProvider = { "https://a.cn" },
+            afterEnqueue = { drainer.onNavReady() },
+        )
+        router.onNotificationOpened("General", "hello", canonicalExtra(ejsonRoom))
+        assertEquals(listOf("GENERAL"), navigated.map { it.rid })
+        assertEquals(0, queue.pendingCount)
     }
 }

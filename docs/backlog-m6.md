@@ -13,3 +13,5 @@
 | 6 | T2：RoleRefresher inflight 去重分支改名（现名与语义不符的死分支，易误读） | domain/session RoleRefresher（纯改名） |
 | 7 | T6-M1：jump 模式下发消息后未 scroll-to-latest（RN 跳转模式发送即回底，Android 缺该联动） | feature/chat RoomScreen（发送成功 → 列表回底） |
 | 8 | T6-M5：loadEarlier 加载更早消息无 spinner（isLoadingEarlier 态未接 UI） | feature/chat RoomScreen / RoomMessagesViewModel isLoadingEarlier 接线 |
+| 9 | M6 终审搭车：推送到达时跨组织未读刷新（RN pushService onNotification，多组织列表角标）——receiver 现仅日志 | M7（推送到达链随手接；AppiaAliyunPushReceiver.onNotification） |
+| 10 | M6 终审搭车：GlobalSearchRoute initialQuery seed-once guard（LaunchedEffect(Unit) 每次重组重播种会覆盖用户清空后的输入；T1 评审承诺 T5 携带未交付） | feature/search GlobalSearchScreen / MainActivity GlobalSearchRoute 装配（ remembered seed 标志） |

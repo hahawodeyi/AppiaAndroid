@@ -48,6 +48,13 @@ fun isPushHostMatchingCurrentServer(host: String?, currentServer: String?): Bool
 class PushClickRouter(
     private val queue: PendingPushNavigation,
     private val currentServerProvider: () -> String?,
+    /**
+     * 入队后幂等 drain 提示（终审 I-1 / RN pushNavigation.ts:241-277 nav 就绪即派发——入队只是
+     * 未就绪兜底）：App 已在前台时点托盘通知，SDK 回调不引起生命周期转换，三 drain 点全不触发，
+     * 意图会坐满 90s TTL。默认推 shared.onNavReady——nav 未接线时其内部门控（navReady/navigate/
+     * auth）使 drain 安全 no-op，意图留队列待接线点冲刷。
+     */
+    private val afterEnqueue: () -> Unit = { PushNavigationDrainer.shared.onNavReady() },
 ) {
 
     /**
@@ -82,6 +89,7 @@ class PushClickRouter(
 
         Log.i(TAG, "open → pending room navigation rid=${params.rid} t=${params.t} messageId=${params.messageId} pending=${queue.pendingCount}")
         queue.enqueue(rid = params.rid, t = params.t, title = params.title, messageId = params.messageId)
+        afterEnqueue() // 前台点击即时派发（终审 I-1）；未就绪场景由内部门控兜底为留队
     }
 
     companion object {

@@ -10,7 +10,7 @@ import com.alibaba.sdk.android.push.notification.CPushMessage
  *
  * 点击动作（opened / clickedWithNoAction，RN pushService.ts:130-132 同径）→ PushClickRouter：
  * 解析 extra 的 ejson → host 校验 → 90s 待导航队列（T5 drain 进房）。
- * 到达/移除/透传仍仅日志（RN 语音分流+跨组织未读刷新归 T5/M10）。
+ * 到达/移除仍仅日志（语音分流归 M10；到达时跨组织未读刷新归 M7，见 backlog-m6 #9）。
  */
 class AppiaAliyunPushReceiver : MessageReceiver() {
     companion object {
@@ -32,7 +32,7 @@ class AppiaAliyunPushReceiver : MessageReceiver() {
 
     override fun onMessage(context: Context, message: CPushMessage) {
         Log.i(TAG, "onMessage messageId=${message.messageId} title=${message.title}")
-        // TODO(T5): 透传消息分流（同 RN pushService onMessage）
+        // TODO(M10): 透传消息分流（同 RN pushService onMessage）
     }
 
     override fun onNotificationClickedWithNoAction(context: Context, title: String, summary: String, extraMap: String) {
