@@ -1,18 +1,16 @@
 package cn.appia.im.core.push
 
-import android.content.Context
-import android.provider.Settings
 import android.util.Log
 import cn.appia.im.core.datastore.KvStore
 import cn.appia.im.core.datastore.MmkvKvStore
 import cn.appia.im.core.network.RocketHttp
 import cn.appia.im.core.network.ServerUrl
 import cn.appia.im.core.network.rest.ApiException
+import com.alibaba.sdk.android.push.noonesdk.PushServiceFactory
 import com.tencent.mmkv.MMKV
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -31,7 +29,7 @@ private const val TAG = "push"
 private const val APP_NAME = "cn.appia.im" // RN pushService.ts:170
 
 /**
- * 推送 token 注册埋点（M1 最小实现；M6 换阿里云 SDK，deviceId 现为 ANDROID_ID 占位）。
+ * 推送 token 注册埋点（M6：deviceId = 阿里云 CloudPushService.getDeviceId，非 FCM token）。
  * 对照 appiaMobile/src/services/notification/pushService.ts：
  * - register :150-175：deviceId → 先存 `push_device_token`（:163，失败不回滚）→ POST push.token
  *   `{value, type:'gcm', appName}`（Android 一律 'gcm'，:169）；带登录会话鉴权头（RN sdk.post 语义）。
@@ -128,15 +126,16 @@ class PushTokenRegistrar(
 @InstallIn(SingletonComponent::class)
 object PushModule {
 
-    /** RN pushService.ts:36：独立 MMKV 实例 `push-storage`；deviceId 为 ANDROID_ID 占位（M6 换阿里云）。 */
+    /** RN pushService.ts:36：独立 MMKV 实例 `push-storage`；deviceId 见下（M6 起阿里云）。 */
     @Provides
     @Singleton
-    fun providePushTokenRegistrar(@ApplicationContext context: Context): PushTokenRegistrar =
+    fun providePushTokenRegistrar(): PushTokenRegistrar =
         PushTokenRegistrar(
             kv = MmkvKvStore(MMKV.mmkvWithID("push-storage")),
             client = RocketHttp.client,
-            deviceIdProvider = {
-                Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            },
+            // RN pushService.ts:150-158（桥 AliyunReactNativePushModule.kt:76-79 同源）：阿里云 deviceId。
+            // SDK 未就绪（init 前调用）抛异常/返回 null → resolveDeviceId 记日志返回 null →
+            // register 跳过，下次登录重试（RN getDeviceId 失败语义同）。
+            deviceIdProvider = { PushServiceFactory.getCloudPushService().deviceId },
         )
 }

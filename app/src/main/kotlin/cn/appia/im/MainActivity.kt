@@ -1,8 +1,12 @@
 package cn.appia.im
 
+import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -48,6 +52,8 @@ import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.BuildConfig
+import cn.appia.im.core.push.BatteryOptimizationGuide
+import cn.appia.im.core.push.NotificationPermissionGate
 import cn.appia.im.core.realtime.NetworkMonitor
 import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.settings.rememberPublicSettingBoolean
@@ -631,6 +637,8 @@ fun AppiaNavHost(
                     deps.networkMonitor.start()
                     onDispose { deps.networkMonitor.stop() }
                 }
+                // 推送会话挂载效果（M6-T3）：通知权限申请 + 电池优化引导（冷启动/登录双触发收敛点）
+                PushSessionTriggers()
                 ChatListScreen(
                     gateway = gateway,
                     deps = deps,
@@ -1875,6 +1883,53 @@ fun AppiaNavHost(
                 )
             }
         }
+    }
+}
+
+/**
+ * 推送会话挂载效果（M6-T3）：Main 挂载即 RN 双触发点的收敛处——冷启动恢复会话
+ * （startAuthenticated 直落 Main = bootstrapDeferredServices.ts:14）与登录成功
+ * （goMain 重挂 Main = authStore.ts:108）都汇入本 effect。
+ * 顺序：先通知权限（Android 13+ 系统弹窗，故意分歧点——RN 从不申请，坑 4），
+ * 电池引导随后（RN 无通知申请故无此叠加问题）；各会话内至多一次（各自 gate 内闸门）。
+ */
+@Composable
+private fun PushSessionTriggers() {
+    // LocalActivity 为可空（lint ContextCastToActivity 禁 LocalContext 强转）；
+    // 生产恒非空（AppCompatActivity 宿主），纯 ComposeRule 测试宿主为空 → 跳过挂载效果。
+    val activity = LocalActivity.current ?: return
+    var batteryAlert by remember { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        batteryAlert = BatteryOptimizationGuide.shouldShowNow(activity)
+    }
+    LaunchedEffect(Unit) {
+        if (NotificationPermissionGate.shouldRequestNow(activity)) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            batteryAlert = BatteryOptimizationGuide.shouldShowNow(activity)
+        }
+    }
+    if (batteryAlert) {
+        AlertDialog(
+            onDismissRequest = { batteryAlert = false }, // RN Alert cancelable: true
+            title = { Text(activity.t("pushBattery_guide_title")) },
+            text = { Text(activity.t("pushBattery_guide_body")) },
+            dismissButton = {
+                TextButton(onClick = { batteryAlert = false }) {
+                    Text(activity.t("pushBattery_guide_later"))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    batteryAlert = false
+                    BatteryOptimizationGuide.requestIgnore(activity)
+                }) {
+                    Text(activity.t("pushBattery_guide_allow"))
+                }
+            },
+        )
     }
 }
 
