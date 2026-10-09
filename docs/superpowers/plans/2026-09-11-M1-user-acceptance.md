@@ -448,3 +448,82 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 13. **GhostOwner API 未接 UI**：ghost-owner 角色操作 API 已落地但无 UI 入口（对照 RN——API 层存在未接线，忠实一致）。
 14. **转发组织树已接真数据源**（M4-T1 收口 M3 遗留差异 11）：转发选择页组织树 tab 已从占位升级为真部门树。
 15. **列表预览 mention 显示名已收口**（M4-T1 收口 M3 遗留差异 14）：列表第二行预览 mention 显示 @昵称。
+
+## 十二、M5 自测清单（搜索/presence/设置，双端对照）
+
+> 前置：M1-M4 验收项照旧；本节需两台设备或一机一网页端。账号角色预置（非会话中提升——全局角色刷新 M5-T2 已落地，但验收基线仍建议预置以对齐 RN 行为）。
+
+### 1. 全局搜索（会话列表搜索框）
+
+- [ ] **三段查询**：输入关键词 → all tab 分区预览（用户/房间/消息各 ≤3 条 + 折叠「查看更多」）；切 messages/files tab
+- [ ] **messages tab**：完整列表分页（50/页，上滑加载）；点击消息 → 详情屏（chat.search 结果）
+- [ ] **files tab**：cursor 分页；文件点击 → 预览
+- [ ] **contact 点击**：直接进单聊（rid 为 username 回退时走 im.create 链——冷联系人首次点击稍慢属正常）
+- [ ] **房间点击**：进房 + 会话列表该房间置顶（tSearch bump）+ 未读清零
+- [ ] **消息详情点击跳转**：详情屏点消息 → 跳回房间对应位置 + 高亮黄底 + 上下文各 ~50 条
+- [ ] **防抖**：连续输入 300ms 后才发请求；快速改词不闪旧结果
+- [ ] **离线回退**：断网输入 → 本地分区（会话/联系人缓存）
+- [ ] **显示名**：服务器设置 UI_Use_Real_Name=false 时，搜索结果发送者名与房内一致（同显示 username）
+
+### 2. 房间内搜索（房间头搜索入口）
+
+- [ ] **群 6 tab / 单聊 4 tab** 结构对齐 RN
+- [ ] **messages**：notIncludeFile 过滤；点击 → goBack + 跳转高亮
+- [ ] **files/media**：regex 查询；图片点击大图查看器、视频进播放器
+- [ ] **mentions**：双层（服务端 query + 客户端过滤）
+- [ ] **members**：本地缓存过滤
+- [ ] **links**：启发式（照抄 RN 临时方案）
+- [ ] **加密房**：本地 LIKE 搜索（离线也能搜）
+
+### 3. 跳转高亮（搜索消息跳转）
+
+- [ ] 目标消息在当前房间 → 滚动定位 + #FFF7D6 黄底
+- [ ] 目标消息在别的房间 → 跨房重导航后定位
+- [ ] 目标已删除/不可达 → 提示 + 停留
+- [ ] 跳转模式下发消息/下拉刷新 → 退回实时模式
+- [ ] 加载中遮罩可取消；15s 超时提示
+
+### 4. presence 在线状态
+
+- [ ] **绿点**：通讯录/成员列表/单聊头像角标——仅 online 显示绿点、away 显示离开态（离线无点）
+- [ ] **文字状态**：名片页「在线」文字仅 online 显示（与绿点判定分离）
+- [ ] 状态变化（对方锁屏/退后台）→ 2s 批量防抖后更新
+- [ ] bot 账号不显示在线状态
+
+### 5. 设置页族（ProfileScreen → 设置）
+
+- [ ] **ProfileScreen 只读**：头像/姓名只读（RN 同——无编辑）；二维码入口 → MyCard；邮箱；设置入口
+- [ ] **MyCard 迁正**：顶栏菜单不再有名片项（唯一入口 ProfileScreen）；Enterprise_Name 正确显示
+- [ ] **五分区**：通用/通知/关于/法律/账户——行集合对照 RN
+- [ ] **语言切换**：登录头下拉 + 设置三段（跟随系统/English/中文）即时生效全 app
+- [ ] **通知细项**：房间信息页 muteGroupMentions 独立开关等三键
+- [ ] **状态编辑**：maxLength 120；保存后名片/提及处显示
+- [ ] **清除缓存**：teardown → 重引导（会话重连）
+- [ ] **退出其他设备**：users.removeOtherTokens
+- [ ] guest 账号显示删号入口（普通账号无——判定 contains("appia.guest")）
+
+### 6. InAppWeb
+
+- [ ] **简历链接**（名片页，canViewResume 门）：应用内 WebView 打开（M4 时是系统浏览器）
+- [ ] **法律链接**：默认浏览器 pref=inApp 时应用内打开；systemDefault 时外跳
+- [ ] 白名单三域（survey/lexiang/ssc-docs）自动 needAuth 换 code
+- [ ] 返回栈：域内 goBack，回根/域外出栈
+
+### 7. 角色/权限实时性
+
+- [ ] 会话中期管理员降权/提权 → 30s 内或回前台后重新进入房间信息页，操作按钮权限同步（全局角色刷新 T2）
+
+## 十三、M5 已知差异（对照 RN 版，非缺陷，请勿按缺陷反馈）
+
+1. **头像上传不做**：RN ProfileScreen 本身未实现头像上传/姓名编辑（只读对齐——如需走 legacy setAvatarFromService 推 M6+ 评估）。
+2. **字体设置仅持久化**：字体段选择保存但不改变渲染（RN 真实应用字体资产/allowFontScaling——Android 侧 M6+ 评估）。
+3. **letter 头像 URL 变体**：appiaAvatarType=letter 的 /avatar/@name 变体未在头像渲染消费（M6+）。
+4. **检查更新**：M6 边界——展示+跳浏览器（无应用内自更新弹窗）。
+5. **快捷回复行 no-op**：设置页快捷回复行渲染但不可导航（CustomQuickReply 屏计划外）。
+6. **加密房搜索字面匹配**：LIKE 转义语义与 RN watermelondb@0.28 不同（RN 非字母数字→_ 通配退化；Android 字面匹配——修正 RN 缺陷，故意分歧）。
+7. **links tab 启发式**：照抄 RN 临时方案（RN 注释自认）。
+8. **mentions 客户端过滤**：空页 addedCount==0 止步（RN 同构）；服务端 query+客户端双层。
+9. **InAppWeb 时序**：Meteor localStorage 注入经 onPageStarted→evaluateJavascript（RN-on-Android 同款时序——逐位同）；泛微/石墨/WPS/会议拦截归 M7。
+10. **跨房跳转平跳**：搜索跳转跨房用 navigate 平跳非 RN reset 清栈（返回回到搜索屏——M6 深链导航对齐时统一收口）。
+11. **语言切换下拉视觉**：登录头 material3 DropdownMenu（RN element-dropdown，动画差异）。
+12. **跳转加载遮罩**：仅覆盖消息区非 RN 全屏 Modal（更温和——可同时发消息/返回）。
