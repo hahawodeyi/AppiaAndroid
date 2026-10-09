@@ -54,6 +54,7 @@ import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.BuildConfig
 import cn.appia.im.core.push.BatteryOptimizationGuide
 import cn.appia.im.core.push.NotificationPermissionGate
+import cn.appia.im.core.push.PushNavigationDrainer
 import cn.appia.im.core.realtime.NetworkMonitor
 import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.settings.rememberPublicSettingBoolean
@@ -451,6 +452,8 @@ fun AppiaNavHost(
     startAuthenticated: Boolean = false,
     loginState: LoginStateFactory? = null,
     deps: RouteDeps? = null,
+    /** M6-T5 深链 drainer（PushNavigationDrainer.shared）；UI 测试 null 免触 MMKV。 */
+    pushDrainer: PushNavigationDrainer? = null,
 ) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -458,6 +461,29 @@ fun AppiaNavHost(
     // CAS SSO 登录失败要落回登录页弹窗（RN runLogin 的 Alert；导航级状态跨屏传递）。
     // 一次性：LoginScreen 投递即消费（externalAlert 投递即清 + 本地暂存展示），导航往返不重显示
     var loginAlert by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    // M6-T5 深链 drain 接线点①（RN RootNavigator.tsx:53-56 onReady）：导航出口/通知清理出口
+    // 在组合期挂上 drainer，nav 创建即冲刷冷启动积压（门控在 drainer 内部：isAuthenticated &&
+    // navReady）。pushDrainer 注入缝：生产传 PushNavigationDrainer.shared；纯 Robolectric UI
+    // 测试不传（其 plain Application 无 MMKV.initialize，shared 的 auth 门会炸）。
+    // ejson 无 messageId 容忍只进房不高亮（坑 8）：jumpToMessageId=null 直通 M5 管线的空分支。
+    val drainer = pushDrainer
+    if (drainer != null) {
+        drainer.navigate = { intent ->
+            nav.navigateToRoomFromAppRoot(
+                RoomRoute(
+                    rid = intent.rid,
+                    title = intent.title.orEmpty(),
+                    roomType = intent.t,
+                    jumpToMessageId = intent.messageId,
+                ),
+            )
+        }
+        drainer.clearNotifications = {
+            androidx.core.app.NotificationManagerCompat.from(context).cancelAll()
+        }
+        LaunchedEffect(Unit) { drainer.onNavReady() }
+    }
     // 区号选择回调：type-safe nav 参数不携带 lambda，暂存导航级状态（RN 路由 params.onSelect 等价物）
     var areaCodeSelect by remember { mutableStateOf<((LoginAreaCodeOption) -> Unit)?>(null) }
 
@@ -639,6 +665,9 @@ fun AppiaNavHost(
                 }
                 // 推送会话挂载效果（M6-T3）：通知权限申请 + 电池优化引导（冷启动/登录双触发收敛点）
                 PushSessionTriggers()
+                // M6-T5 深链 drain 接线点②（RN MainNavigator.tsx:38-40 挂载 useEffect）：
+                // 登录完成 goMain 重挂 Main 时冲刷 90s TTL 内积压（登出期间点击的 RN 同语义）
+                if (drainer != null) LaunchedEffect(Unit) { drainer.onMainMounted() }
                 ChatListScreen(
                     gateway = gateway,
                     deps = deps,
@@ -1971,9 +2000,18 @@ class MainActivity : AppCompatActivity() {
     /** RN MainNavigator.tsx:60 AppState 'active' → syncCurrentUserRoles()（30s 节流内置）。 */
     override fun onResume() {
         super.onResume()
+        // M6-T5 深链 drain 接线点③（RN MainNavigator.tsx:62-72 AppState 'active' 分支）：
+        // 即时 drain + 通知清理（坑 16）+ 400ms 延迟二次 drain（门控在 drainer 内部）
+        PushNavigationDrainer.shared.onAppForeground()
         if (authStore.isAuthenticated) {
             backgroundScope.launch { roleRefresher.refresh() }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // RN else 分支：离前台取消在途 400ms 延迟 drain
+        PushNavigationDrainer.shared.onAppBackground()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1996,6 +2034,7 @@ class MainActivity : AppCompatActivity() {
                     AppiaNavHost(
                         session = session,
                         startAuthenticated = startAuthenticated,
+                        pushDrainer = PushNavigationDrainer.shared,
                         deps = RouteDeps(
                             dbManager,
                             sdk,
