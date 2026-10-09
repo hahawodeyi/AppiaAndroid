@@ -3,6 +3,7 @@ package cn.appia.im.feature.web
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
@@ -39,6 +40,7 @@ import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.chat.ui.RoomHeader
 import cn.appia.im.feature.settings.SettingsConstants
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
@@ -137,6 +139,34 @@ fun urlsSameOrigin(loadUrl: String, serverUrl: String): Boolean {
 }
 
 /**
+ * RN buildMeteorAndRcCookieScript 的 localStorage 段（buildInjectedScripts.ts:62-75）：
+ * 同源页注入 Meteor.loginToken / Meteor.userId / source='appia' / org 四项，值均经
+ * [JsonPrimitive.toString()] JSON 转义（RN JSON.stringify 同防引号注入）；条件写（值不同才 set）。
+ * Cookie 段（rc_token/rc_uid）由 CookieManager 承担（见 [AppWebView]），此处仅 localStorage。
+ */
+fun buildMeteorLocalStorageScript(token: String, userId: String, enterpriseId: String): String {
+    val tokenLit = JsonPrimitive(token).toString()
+    val uidLit = JsonPrimitive(userId).toString()
+    val orgLit = JsonPrimitive(enterpriseId).toString()
+    return """(function(){
+  try {
+    if (localStorage.getItem('Meteor.loginToken') !== $tokenLit) {
+      localStorage.setItem('Meteor.loginToken', $tokenLit);
+    }
+    if (localStorage.getItem('Meteor.userId') !== $uidLit) {
+      localStorage.setItem('Meteor.userId', $uidLit);
+    }
+    if (localStorage.getItem('source') !== 'appia') {
+      localStorage.setItem('source', 'appia');
+    }
+    if (localStorage.getItem('org') !== $orgLit) {
+      localStorage.setItem('org', $orgLit);
+    }
+  } catch (e) {}
+})();"""
+}
+
+/**
  * 应用内 WebView 壳（M5-T10 最小版，RN screens/InAppWebScreen/index.tsx 对照）：
  * needAuth 白名单自动换 code 拼 URL；同源（IM server）注入 rc_token/rc_uid Cookie；
  * 返回栈 canGoBack 域外判定；换码失败降级裸 URL 继续加载（RN :217-224 auth=null 同语义）。
@@ -228,6 +258,7 @@ fun InAppWebScreen(
                 serverUrl = serverUrl,
                 token = token,
                 userId = userId,
+                enterpriseId = enterpriseId,
                 onWebviewReady = { web = it },
             )
         }
@@ -249,7 +280,8 @@ private fun ErrorBox(message: String) {
 
 /**
  * WebView 本体：同源（IM server）注入 rc_token/rc_uid Cookie（RN buildMeteorAndRcCookieScript
- * 的 CookieManager 等价——仅对当前加载 origin 生效，不外溢域外页）。
+ * 的 CookieManager 等价——仅对当前加载 origin 生效，不外溢域外页）+ Meteor localStorage
+ * 四项（onPageStarted 注入；RC 会话键 7 天，RN cookieExpiresUtc 同期）。
  */
 @Composable
 private fun AppWebView(
@@ -257,6 +289,7 @@ private fun AppWebView(
     serverUrl: String,
     token: String?,
     userId: String?,
+    enterpriseId: String,
     onWebviewReady: (WebView) -> Unit,
 ) {
     androidx.compose.runtime.key(url) {
@@ -269,13 +302,22 @@ private fun AppWebView(
                     val cm = CookieManager.getInstance()
                     cm.setAcceptCookie(true)
                     cm.setAcceptThirdPartyCookies(this, true)
-                    if (token != null && userId != null && urlsSameOrigin(url, serverUrl)) {
+                    // 同源守卫：token/userId 缺失或域外 → 不注入任何会话材料
+                    val meteorScript = if (token != null && userId != null && urlsSameOrigin(url, serverUrl)) {
                         // RC 会话 Cookie 7 天（RN cookieExpiresUtc 同期）——仅同源 origin
                         cm.setCookie(url, "rc_token=$token; Path=/; Max-Age=604800")
                         cm.setCookie(url, "rc_uid=$userId; Path=/; Max-Age=604800")
                         cm.flush()
-                    }
+                        buildMeteorLocalStorageScript(token, userId, enterpriseId)
+                    } else null
                     webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                            // RN injectedJavaScriptBeforeContentLoaded 在页面内容前执行；Android
+                            // evaluateJavascript 无文档级前置钩子，onPageStarted 是最早可用点
+                            //（DOM/storage 可写）——时机略晚于 RN，主站脚本读取时序近似对齐。
+                            meteorScript?.let { view.evaluateJavascript(it, null) }
+                        }
+
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                             // 会议外链拦截归 M7：此处放行全部 http(s)
                             return false

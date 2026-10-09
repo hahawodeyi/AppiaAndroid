@@ -1,6 +1,7 @@
 package cn.appia.im.feature.web
 
 import cn.appia.im.core.network.api.ExternalTokenResult
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -150,5 +151,28 @@ class InAppWebViewParamsTest {
         assertTrue(urlsSameOrigin("https://im.example.com/x", "https://im.example.com"))
         assertFalse(urlsSameOrigin("https://other.com/x", "https://im.example.com"))
         assertFalse(urlsSameOrigin("bad url", "https://im.example.com"))
+    }
+
+    // ── buildMeteorLocalStorageScript（RN buildInjectedScripts.ts:62-75 localStorage 段）──
+
+    @Test
+    fun `script writes four meteor localstorage keys with json escaped values`() {
+        val s = buildMeteorLocalStorageScript("tok-1", "uid-1", "E1")
+        assertTrue(s.contains("localStorage.setItem('Meteor.loginToken', \"tok-1\")"))
+        assertTrue(s.contains("localStorage.setItem('Meteor.userId', \"uid-1\")"))
+        assertTrue(s.contains("localStorage.setItem('source', 'appia')"))
+        assertTrue(s.contains("localStorage.setItem('org', \"E1\")"))
+        // 条件写 + try/catch（RN 同形）
+        assertTrue(s.contains("!== \"tok-1\""))
+        assertTrue(s.contains("try {"))
+    }
+
+    @Test
+    fun `quote injection in values is json escaped`() {
+        // RN JSON.stringify 同防引号注入：值内引号转义后入脚本，原样值不得裸现
+        val raw = """a"; alert(1); """
+        val s = buildMeteorLocalStorageScript(raw, "u", "E")
+        assertTrue(s.contains(JsonPrimitive(raw).toString()))
+        assertFalse(s.contains(raw))
     }
 }

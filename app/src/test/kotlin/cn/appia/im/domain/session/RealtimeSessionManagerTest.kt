@@ -584,6 +584,29 @@ class RealtimeSessionManagerTest {
         pollDao("stale emoji purged") { it.map { e -> e.name } == listOf("party") }
     }
 
+    @Test
+    fun `emoji resync with empty or missing update key clears table`() = runBlocking {
+        // RN :13 `const { update = [] }` 缺省——空/缺键 = 服务端已全删，setCustomEmojis([]) 清表
+        val ws = SessionWsServer().also { wsListeners.add(it) }
+        val dateKey = "\$" + "date"
+        emojiBody = """
+            {"success":true,"emojis":{"update":[
+              {"_id":"e1","name":"appia","aliases":["ap"],"extension":"png","_updatedAt":{"$dateKey":1700000000000}}
+            ]}}
+        """.trimIndent()
+
+        manager.bootstrap(host, "tok-empty-1", userId = "uid-1")
+        pollDao("initial 1 emoji") { it.size == 1 }
+
+        emojiBody = """{"success":true,"emojis":{"update":[]}}"""
+        manager.bootstrap(host, "tok-empty-2", userId = "uid-1")
+        pollDao("empty update clears table") { it.isEmpty() }
+
+        emojiBody = """{"success":true,"emojis":{}}""" // 键缺失 → 空数组缺省
+        manager.bootstrap(host, "tok-empty-3", userId = "uid-1")
+        pollDao("missing key stays cleared") { it.isEmpty() }
+    }
+
     /** dao 挂起查询轮询（extras 为 fire-and-forget 后台协程；同 T13 测试口径）。 */
     private suspend fun pollDao(desc: String, cond: (List<cn.appia.im.core.database.entity.CustomEmojiEntity>) -> Boolean) {
         val dao = dbManager.databaseFor(dbManager.normalizeServer(host)).customEmojiDao()

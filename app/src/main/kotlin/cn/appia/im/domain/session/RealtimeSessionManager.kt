@@ -484,12 +484,14 @@ class RealtimeSessionManager(
     /** RN syncCustomEmojis（services/emoji/syncCustomEmojis.ts）：GET emoji-custom.list →
      * 整表替换（setCustomEmojis 语义；总纲 §4.4-2）——服务端删的表情不永驻。
      * 单次事务 replaceAll：observe() 不闪断（见 DAO KDoc）。
+     * update 键缺省/空数组 = 服务端已全删 → replaceAll(空) 清表（RN `update = []` 缺省同语义）。
      */
     private suspend fun syncCustomEmojis() {
         try {
             val res = sdk.get("emoji-custom.list") as? JsonObject ?: return
             if (res["success"]?.jsonPrimitive?.booleanOrNull != true) return
-            val update = ((res["emojis"] as? JsonObject)?.get("update") as? JsonArray) ?: return
+            // RN :13 `const { update = [] }`——键缺失同空数组走整表替换
+            val update = (res["emojis"] as? JsonObject)?.get("update") as? JsonArray ?: emptyList()
             val dao = dbManager.active.customEmojiDao()
             val entities = update.mapNotNull { el ->
                 val emoji = el as? JsonObject ?: return@mapNotNull null
