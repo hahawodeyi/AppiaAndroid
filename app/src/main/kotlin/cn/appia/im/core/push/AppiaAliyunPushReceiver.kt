@@ -8,8 +8,9 @@ import com.alibaba.sdk.android.push.notification.CPushMessage
 /**
  * 阿里云推送回调接收器（SDK MessageReceiver 直连，无 RN 桥）。
  *
- * 当前仅接 SDK 默认通知展示 + 日志；点击进房 / ejson 解析 / 语音分流在 T5 接管：
- * onNotificationOpened → PushPayloadParser → PushClickRouter（待建）。
+ * 点击动作（opened / clickedWithNoAction，RN pushService.ts:130-132 同径）→ PushClickRouter：
+ * 解析 extra 的 ejson → host 校验 → 90s 待导航队列（T5 drain 进房）。
+ * 到达/移除/透传仍仅日志（RN 语音分流+跨组织未读刷新归 T5/M10）。
  */
 class AppiaAliyunPushReceiver : MessageReceiver() {
     companion object {
@@ -22,7 +23,7 @@ class AppiaAliyunPushReceiver : MessageReceiver() {
 
     override fun onNotificationOpened(context: Context, title: String, summary: String, extraMap: String) {
         Log.i(TAG, "onNotificationOpened title=$title summary=$summary extra=$extraMap")
-        // TODO(T5): 解析 extra 的 ejson → host 校验 → 进房导航队列
+        PushClickRouter.shared.onNotificationOpened(title, summary, extraMap)
     }
 
     override fun onNotificationRemoved(context: Context, messageId: String) {
@@ -36,6 +37,8 @@ class AppiaAliyunPushReceiver : MessageReceiver() {
 
     override fun onNotificationClickedWithNoAction(context: Context, title: String, summary: String, extraMap: String) {
         Log.i(TAG, "onNotificationClickedWithNoAction title=$title extra=$extraMap")
+        // RN pushService.ts:130-132 与 opened 同径 → 同一路由
+        PushClickRouter.shared.onNotificationOpened(title, summary, extraMap)
     }
 
     override fun onNotificationReceivedInApp(
