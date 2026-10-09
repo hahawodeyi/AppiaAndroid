@@ -24,6 +24,22 @@ val releaseProps = Properties().apply {
 fun releaseProp(key: String): String? =
     System.getenv(key)?.takeIf { it.isNotEmpty() } ?: releaseProps.getProperty(key)
 
+// versionCode 策略（坑 10）：生产 RN 版已在用户设备装到 28187853（v1.21.9），系统安装器拒绝
+// 降级——自更新覆盖安装要求新包 versionCode > 28187853，否则安装直接失败。
+// 显式来源：release.properties VERSION_CODE（同名环境变量可覆盖，与 KEYSTORE 同机制）；
+// 未提供时兜底 DEFAULT_VERSION_CODE，保证裸 release 包天然可覆盖安装；显式给出 ≤ 下限的值
+// 则构建失败。M11 接管完整 VERSION_* 发布接线；ABI 拆分公式（RN abi*2^20+base）留作 M11 选项
+// ——AA 无 splits（单一 universal APK），现无需 per-ABI code。
+val MIN_INSTALLABLE_VERSION_CODE = 28187853
+val DEFAULT_VERSION_CODE = 28187900
+val versionCodeOverride = releaseProp("VERSION_CODE")?.trim()?.toIntOrNull()
+if (versionCodeOverride != null && versionCodeOverride <= MIN_INSTALLABLE_VERSION_CODE) {
+    throw GradleException(
+        "VERSION_CODE=$versionCodeOverride 不合法：自更新覆盖安装要求 > $MIN_INSTALLABLE_VERSION_CODE" +
+            "（生产 RN 版已装 28187853，降级安装会被系统拒绝）"
+    )
+}
+
 android {
     namespace = "cn.appia.im"
     compileSdk = 36
@@ -32,7 +48,7 @@ android {
         applicationId = "cn.appia.im"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
+        versionCode = versionCodeOverride ?: DEFAULT_VERSION_CODE
         versionName = "0.6.0"
     }
 
