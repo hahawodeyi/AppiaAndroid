@@ -59,11 +59,15 @@ import cn.appia.im.core.realtime.NetworkMonitor
 import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.settings.rememberPublicSettingBoolean
 import cn.appia.im.core.theme.AppiaTheme
+import cn.appia.im.core.update.AppReleaseCheckController
+import cn.appia.im.core.update.AppReleaseInstaller
 import cn.appia.im.domain.session.BackgroundScope
 import cn.appia.im.domain.session.RoleRefresher
 import cn.appia.im.domain.session.RoomAccessLostBus
 import cn.appia.im.domain.session.RoomAccessLoss
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
+import cn.appia.im.feature.settings.AppUpdatePromptController
+import cn.appia.im.feature.settings.ui.AppUpdatePromptHost
 import cn.appia.im.core.chat.resolveDirectChatRid
 import cn.appia.im.domain.chat.ChatBumper
 import cn.appia.im.feature.chat.DraftController
@@ -374,6 +378,10 @@ class RouteDeps(
     val roleRefresher: RoleRefresher? = null,
     /** 实时会话管理器（M5-T9 清除缓存链 teardown/re-bootstrap 共用单例）；UI 测试可 null。 */
     val sessionManager: cn.appia.im.domain.session.RealtimeSessionManager? = null,
+    /** M6-T7 自更新：T6 检查控制器（release 流源）；UI 测试可 null 免触网。 */
+    val appReleaseCheck: AppReleaseCheckController? = null,
+    /** M6-T7 自更新弹窗状态机（会话内静默/手动检查 bypass 接缝在控制器）。 */
+    val appUpdatePrompt: AppUpdatePromptController? = null,
 )
 
 /** 目的地装配三连（§4.6-6 止损收敛的返回束）：serverUrl + 绑定库 + 会话态。 */
@@ -668,6 +676,19 @@ fun AppiaNavHost(
                 }
                 // 推送会话挂载效果（M6-T3）：通知权限申请 + 电池优化引导（冷启动/登录双触发收敛点）
                 PushSessionTriggers()
+                // M6-T7 自更新弹窗宿主（RN MainNavigator 单例挂载 AppUpdatePromptHost 同位）：
+                // 挂载清理旧 APK + release 流 → 状态机 + 下载/安装拉起
+                val check = deps.appReleaseCheck
+                val prompt = deps.appUpdatePrompt
+                if (check != null && prompt != null) {
+                    val hostContext = LocalContext.current
+                    AppUpdatePromptHost(
+                        check = check,
+                        prompt = prompt,
+                        installer = remember { AppReleaseInstaller(hostContext) },
+                        localVersion = BuildConfig.VERSION_NAME,
+                    )
+                }
                 // M6-T5 深链 drain 接线点②（RN MainNavigator.tsx:38-40 挂载 useEffect）：
                 // 登录完成 goMain 重挂 Main 时冲刷 90s TTL 内积压（登出期间点击的 RN 同语义）
                 if (drainer != null) LaunchedEffect(Unit) { drainer.onMainMounted() }
@@ -2000,12 +2021,22 @@ class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var realtimeSessionManager: cn.appia.im.domain.session.RealtimeSessionManager
 
+    // M6-T7 自更新：检查控制器（release 流 + 前台重查）与弹窗状态机（app 级单例，T6 handoff 接线）
+    @Inject
+    lateinit var appReleaseCheck: AppReleaseCheckController
+
+    @Inject
+    lateinit var appUpdatePrompt: AppUpdatePromptController
+
     /** RN MainNavigator.tsx:60 AppState 'active' → syncCurrentUserRoles()（30s 节流内置）。 */
     override fun onResume() {
         super.onResume()
         // M6-T5 深链 drain 接线点③（RN MainNavigator.tsx:62-72 AppState 'active' 分支）：
         // 即时 drain + 通知清理（坑 16）+ 400ms 延迟二次 drain（门控在 drainer 内部）
         PushNavigationDrainer.shared.onAppForeground()
+        // M6-T7：RN AppState active → invalidateQueries（AppUpdatePromptHost.tsx:68-75）同位；
+        // 登录门在控制器内部（loggedIn 流），无需调用侧判定
+        appReleaseCheck.onAppForeground()
         if (authStore.isAuthenticated) {
             backgroundScope.launch { roleRefresher.refresh() }
         }
@@ -2024,6 +2055,8 @@ class MainActivity : AppCompatActivity() {
         // 首帧判定在 setContent 前完成（同步读 MMKV 持久化会话）：有会话直落 Main（RN
         // RootNavigator.tsx:66-95 首帧即定 Auth/Main，无闪屏）；Main 内再异步 bootstrap（RN 同构）
         val startAuthenticated = session.hasRestorableSession()
+        // M6-T7：登录态变化驱动检查的收集起点（幂等；RN enabled 流首次收集 = 挂载即查一次）
+        appReleaseCheck.start()
         setContent {
             AppiaTheme(isDark = isSystemInDarkTheme()) {
                 // M2 前置收尾（总纲 §4.2-4）：testTag 以 resource-id 暴露给 UiAutomator/Maestro，
@@ -2048,6 +2081,8 @@ class MainActivity : AppCompatActivity() {
                             networkMonitor,
                             roleRefresher,
                             realtimeSessionManager,
+                            appReleaseCheck,
+                            appUpdatePrompt,
                         ),
                     )
                 }

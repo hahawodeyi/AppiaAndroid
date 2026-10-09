@@ -43,6 +43,18 @@
             </intent-filter>
         </activity>
 
+        <!-- 自更新 APK 安装共享（M6-T7）：authorities 分歧点——RN 用 blob-util AAR 硬编码
+             cn.appia.im.provider，AA 用 ${applicationId}.provider 使 debug 包（.debug 后缀）可用 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- EMAS 厂商通道辅助弹窗：类全限定名须与 EMAS 控制台「辅助弹窗 activity」配置一致（外部核对项）；
              必须 extends com.alibaba.sdk.android.push.AndroidPopupActivity（RN manifest:116-131 同名同包） -->
         <activity

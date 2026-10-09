@@ -38,9 +38,15 @@ class AppReleaseCheckController(
     val release: StateFlow<AppReleaseRow?> = _release
 
     private var lastSuccessAt = 0L
+    private var started = false
 
-    /** RN useQuery enabled 翻转即发起：登录态变化触发一次检查（T7 单例创建后调一次）。 */
+    /**
+     * RN useQuery enabled 翻转即发起：登录态变化触发一次检查（T7 单例创建后调一次）。
+     * 幂等（T7 装配加固）：MainActivity 重建重复调不叠挂 collector。
+     */
     fun start() {
+        if (started) return
+        started = true
         scope.launch {
             // StateFlow 值去重，无需 distinctUntilChanged
             loggedIn.collect { checkIfStale() }

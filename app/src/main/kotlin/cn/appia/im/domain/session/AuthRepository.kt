@@ -1,6 +1,7 @@
 package cn.appia.im.domain.session
 
 import android.content.Context
+import cn.appia.im.BuildConfig
 import cn.appia.im.core.datastore.AuthSession
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.datastore.KvStore
@@ -16,7 +17,9 @@ import cn.appia.im.core.network.buildAuthUserFromLogin
 import cn.appia.im.core.realtime.RoomStreamManager
 import cn.appia.im.core.network.rest.OrgSwitchState
 import cn.appia.im.core.push.PushTokenRegistrar
+import cn.appia.im.core.update.AppReleaseCheckController
 import cn.appia.im.feature.login.AuthApi
+import cn.appia.im.feature.settings.AppUpdatePromptController
 import com.tencent.mmkv.MMKV
 import dagger.Module
 import dagger.Provides
@@ -28,6 +31,9 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Qualifier
@@ -59,6 +65,18 @@ class AuthRepository @Inject constructor(
 ) {
 
     /**
+     * 登录态流（T7 自更新检查 enabled 门，RN `authHydrated && token && isAuthenticated`
+     * AppUpdatePromptHost.tsx:45 的 Android 等价）：构造时同步读持久化会话（MMKV 同步读 =
+     * hydration 已完成态），login/logout 汇入点翻转（T7 handoff 指定的 derived loggedIn）。
+     */
+    private val _loggedIn = MutableStateFlow(
+        store.load()?.let { it.token.isNotEmpty() && it.serverUrl.isNotEmpty() } == true,
+    )
+
+    /** 最终会话登录态（AppReleaseCheckController enabled 门消费）。 */
+    val loggedIn: StateFlow<Boolean> = _loggedIn.asStateFlow()
+
+    /**
      * RN login authStore.ts:98-107：三字段落库 + 注册推送（RN :104 注释——不阻塞登录流程）。
      * serverUrl 按 RN 原样存，normalize 在网络边界（RocketSdk/Registrar）做。
      * 先丢 SendOrchestrator 单例（RN App.tsx:49-52 dbKey 变化丢单例的等价挂点之一：登录/组织切换
@@ -74,6 +92,7 @@ class AuthRepository @Inject constructor(
             ),
         )
         backgroundScope.launch { push.register(serverUrl, result.authToken, result.userId) }
+        _loggedIn.value = true
     }
 
     /**
@@ -109,6 +128,7 @@ class AuthRepository @Inject constructor(
         teardownRealtime() // RN :152
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
         store.clear() // RN :157
+        _loggedIn.value = false // T7：自更新检查 enabled 门随登出翻转（RN host !enabled → hide）
         prevServer?.let { server ->
             // RN :159-160 doUnregisterPushToken().catch(() => {})：Registrar 自吞网络失败，这里再兜一层
             backgroundScope.launch { runCatching { push.unregister(server) } }
@@ -246,5 +266,26 @@ object SessionModule {
         orgCache: OrgSessionCache,
         dbManager: DatabaseManager,
     ): OrgSwitchCoordinator = OrgSwitchCoordinator(sdk, manager, auth, store, orgCache, dbManager)
+
+    /**
+     * 自更新检查控制器单例（M6-T7 接线，T6 KDoc 交接点）：app 级 scope + 营销版本号
+     * （RN DeviceInfo.getVersion）；start()/onAppForeground 由 MainActivity 挂。
+     */
+    @Provides
+    @Singleton
+    fun provideAppReleaseCheckController(
+        auth: AuthRepository,
+        @BackgroundScope scope: CoroutineScope,
+    ): AppReleaseCheckController = AppReleaseCheckController(
+        loggedIn = auth.loggedIn,
+        scope = scope,
+        localVersion = { BuildConfig.VERSION_NAME },
+    )
+
+    /** 自更新弹窗宿主状态机单例（会话内静默须跨屏存活，RN uiStore 单例同义）。 */
+    @Provides
+    @Singleton
+    fun provideAppUpdatePromptController(): AppUpdatePromptController =
+        AppUpdatePromptController(localVersion = { BuildConfig.VERSION_NAME })
 }
 

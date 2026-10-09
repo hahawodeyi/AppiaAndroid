@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自更新 APK 安装共享路径（M6-T7 / RN react-native-blob-util FileProvider 等价）：
+     Download 目录在外置存储不可用时回落内置 files（AppReleaseInstaller.downloadDir 双路径）。 -->
+<paths>
+    <external-files-path
+        name="release_apks"
+        path="Download/" />
+    <files-path
+        name="release_apks_fallback"
+        path="Download/" />
+</paths>
