@@ -27,6 +27,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import cn.appia.im.feature.settings.AppUpdatePromptController
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -118,6 +119,7 @@ class OrgSwitchCoordinatorTest {
             kv = kv,
             orgCache = orgCache,
             dbManager = dbManager,
+            appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
             backgroundScope = CoroutineScope(Dispatchers.Unconfined),
         )
         coordinator = newCoordinator()

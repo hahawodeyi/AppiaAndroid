@@ -61,6 +61,8 @@ class AuthRepository @Inject constructor(
     private val kv: KvStore,
     private val orgCache: OrgSessionCache,
     private val dbManager: DatabaseManager,
+    /** 自更新弹窗会话态（评审 F-1）：logout 复位静默/弹窗（RN Host 卸载销毁 ref 的等价接线点）。 */
+    private val appUpdatePrompt: AppUpdatePromptController,
     @BackgroundScope private val backgroundScope: CoroutineScope,
 ) {
 
@@ -129,6 +131,7 @@ class AuthRepository @Inject constructor(
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
         store.clear() // RN :157
         _loggedIn.value = false // T7：自更新检查 enabled 门随登出翻转（RN host !enabled → hide）
+        appUpdatePrompt.onSessionInactive() // 评审 F-1：复位静默/弹窗/手动标志（RN Host 卸载销毁 ref 同义）
         prevServer?.let { server ->
             // RN :159-160 doUnregisterPushToken().catch(() => {})：Registrar 自吞网络失败，这里再兜一层
             backgroundScope.launch { runCatching { push.unregister(server) } }

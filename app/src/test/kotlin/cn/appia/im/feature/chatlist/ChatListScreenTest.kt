@@ -34,6 +34,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import cn.appia.im.feature.settings.AppUpdatePromptController
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -250,6 +251,7 @@ private class Fixture(context: Context, sdkOverride: RocketSdk = RocketSdk()) {
             kv = kv,
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
+            appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
             backgroundScope = newScope(),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})

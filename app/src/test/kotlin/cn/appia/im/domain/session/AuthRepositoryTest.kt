@@ -16,6 +16,7 @@ import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.LoginMe
 import cn.appia.im.core.network.rest.OrgSwitchState
 import cn.appia.im.core.push.PushTokenRegistrar
+import cn.appia.im.feature.settings.AppUpdatePromptController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
@@ -61,14 +62,16 @@ class AuthRepositoryTest {
         runCatching { server.shutdown() }
     }
 
-    private fun repo(): AuthRepository = AuthRepository(
-        store = store,
-        push = PushTokenRegistrar(kv, OkHttpClient(), deviceIdProvider = { "device-1" }),
-        kv = kv,
-        orgCache = orgCache,
-        dbManager = dbManager,
-        backgroundScope = CoroutineScope(Dispatchers.Unconfined),
-    )
+    private fun repo(appUpdatePrompt: AppUpdatePromptController = AppUpdatePromptController { "1.2.3" }): AuthRepository =
+        AuthRepository(
+            store = store,
+            push = PushTokenRegistrar(kv, OkHttpClient(), deviceIdProvider = { "device-1" }),
+            kv = kv,
+            orgCache = orgCache,
+            dbManager = dbManager,
+            appUpdatePrompt = appUpdatePrompt,
+            backgroundScope = CoroutineScope(Dispatchers.Unconfined),
+        )
 
     /** 登录主体 = MockWebServer：fire-and-forget 的推送请求才可被断言。 */
     private fun host(): String = server.url("/").toString()
@@ -211,5 +214,19 @@ class AuthRepositoryTest {
         assertNull(store.load())
         assertEquals(0, server.requestCount) // 无 server 不发注销（Registrar 无处寻址）
         assertTrue(dbManager.active === prelogin)
+    }
+
+    @Test
+    fun `logout resets app update session state`() { // 评审 F-1：静默/弹窗跨登出不留存
+        val prompt = AppUpdatePromptController { "1.2.3" }
+        prompt.onReleaseRow(
+            cn.appia.im.core.update.AppReleaseRow("android", "1.2.4", "https://s/a.apk", false, null, ""),
+        )
+        val repo = repo(prompt)
+
+        repo.logout()
+
+        assertNull(prompt.current.value)
+        assertNull(prompt.dismissedVersion)
     }
 }

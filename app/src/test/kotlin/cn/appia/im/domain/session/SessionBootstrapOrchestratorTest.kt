@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import cn.appia.im.feature.settings.AppUpdatePromptController
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -75,6 +76,7 @@ class SessionBootstrapOrchestratorTest {
             kv = kv,
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
+            appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
             backgroundScope = CoroutineScope(Dispatchers.Unconfined),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})

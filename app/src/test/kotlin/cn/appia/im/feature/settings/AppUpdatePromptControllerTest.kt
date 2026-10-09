@@ -109,4 +109,16 @@ class AppUpdatePromptControllerTest {
         c.onSessionInactive() // RN :62-66 !enabled → hide
         assertNull(c.current.value)
     }
+
+    @Test
+    fun `session inactive resets silence across logout and re-login`() {
+        val c = controller()
+        c.onReleaseRow(row("1.2.4"))
+        c.onLater()
+        c.onSessionInactive() // 评审 F-1：RN 静默 ref 随 Host 卸载销毁，登出即清
+
+        assertNull(c.dismissedVersion)
+        c.onReleaseRow(row("1.2.4")) // 重登（多账号切换）同版本重新提示，旧弹窗不复活也不残留静默
+        assertEquals("1.2.4", c.current.value?.version)
+    }
 }

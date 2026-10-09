@@ -47,6 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import cn.appia.im.feature.settings.AppUpdatePromptController
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -369,6 +370,7 @@ private class Fixture(context: Context) {
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
             // 生产同款 IO：logout 的删库/回落异步于 UI——Unconfined 会在重组中同步关池，observeList 竞态
+            appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
             backgroundScope = newScope(Dispatchers.IO),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})

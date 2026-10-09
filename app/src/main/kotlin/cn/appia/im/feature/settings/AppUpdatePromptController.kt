@@ -59,8 +59,15 @@ class AppUpdatePromptController(
         hide()
     }
 
-    /** RN :62-66 `!enabled → hide()`（登出/会话失效即收弹窗）；Android 由 Main 卸载等价触发。 */
-    fun onSessionInactive() = hide()
+    /**
+     * 登出/会话失效复位（评审 F-1）：RN 静默 ref 挂 Host，登出随 Main 卸载销毁
+     * （RootNavigator.tsx:63-67）——静默记录/弹窗/手动标志三态全清，防跨登出→重登
+     * （多账号切换）旧弹窗复活。AuthRepository.logout 接线（手动登出与 SessionExpired 同径）。
+     */
+    fun onSessionInactive() {
+        dismissedVersion = null
+        hide()
+    }
 
     private fun hide() {
         _current.value = null

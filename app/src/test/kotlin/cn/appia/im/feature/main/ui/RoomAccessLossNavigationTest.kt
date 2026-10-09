@@ -35,6 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import cn.appia.im.feature.settings.AppUpdatePromptController
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -210,6 +211,7 @@ private class AccessLossFixture(context: Context) {
             kv = kv,
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
+            appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
             backgroundScope = newScope(),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
