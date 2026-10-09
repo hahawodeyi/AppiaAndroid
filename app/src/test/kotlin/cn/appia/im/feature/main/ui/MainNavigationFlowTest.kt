@@ -52,6 +52,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -293,6 +294,47 @@ class MainNavigationFlowTest {
 
         rule.onNodeWithTag("qa-room-header-back").performClick() // popBackStack → 列表
         waitUntilExists { textExists("General") }
+    }
+
+    // ---- M6 ① 导航 reset 对齐（RN navigateToRoomFromAppRoot 语义）：搜索进房返回落会话列表 ----
+
+    @Test
+    fun `room opened from global search back returns to chat list not search`() {
+        // 会话绑定 MockWebServer（seedChats 同 makeRestReady 口径）——spotlightv2 走 REST
+        // method.call 通道；按路径应答（避免引导期其他 REST 消费掉队列响应）
+        fixture.seedChats(fixture.server.url("/").toString())
+        val session = fixture.store.load()!!
+        fixture.deps.sdk.hydrateRestSession(session.serverUrl, session.token, session.user.id)
+        val spotlightBody =
+            """{"users":[],"rooms":[{"_id":"rid-general","t":"c","name":"General"}],""" +
+                """"usersInRooms":[],"messages":{"rooms":[]},"files":[]}"""
+        fixture.server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse =
+                if (request.path.orEmpty().contains("method.call/spotlightv2")) {
+                    MockResponse().setBody(spotlightBody)
+                } else {
+                    MockResponse().setResponseCode(404).setBody("{}")
+                }
+        }
+
+        rule.setContent {
+            AppiaNavHost(session = fixture.orchestrator, startAuthenticated = true, deps = fixture.deps)
+        }
+        waitUntilExists { textExists("General") }
+
+        rule.onNodeWithTag("qa-room-list-search").performClick() // → GlobalSearch
+        waitUntilExists { tagExists("qa-global-search-input") }
+        rule.onNodeWithTag("qa-global-search-input").performTextInput("general")
+        waitUntilExists { tagExists("qa-global-search-row-spotlight-room-rid-general") } // 防抖+REST 完成
+
+        rule.onNodeWithTag("qa-global-search-row-spotlight-room-rid-general").performClick() // → RoomRoute(fromGlobalSearch)
+        waitUntilExists { tagExists("qa-room-editor") }
+
+        // 修复前：栈 [Main, GlobalSearch, Room] 返回回搜索屏；修复后（RN reset 同义）：
+        // popUpTo<MainRoute> 单操作清掉列表之上整段——返回直达会话列表
+        rule.onNodeWithTag("qa-room-header-back").performClick()
+        waitUntilExists { tagExists("qa-room-list") }
+        assertFalse(tagExists("qa-global-search-screen"))
     }
 }
 

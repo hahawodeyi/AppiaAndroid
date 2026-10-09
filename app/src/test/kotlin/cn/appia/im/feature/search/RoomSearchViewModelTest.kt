@@ -411,4 +411,17 @@ class RoomSearchViewModelTest {
         // success=false → 空集
         assertTrue(parseRoomSearchChatResponse(obj("""{"success":false}"""), "r").isEmpty())
     }
+
+    // ── M6 ②：出屏 dispose 取消在飞防抖/网络（RN unmount-cancel 同义）──
+
+    @Test
+    fun `dispose cancels in-flight debounce and fetch on unmount`() = runTest {
+        var calls = 0
+        val vm = vm(backgroundScope, chatSearch = { _, _ -> calls++; chatSearchJson("m1") })
+        vm.onQueryChanged("kw")
+        vm.dispose() // popBackStack → onCleared 等价（宿主 ViewModelStore 释放）
+        advanceUntilIdle()
+        assertEquals(0, calls) // 防抖窗口内出屏——请求不发
+        assertEquals("", vm.state.value.searchText)
+    }
 }

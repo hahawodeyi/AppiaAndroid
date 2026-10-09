@@ -34,7 +34,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import cn.appia.im.core.database.AppiaDatabase
 import cn.appia.im.core.database.DatabaseManager
+import cn.appia.im.core.datastore.AuthSession
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.datastore.KvStore
 import cn.appia.im.core.i18n.LocaleController
@@ -247,10 +249,9 @@ data class MentionSuggestionRoute(
 data class RoomInfoRoute(val rid: String, val roomType: String = "c")
 
 /**
- * T5/T6/T7/T8 目标屏占位路由（binding ②）：RoomInfoScreen 的导航目标。各任务落地后替换
- * 本占位 composable 为真屏接线（路由参数已按 RN navigate 调用方钉死，落地时零改动迁移）。
+ * T5 成员管理路由（已落地）：RoomMembersScreen list/remove 双模式
+ * （RN navigate('RoomMembers', {rid, t, mode?})：remove 模式/默认 list）。
  */
-// TODO(T5): RoomMembersScreen（RN navigate('RoomMembers', {rid, t, mode?})：remove 模式/默认 list）
 @Serializable
 data class RoomMembersRoute(val rid: String, val roomType: String = "c", val mode: String = "list")
 
@@ -368,6 +369,24 @@ class RouteDeps(
     val sessionManager: cn.appia.im.domain.session.RealtimeSessionManager? = null,
 )
 
+/** 目的地装配三连（§4.6-6 止损收敛的返回束）：serverUrl + 绑定库 + 会话态。 */
+internal class ServerBoundDeps(val serverUrl: String, val db: AppiaDatabase, val auth: AuthSession?)
+
+/**
+ * serverUrl/db/auth remember 三连收敛（§4.6-6）：原本在十余个目的地逐屏重复，收敛一处声明。
+ * db 绑定目标 server（换服由会话层重建，Room/ChatList 同裁定）；auth 先读、serverUrl 由其派生
+ * （InAppWebRoute 原序，其余目的地行为等同）。
+ */
+@Composable
+internal fun rememberServerBoundDb(deps: RouteDeps): ServerBoundDeps {
+    val auth = remember { deps.store.load() }
+    val serverUrl = remember(auth) { auth?.serverUrl.orEmpty() }
+    val db = remember(serverUrl) {
+        deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
+    }
+    return ServerBoundDeps(serverUrl, db, auth)
+}
+
 private const val NAV_TAG = "roomRoute"
 
 /**
@@ -400,6 +419,19 @@ internal fun stackInvolvesRid(nav: androidx.navigation.NavController, rid: Strin
         }.getOrDefault(false)
         isRoomRoute && entry.arguments?.getString("rid") == rid
     }
+
+/**
+ * RN navigateToRoomFromAppRoot（navigateToRoom.ts:105-149）的 Android 等价（M6 ①）：从任意入口
+ * 进房统一走这里——popUpTo<MainRoute> inclusive=false 保留会话列表 entry（RN reset [MineDrawer, Room]
+ * 复用栈底 key 防列表重建的同义），并清掉列表之上的整段中转屏（搜索/详情/选人器/成员页等），
+ * 返回键恒落会话列表（RN 同——搜索进房返回不再回搜索屏）。单栈 NavHost 恒有 Main entry，
+ * RN 的「Chat 栈未挂载 nested navigate / root reset 兜底」两分支无对应场景。
+ */
+internal fun androidx.navigation.NavController.navigateToRoomFromAppRoot(route: RoomRoute) {
+    navigate(route) {
+        popUpTo<MainRoute> { inclusive = false }
+    }
+}
 
 /**
  * 导航宿主：默认落 EnterpriseCode（RN AuthStack 首屏）；verify 参数化供 UI 测试注入 fake。
@@ -605,7 +637,7 @@ fun AppiaNavHost(
                     phase = phase,
                     networkOnline = online,
                     useRealName = useRealName,
-                    onOpenRoom = { rid, title, roomType -> nav.navigate(RoomRoute(rid, title, roomType)) },
+                    onOpenRoom = { rid, title, roomType -> nav.navigateToRoomFromAppRoot(RoomRoute(rid, title, roomType)) },
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
                     onOpenContacts = { nav.navigate(TeamRoute()) },
                     // 个人资料/工作签名（M5-T9：MineMenu 底部行/签名行的菜单化迁移；MyCard 顶栏入口移除）
@@ -625,10 +657,9 @@ fun AppiaNavHost(
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
                 // 绑定目标 server 的库（ChatListViewModel 同裁定）；标题 chats 行实时跟随
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
                 // androidx viewModel（挂 Activity ViewModelStore）：旋转重建后保留分页窗口态
                 // （T9 遗留修复：remember(db) 的 VM 转屏即丢）；路由出栈随 back stack entry 释放
                 val vm: RoomMessagesViewModel = viewModel(
@@ -671,7 +702,7 @@ fun AppiaNavHost(
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 val draftController = remember(db) { DraftController(DraftRepository(db), deps.scope) }
-                val auth = remember { deps.store.load() }
+                val auth = bound.auth
                 // RN getSendOrchestrator 单例（M1 会话态注入；reset 挂 AuthRepository.login/logout，RN App.tsx dbKey 同义）
                 val orchestrator = remember {
                     getSendOrchestrator(deps.dbManager, deps.sdk, deps.store, deps.scope)
@@ -843,11 +874,12 @@ fun AppiaNavHost(
                     // 房间信息页入口（M4-T4 / RN openRoomInfo：标题点击）
                     onOpenRoomInfo = { nav.navigate(RoomInfoRoute(rid = route.rid, roomType = route.roomType)) },
                     // 跳转高亮（M5-T6）：控制器随 VM（换房重建）；跨房重导航与 toast 在此注入
-                    // （跨房 = RoomRoute(jumpToMessageId) 重导航，M6 深链同径）。
+                    // （跨房 = RoomRoute(jumpToMessageId) 重导航走 navigateToRoomFromAppRoot reset
+                    // 同义——旧房出栈、返回落会话列表；M6 深链同径）。
                     jumpController = jumpController,
                     jumpState = jumpState,
                     onCrossRoomJump = { targetRid, targetRoomType, messageId ->
-                        nav.navigate(
+                        nav.navigateToRoomFromAppRoot(
                             RoomRoute(
                                 rid = targetRid,
                                 title = route.title,
@@ -910,11 +942,10 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 val chats by remember(serverUrl) { db.chatDao().observeList() }
                     .collectAsState(initial = emptyList())
                 // spotlightv2 聚合搜索（REST 包 DDP call）+ 300ms debounce
@@ -956,8 +987,9 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val auth = bound.auth
                 // 真名显示（M5-T4 / RN ForwardMessageScreen RoomMessageRow:108）：转发详情消息行表读
                 val useRealName = rememberPublicSettingBoolean(
                     deps.dbManager.active.settingDao(), "UI_Use_Real_Name", default = true,
@@ -1005,10 +1037,9 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
                 MentionSuggestionScreen(
                     initialQuery = route.initialQuery,
                     isAgentRoom = false, // agent 房（myAgents）M4 域；门控数据源已备（settings 拉齐后即通）
@@ -1046,8 +1077,9 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val auth = bound.auth
                 ReadReceiptScreen(
                     messageId = route.messageId,
                     rid = route.rid,
@@ -1060,17 +1092,15 @@ fun AppiaNavHost(
             }
         }
         // 房间信息页（M4-T4）：chats 行实时跟随（标题/公告/usage/静音置顶态）+ 权限门 + 乐观 toggle。
-        // T5/T6/T7/T8 目标暂为占位屏（路由参数已钉，各任务落地替换）。
         composable<RoomInfoRoute> { entry ->
             val route = entry.toRoute<RoomInfoRoute>()
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 val actions = remember(db) { RoomInfoActions(deps.sdk, db) }
@@ -1135,8 +1165,9 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val auth = bound.auth
                 val db = remember(serverUrl) {
                     deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
                 }
@@ -1161,7 +1192,7 @@ fun AppiaNavHost(
                         deps.scope.launch {
                             val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
                             if (rid != null) {
-                                nav.navigate(RoomRoute(rid = rid, title = name.orEmpty(), roomType = "d"))
+                                nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = name.orEmpty(), roomType = "d"))
                             }
                         }
                     },
@@ -1175,11 +1206,10 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 val actions = remember(db) { RoomInfoActions(deps.sdk, db) }
@@ -1227,11 +1257,8 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val db = bound.db
                 val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
                     .collectAsState(initial = null)
                 RoomChannelNameEditScreen(
@@ -1249,8 +1276,9 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val auth = bound.auth
                 CreateChannelMembersScreen(
                     intent = route.intent,
                     rid = route.rid,
@@ -1264,11 +1292,10 @@ fun AppiaNavHost(
                     currentUserId = auth?.user?.id,
                     currentUsername = auth?.user?.username,
                     onBack = { nav.popBackStack() },
-                    // RN navigateToRoom：create/forward 建成即跳房（RN exit 多选在 ForwardSelect 完成侧已处理）
+                    // RN navigateToRoom：create/forward 建成即跳房（reset 同义——选人器/转发选择
+                    // 整段出栈，返回落会话列表；RN exit 多选在 ForwardSelect 完成侧已处理）
                     onCreated = { rid, title ->
-                        nav.navigate(RoomRoute(rid = rid, title = title.orEmpty(), roomType = "c")) {
-                            popUpTo<CreateChannelMembersRoute> { inclusive = true }
-                        }
+                        nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = title.orEmpty(), roomType = "c"))
                     },
                 )
             }
@@ -1281,8 +1308,9 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val auth = bound.auth
                 val db = remember(serverUrl) {
                     deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
                 }
@@ -1300,7 +1328,7 @@ fun AppiaNavHost(
                         deps.scope.launch {
                             val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
                             if (rid != null) {
-                                nav.navigate(RoomRoute(rid = rid, title = name.orEmpty(), roomType = "d"))
+                                nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = name.orEmpty(), roomType = "d"))
                             }
                         }
                     },
@@ -1318,11 +1346,10 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val auth = remember { deps.store.load() }
-                val serverUrl = remember { auth?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
+                val bound = rememberServerBoundDb(deps)
+                val auth = bound.auth
+                val serverUrl = bound.serverUrl
+                val db = bound.db
                 var enterpriseId by remember { mutableStateOf("") }
                 LaunchedEffect(db) {
                     enterpriseId = db.settingDao().getById("Enterprise_ID")?.value_as_string.orEmpty()
@@ -1348,11 +1375,10 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 var enterpriseName by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(db) {
                     enterpriseName = db.settingDao().getById("Enterprise_Name")?.value_as_string
@@ -1453,11 +1479,10 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 // RN Enterprise_Name/Enterprise_ID 读 settings 表（settings.public 同步，M5 占位）——
                 // 本地有则用，无则 TeamScreen 内部回退（SSC logo / homeModel.companyName）
                 var enterpriseName by remember { mutableStateOf<String?>(null) }
@@ -1493,25 +1518,30 @@ fun AppiaNavHost(
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
                 val context = LocalContext.current
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 val tResolver = remember {
                     { key: String, args: Map<String, String> -> interpolate(context.t(key), args) }
                 }
-                val viewModel = remember(serverUrl) {
-                    GlobalSearchViewModel(
-                        fetchGlobalSearch = { q -> SpotlightApi.fetchGlobalSearch(deps.sdk, q) },
-                        fetchMessagesFull = { q -> SpotlightApi.fetchMessagesFull(deps.sdk, q) },
-                        fetchFilesPage = { q, cursor -> FilesSearchApi.search(deps.sdk, q, cursor) },
-                        chatsFlow = db.chatDao().observeList(),
-                        currentUserId = auth?.user?.id,
-                        scope = deps.scope,
-                        t = tResolver,
-                    )
-                }
+                // M6 ②：entry 级 androidx ViewModel（RoomMessagesViewModel 同款）——出栈随 entry
+                // ViewModelStore 释放触发 onCleared，出屏取消在飞防抖/网络（RN unmount-cancel 同义）
+                val viewModel: GlobalSearchViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            GlobalSearchViewModel(
+                                fetchGlobalSearch = { q -> SpotlightApi.fetchGlobalSearch(deps.sdk, q) },
+                                fetchMessagesFull = { q -> SpotlightApi.fetchMessagesFull(deps.sdk, q) },
+                                fetchFilesPage = { q, cursor -> FilesSearchApi.search(deps.sdk, q, cursor) },
+                                chatsFlow = db.chatDao().observeList(),
+                                currentUserId = auth?.user?.id,
+                                scope = deps.scope,
+                                t = tResolver,
+                            )
+                        }
+                    },
+                )
                 // 深链 initialQuery 种入（RN route.params.initialQuery 初值）
                 LaunchedEffect(Unit) {
                     if (route.initialQuery.isNotBlank()) viewModel.onQueryChanged(route.initialQuery)
@@ -1532,7 +1562,7 @@ fun AppiaNavHost(
                             val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username, knownRid)
                             if (rid != null) {
                                 // RN openDirectMessage :162-166 fromGlobalSearch 分支（bump 归 Room 侧统一收口）
-                                nav.navigate(RoomRoute(rid = rid, title = title, roomType = "d", fromGlobalSearch = true))
+                                nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = title, roomType = "d", fromGlobalSearch = true))
                             } else {
                                 Toast.makeText(
                                     context, context.t("globalsearch_opendmfailed"), Toast.LENGTH_SHORT,
@@ -1542,7 +1572,7 @@ fun AppiaNavHost(
                     },
                     // RN navigateRoomFromGlobalSearch :17-26（tSearch bump 由 Room 侧 fromGlobalSearch 双 bump 承接）
                     onOpenRoom = { rid, title, roomType ->
-                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType, fromGlobalSearch = true))
+                        nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = title, roomType = roomType, fromGlobalSearch = true))
                     },
                     onOpenMessageDetail = { row ->
                         nav.navigate(
@@ -1593,11 +1623,10 @@ fun AppiaNavHost(
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 // 发送者名 useRealName 门控（T4 评审转发要求：与房内显示一致）
                 val useRealName = rememberPublicSettingBoolean(
                     db.settingDao(), "UI_Use_Real_Name", default = true,
@@ -1616,12 +1645,12 @@ fun AppiaNavHost(
                     // 频道条 → 平跳进房（RN onPressChannel :177-185 bump+fromGlobalSearch；
                     // bump 由 Room 侧 fromGlobalSearch 双 bump 承接）
                     onOpenRoom = { rid, title, roomType ->
-                        nav.navigate(RoomRoute(rid = rid, title = title, roomType = roomType, fromGlobalSearch = true))
+                        nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = title, roomType = roomType, fromGlobalSearch = true))
                     },
                     // 消息行跳转高亮（M5-T6 / RN onPressMessage :187-200：RoomRoute + jumpToMessageId
                     // + fromGlobalSearch——tSearch 双 bump 在 Room 侧收口）。
                     onJumpTo = { messageId ->
-                        nav.navigate(
+                        nav.navigateToRoomFromAppRoot(
                             RoomRoute(
                                 rid = route.rid,
                                 title = route.title,
@@ -1644,40 +1673,44 @@ fun AppiaNavHost(
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
                 val context = LocalContext.current
-                val serverUrl = remember { deps.store.load()?.serverUrl.orEmpty() }
-                val db = remember(serverUrl) {
-                    deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl))
-                }
-                val auth = remember { deps.store.load() }
+                val bound = rememberServerBoundDb(deps)
+                val serverUrl = bound.serverUrl
+                val db = bound.db
+                val auth = bound.auth
                 // 真名显示（M4 前例 / RN RoomSearchMessageTabList → RoomMessageRow :108）
                 val useRealName = rememberPublicSettingBoolean(
                     db.settingDao(), "UI_Use_Real_Name", default = true,
                 )
-                val viewModel = remember(route.rid) {
-                    RoomSearchViewModel(
-                        rid = route.rid,
-                        roomType = route.roomType,
-                        encrypted = route.encrypted,
-                        currentUserId = auth?.user?.id,
-                        fetchChatSearch = { searchText, offset ->
-                            // RN getChatSearch：chat.search（count 50 / notIncludeFile=true）
-                            cn.appia.im.feature.search.ui.fetchChatSearch(
-                                deps.sdk, route.rid, searchText, offset = offset,
+                // M6 ②：entry 级 androidx ViewModel（同 GlobalSearchRoute）——出栈取消在飞
+                val viewModel: RoomSearchViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            RoomSearchViewModel(
+                                rid = route.rid,
+                                roomType = route.roomType,
+                                encrypted = route.encrypted,
+                                currentUserId = auth?.user?.id,
+                                fetchChatSearch = { searchText, offset ->
+                                    // RN getChatSearch：chat.search（count 50 / notIncludeFile=true）
+                                    cn.appia.im.feature.search.ui.fetchChatSearch(
+                                        deps.sdk, route.rid, searchText, offset = offset,
+                                    )
+                                },
+                                fetchFilesPage = { searchText, offset, fileType ->
+                                    fetchRoomFiles(deps.sdk, route.rid, route.roomType, offset, searchText, fileType)
+                                },
+                                fetchMentionsPage = { offset ->
+                                    fetchRoomMentionsPage(deps.sdk, route.rid, route.roomType, offset, auth?.user?.id.orEmpty())
+                                },
+                                fetchMembers = { RoomsApi.getAppiaRoomMembersV2(deps.sdk, route.rid) },
+                                localMessageSearch = { rid, searchText ->
+                                    db.messageDao().getByRidLikeText(rid, buildLocalLikePattern(searchText))
+                                },
+                                scope = deps.scope,
                             )
-                        },
-                        fetchFilesPage = { searchText, offset, fileType ->
-                            fetchRoomFiles(deps.sdk, route.rid, route.roomType, offset, searchText, fileType)
-                        },
-                        fetchMentionsPage = { offset ->
-                            fetchRoomMentionsPage(deps.sdk, route.rid, route.roomType, offset, auth?.user?.id.orEmpty())
-                        },
-                        fetchMembers = { RoomsApi.getAppiaRoomMembersV2(deps.sdk, route.rid) },
-                        localMessageSearch = { rid, searchText ->
-                            db.messageDao().getByRidLikeText(rid, buildLocalLikePattern(searchText))
-                        },
-                        scope = deps.scope,
-                    )
-                }
+                        }
+                    },
+                )
                 val state by viewModel.state.collectAsState()
                 val activeTab by viewModel.activeTab.collectAsState()
                 RoomSearchScreen(
@@ -1697,10 +1730,11 @@ fun AppiaNavHost(
                     onLoadMoreFiles = viewModel::loadMoreFiles,
                     onLoadMoreMedia = viewModel::loadMoreMedia,
                     onLoadMoreMentions = viewModel::loadMoreMentions,
-                    // RN onPressMessage :77-83：goBack + jumpToMessage（T6 路由参数机制）
+                    // RN onPressMessage :77-83：goBack + jumpToMessage（T6 路由参数机制）——
+                    // navigateToRoomFromAppRoot 的 popUpTo Main 单操作等价 goBack：搜索屏与旧房
+                    // 一并出栈，返回落会话列表（M6 ①前返回会回到旧房）。
                     onMessageClick = { message ->
-                        nav.popBackStack() // 先退出搜索屏（RN navigation.goBack）
-                        nav.navigate(
+                        nav.navigateToRoomFromAppRoot(
                             RoomRoute(
                                 rid = route.rid,
                                 title = route.title,
@@ -1766,7 +1800,7 @@ fun AppiaNavHost(
                         deps.scope.launch {
                             val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
                             if (rid != null) {
-                                nav.navigate(RoomRoute(rid = rid, title = member.name ?: username, roomType = "d"))
+                                nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = member.name ?: username, roomType = "d"))
                             } else {
                                 Toast.makeText(
                                     context, context.t("globalsearch_opendmfailed"), Toast.LENGTH_SHORT,

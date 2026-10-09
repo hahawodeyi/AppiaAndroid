@@ -1,9 +1,12 @@
 package cn.appia.im.feature.search
 
+import androidx.lifecycle.ViewModel
 import cn.appia.im.core.database.entity.MessageEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -391,9 +394,17 @@ class RoomSearchViewModel(
     /** 加密房本地 LIKE 数据缝（装配处 MessageDao；null = 测试注入本地行）。 */
     private val localMessageSearch: suspend (rid: String, searchText: String) -> List<MessageEntity>,
     private val scope: CoroutineScope,
-) {
+) : ViewModel() {
     private val _state = MutableStateFlow(RoomSearchUiState())
     val state: StateFlow<RoomSearchUiState> = _state.asStateFlow()
+
+    /**
+     * 搜索 VM 生命周期收口（M6 ② / 终审 M-2 / RN unmount-cancel 同义）：协程跑注入 scope
+     * （app 级 BackgroundScope，测试注入 TestScope 同款），包一层子 SupervisorJob——
+     * popBackStack 随 entry ViewModelStore 释放触发 onCleared → [dispose] 取消在飞
+     * 防抖/网络（app 级 scope 本身不可取消）。
+     */
+    private val vmScope = CoroutineScope(scope.coroutineContext + SupervisorJob())
 
     private val isGroupRoom = roomType != "d"
 
@@ -412,6 +423,13 @@ class RoomSearchViewModel(
     private var membersLoaded = false
     private var memberCache: List<cn.appia.im.feature.chat.RoomMemberRow> = emptyList()
 
+    /** RN unmount cancel 等价收口（宿主 onCleared 与测试缝共用）。 */
+    internal fun dispose() {
+        vmScope.cancel()
+    }
+
+    override fun onCleared() = dispose()
+
     /** RN setActiveTab；切 tab 即刷新（RN effect [activeTab, searchText]）。 */
     fun setActiveTab(tab: RoomSearchTab) {
         if (tab !in visibleTabs) return
@@ -419,7 +437,7 @@ class RoomSearchViewModel(
         val q = _state.value.searchText
         if (q.isNotEmpty()) {
             debounceJob?.cancel()
-            scope.launch { runTabFetch(tab, q, append = false) }
+            vmScope.launch { runTabFetch(tab, q, append = false) }
         }
     }
 
@@ -432,7 +450,7 @@ class RoomSearchViewModel(
             _state.value = RoomSearchUiState()
             return
         }
-        debounceJob = scope.launch {
+        debounceJob = vmScope.launch {
             delay(ROOM_SEARCH_DEBOUNCE_MS)
             _state.value = _state.value.copy(searchText = q)
             runTabFetch(_activeTab.value, q, append = false)
@@ -590,22 +608,22 @@ class RoomSearchViewModel(
 
     fun loadMoreMessages() {
         if (!canLoadMoreMessages() || _state.value.loading) return
-        scope.launch { fetchMessages(_state.value.searchText, append = true) }
+        vmScope.launch { fetchMessages(_state.value.searchText, append = true) }
     }
 
     fun loadMoreFiles() {
         if (!_state.value.hasMoreFiles || _state.value.loading) return
-        scope.launch { fetchFiles(_state.value.searchText, "file", append = true) }
+        vmScope.launch { fetchFiles(_state.value.searchText, "file", append = true) }
     }
 
     fun loadMoreMedia() {
         if (!_state.value.hasMoreMedia || _state.value.loading) return
-        scope.launch { fetchFiles(_state.value.searchText, "media", append = true) }
+        vmScope.launch { fetchFiles(_state.value.searchText, "media", append = true) }
     }
 
     fun loadMoreMentions() {
         if (!_state.value.hasMoreMentions || _state.value.loading) return
-        scope.launch { fetchMentions(_state.value.searchText, append = true) }
+        vmScope.launch { fetchMentions(_state.value.searchText, append = true) }
     }
 
     companion object {

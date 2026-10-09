@@ -1,5 +1,6 @@
 package cn.appia.im.feature.search
 
+import androidx.lifecycle.ViewModel
 import cn.appia.im.core.chat.directChatIncludesUsername
 import cn.appia.im.core.chat.isGroupDirectChat
 import cn.appia.im.core.database.entity.ChatEntity
@@ -10,6 +11,8 @@ import cn.appia.im.feature.chatlist.parseLastMessageField
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -99,9 +102,17 @@ class GlobalSearchViewModel(
     private val scope: CoroutineScope,
     /** RN t(key, opts)：args 即 {{k}} 插值表。 */
     private val t: (key: String, args: Map<String, String>) -> String,
-) {
+) : ViewModel() {
     private val _state = MutableStateFlow(GlobalSearchUiState())
     val state: StateFlow<GlobalSearchUiState> = _state.asStateFlow()
+
+    /**
+     * 搜索 VM 生命周期收口（M6 ② / 终审 M-2 / RN unmount-cancel 同义）：协程跑注入 scope
+     * （app 级 BackgroundScope，测试注入 TestScope 同款），包一层子 SupervisorJob——
+     * popBackStack 随 entry ViewModelStore 释放触发 onCleared → [dispose] 取消在飞
+     * 防抖/网络/收集（app 级 scope 本身不可取消）。
+     */
+    private val vmScope = CoroutineScope(scope.coroutineContext + SupervisorJob())
 
     /** 本地会话快照（分区回退 + 头像/类型 enrich；RN chats ref）。 */
     private var chats: List<ChatEntity> = emptyList()
@@ -112,8 +123,15 @@ class GlobalSearchViewModel(
     private var filesEpoch = 0
 
     init {
-        scope.launch { chatsFlow.collect { chats = it } }
+        vmScope.launch { chatsFlow.collect { chats = it } }
     }
+
+    /** RN unmount cancel 等价收口（宿主 onCleared 与测试缝共用）。 */
+    internal fun dispose() {
+        vmScope.cancel()
+    }
+
+    override fun onCleared() = dispose()
 
     /** 空词立即清空；非空 300ms 防抖后搜索（RN useDebouncedTrimmed + effect）。 */
     fun onQueryChanged(text: String) {
@@ -124,7 +142,7 @@ class GlobalSearchViewModel(
             _state.value = GlobalSearchUiState()
             return
         }
-        debounceJob = scope.launch {
+        debounceJob = vmScope.launch {
             delay(GLOBAL_SEARCH_DEBOUNCE_MS)
             runSearch(q)
         }
@@ -172,7 +190,7 @@ class GlobalSearchViewModel(
     private fun prefetchMessagesFull(q: String) {
         messagesFullJob?.cancel()
         val epoch = ++messagesFullEpoch
-        messagesFullJob = scope.launch {
+        messagesFullJob = vmScope.launch {
             _state.value = _state.value.copy(messagesFullLoading = true, messageFullRows = null)
             try {
                 val raw = (fetchMessagesFull(q) as? JsonObject) ?: emptySpotlightObject
@@ -195,7 +213,7 @@ class GlobalSearchViewModel(
         val s = _state.value
         if (s.query.isEmpty() || !s.filesHasMore || s.filesLoadingMore) return
         val epoch = ++filesEpoch
-        scope.launch {
+        vmScope.launch {
             _state.value = _state.value.copy(filesLoadingMore = true)
             try {
                 val page = fetchFilesPage(s.query, s.filesCursor)

@@ -318,6 +318,26 @@ class GlobalSearchViewModelTest {
     }
 
     @Test
+    fun `dispose cancels in-flight debounce and search on unmount`() = runTest {
+        // M6 ② / 终审 M-2：出屏（popBackStack → onCleared）取消在飞防抖——RN unmount-cancel 同义
+        var calls = 0
+        val vm = GlobalSearchViewModel(
+            fetchGlobalSearch = { calls++; emptySpotlightObject },
+            fetchMessagesFull = { emptySpotlightObject },
+            fetchFilesPage = { _, _ -> FilesSearchApi.Page(emptyList(), null, false) },
+            chatsFlow = MutableStateFlow(emptyList()),
+            currentUserId = "me",
+            scope = backgroundScope,
+            t = tResolver(),
+        )
+        vm.onQueryChanged("a")
+        vm.dispose()
+        advanceUntilIdle()
+        assertEquals(0, calls) // 防抖窗口内出屏——搜索不发
+        assertEquals("", vm.state.value.query)
+    }
+
+    @Test
     fun `out-of-order spotlight responses keep the latest query results`() = runTest {
         // RN \u8bed\u4e49\uff1a\u65e7\u67e5\u8be2\u54cd\u5e94\u665a\u5230\u4e0d\u5f97\u8986\u76d6\u65b0\u67e5\u8be2\u7ed3\u679c\u3002Kotlin \u4fa7\u7ade\u6001\u5b88\u536b = debounceJob \u53d6\u6d88
         // + searchEpoch \u53cc\u4fdd\u9669\u2014\u2014\u65e7\u67e5\u8be2\u7684 runSearch \u5728\u6302\u8d77\u70b9\u88ab\u53d6\u6d88\uff0c\u6c38\u4e0d\u6e05 state\u3002

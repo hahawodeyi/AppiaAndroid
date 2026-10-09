@@ -172,6 +172,7 @@ object ServerSettingRegistry {
         ).toString()
     }
 
+    /** 故意分歧（M5-T1 裁定）：RN Boolean() 非空字符串恒真（"false" 也 → true）；Android 仅认布尔字面量/真值数字，更严防误开。 */
     private fun asBoolean(v: JsonElement?): Boolean = when (v) {
         null, is JsonNull -> false
         is JsonPrimitive -> v.booleanOrNull
