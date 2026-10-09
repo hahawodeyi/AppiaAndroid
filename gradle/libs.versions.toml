@@ -23,6 +23,8 @@ navigation-compose = "2.9.5"
 activity-compose = "1.11.0"
 lifecycle = "2.9.4"
 core-ktx = "1.17.0"
+aliyun-push = "[3.9.4.1,4.0)"
+google-services = "4.4.2"
 
 [libraries]
 # Compose
@@ -67,6 +69,10 @@ media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "medi
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
 
+# 推送（阿里云 EMAS；区间依赖取 3.9.x 最新，与 RN 现网一致）
+aliyun-push = { group = "com.aliyun.ams", name = "alicloud-android-push", version.ref = "aliyun-push" }
+aliyun-third-push = { group = "com.aliyun.ams", name = "alicloud-android-third-push", version.ref = "aliyun-push" }
+
 # 测试
 junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junit5" }
 junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher", version.ref = "junit-platform" }
@@ -91,3 +97,4 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }

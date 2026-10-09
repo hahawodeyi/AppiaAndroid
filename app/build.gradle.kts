@@ -7,6 +7,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    // FCM 辅助通道（GMS 机型离线送达）：仅 release 应用，见下方条件 apply
+    alias(libs.plugins.google.services) apply false
 }
 
 // Release 签名沿用 RN 的 release.properties 机制：文件缺失时仅警告，debug 构建不受阻。
@@ -71,6 +73,15 @@ android {
     }
 }
 
+// google-services 插件按 google-services.json 的 package（cn.appia.im）匹配 applicationId，
+// 而 debug 是 cn.appia.im.debug（与生产共存），插件会因找不到匹配 client 而构建失败。
+// 故仅当任务图含 release 时应用插件：debug 构建完全不经过它（FCM meta-data 两 build 均带，
+// 仅缺插件生成的 Firebase 初始化 values —— 只影响 debug 包的 GMS 离线送达，可接受）。
+// 已知边界：不带 Release 字样的任务（裸 assemble / installDebug 后接 assemble）不会触发应用。
+if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
@@ -102,6 +113,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    // 阿里云 EMAS 推送：主 SDK + 厂商通道（华为/荣耀/vivo/小米/OPPO/魅族/GCM 桥）
+    implementation(libs.aliyun.push)
+    implementation(libs.aliyun.third.push)
 
     testImplementation(libs.bundles.test)
     // Compose UI 测试：Robolectric + createComposeRule（T3 起）；manifest 提供 test activity

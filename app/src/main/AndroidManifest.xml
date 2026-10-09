@@ -12,6 +12,20 @@
     <!-- M5 T9：设置页通知分区申请电池优化豁免（系统弹窗，普通权限；机型门限 GMS 系） -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- M6 T2：阿里云推送（对齐 RN manifest:19-29,46） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- 自更新 APK 安装（M6 自更新域；RN manifest:16） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 华为/荣耀/vivo 角标权限（RN manifest:26-29） -->
+    <uses-permission android:name="com.hihonor.android.launcher.permission.CHANGE_BADGE" />
+    <uses-permission android:name="com.huawei.android.launcher.permission.CHANGE_BADGE" />
+    <uses-permission android:name="com.vivo.notification.permission.BADGE_ICON" />
+
     <application
         android:name=".AppiaApplication"
         android:allowBackup="false"
@@ -28,6 +42,81 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- EMAS 厂商通道辅助弹窗：类全限定名须与 EMAS 控制台「辅助弹窗 activity」配置一致（外部核对项）；
+             必须 extends com.alibaba.sdk.android.push.AndroidPopupActivity（RN manifest:116-131 同名同包） -->
+        <activity
+            android:name="com.wix.reactnativenotifications.ali.PopupPushActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="${applicationId}"
+                    android:path="/thirdpush"
+                    android:scheme="agoo" />
+            </intent-filter>
+        </activity>
+
+        <!-- 阿里云推送消息接收器（3 action，对齐 RN manifest:151-162） -->
+        <receiver
+            android:name=".core.push.AppiaAliyunPushReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.alibaba.push2.action.NOTIFICATION_OPENED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.alibaba.push2.action.NOTIFICATION_REMOVED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.alibaba.sdk.android.push.RECEIVE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 阿里云推送配置（appKey/appSecret 同 RN pushConfig.ts） -->
+        <meta-data
+            android:name="com.alibaba.app.appkey"
+            android:value="334251807" />
+        <meta-data
+            android:name="com.alibaba.app.appsecret"
+            android:value="4d9ed252fb624a24bc87f5b637a046b1" />
+
+        <!-- FCM 辅助通道：须与 google-services.json 一致（RN manifest:172-176） -->
+        <meta-data
+            android:name="com.gcm.push.sendid"
+            android:value="id=734237271190" />
+        <meta-data
+            android:name="com.gcm.push.applicationid"
+            android:value="id=1:734237271190:android:d425e5d579db721c1b8eb7" />
+        <meta-data
+            android:name="com.gcm.push.projectid"
+            android:value="id=appia-reactnative-3c2b6" />
+        <meta-data
+            android:name="com.gcm.push.api.key"
+            android:value="id=AIzaSyBY_Mfrr_tp2WYEl7XLaaRO0IWyWpY4DEo" />
+
+        <!-- FCM 进程被杀时系统展示通知用的默认通道（须与 PushNotificationChannels.ALIYUN_FALLBACK_ID 一致） -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="channel_01" />
+
+        <!-- 华为辅助通道（RN manifest:183-186） -->
+        <meta-data
+            android:name="com.huawei.hms.client.appid"
+            android:value="appid=117676617" />
+        <!-- 荣耀辅助通道（RN manifest:188-191） -->
+        <meta-data
+            android:name="com.hihonor.push.app_id"
+            android:value="104436775" />
+        <!-- vivo 辅助通道（RN manifest:193-199） -->
+        <meta-data
+            android:name="com.vivo.push.api_key"
+            android:value="4f61d40080da81c1acc8d479977b13d3" />
+        <meta-data
+            android:name="com.vivo.push.app_id"
+            android:value="105574143" />
     </application>
 
 </manifest>
