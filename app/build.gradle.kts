@@ -49,7 +49,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = versionCodeOverride ?: DEFAULT_VERSION_CODE
-        versionName = "0.6.0"
+        versionName = "0.7.0"
     }
 
     buildFeatures {
