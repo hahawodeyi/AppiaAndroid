@@ -56,7 +56,20 @@ class CompareAppVersionsTest {
     // ---- 字典序回退 ----
 
     @Test
-    fun `non semver falls back to lowercase lexicographic`() {
+    fun `partial versions are zero padded before compare like rn coerce`() {
+        // 评审 I-1 反例：RN coerce('1.10')='1.10.0' → true；不补零会误落字典序静默漏提示
+        assertTrue(isServerVersionNewer("1.10", "1.2.3"))
+        assertTrue(isServerVersionNewer("2.10", "2.9.9"))
+        assertTrue(isServerVersionNewer("10", "9.9.9"))
+        assertTrue(isServerVersionNewer("2", "1.9.9"))
+        // 补零后相等即不新于；local 侧 x.y 同样走数值比较
+        assertFalse(isServerVersionNewer("1.2", "1.2.0"))
+        assertTrue(isServerVersionNewer("1.2.3", "1.1"))
+        assertFalse(isServerVersionNewer("1.1", "1.2.3"))
+    }
+
+    @Test
+    fun `no digits at all falls back to lexicographic`() {
         assertTrue(isServerVersionNewer("beta", "alpha"))
         assertFalse(isServerVersionNewer("alpha", "beta"))
         assertFalse(isServerVersionNewer("same", "same"))
