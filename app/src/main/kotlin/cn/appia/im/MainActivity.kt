@@ -463,26 +463,29 @@ fun AppiaNavHost(
     var loginAlert by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     // M6-T5 深链 drain 接线点①（RN RootNavigator.tsx:53-56 onReady）：导航出口/通知清理出口
-    // 在组合期挂上 drainer，nav 创建即冲刷冷启动积压（门控在 drainer 内部：isAuthenticated &&
-    // navReady）。pushDrainer 注入缝：生产传 PushNavigationDrainer.shared；纯 Robolectric UI
-    // 测试不传（其 plain Application 无 MMKV.initialize，shared 的 auth 门会炸）。
+    // 在 effect 内挂上 drainer，nav 创建即冲刷冷启动积压（门控在 drainer 内部：isAuthenticated &&
+    // navReady）；onDispose 复位（RN setAppNavigationRef(null) :50-52 同义）——同进程 Activity
+    // 热重建后重新挂接，防死 nav 在 onResume 即时 drain 中清空队列丢深链（评审 F1/F2）。
     // ejson 无 messageId 容忍只进房不高亮（坑 8）：jumpToMessageId=null 直通 M5 管线的空分支。
     val drainer = pushDrainer
     if (drainer != null) {
-        drainer.navigate = { intent ->
-            nav.navigateToRoomFromAppRoot(
-                RoomRoute(
-                    rid = intent.rid,
-                    title = intent.title.orEmpty(),
-                    roomType = intent.t,
-                    jumpToMessageId = intent.messageId,
-                ),
-            )
+        DisposableEffect(Unit) {
+            drainer.navigate = { intent ->
+                nav.navigateToRoomFromAppRoot(
+                    RoomRoute(
+                        rid = intent.rid,
+                        title = intent.title.orEmpty(),
+                        roomType = intent.t,
+                        jumpToMessageId = intent.messageId,
+                    ),
+                )
+            }
+            drainer.clearNotifications = {
+                androidx.core.app.NotificationManagerCompat.from(context).cancelAll()
+            }
+            drainer.onNavReady()
+            onDispose { drainer.onNavDisposed() }
         }
-        drainer.clearNotifications = {
-            androidx.core.app.NotificationManagerCompat.from(context).cancelAll()
-        }
-        LaunchedEffect(Unit) { drainer.onNavReady() }
     }
     // 区号选择回调：type-safe nav 参数不携带 lambda，暂存导航级状态（RN 路由 params.onSelect 等价物）
     var areaCodeSelect by remember { mutableStateOf<((LoginAreaCodeOption) -> Unit)?>(null) }

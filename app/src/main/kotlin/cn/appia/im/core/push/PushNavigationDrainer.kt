@@ -51,6 +51,17 @@ class PushNavigationDrainer(
         drainNow()
     }
 
+    /**
+     * RN setAppNavigationRef(null)（RootNavigator.tsx:50-52）同义：导航撕卸（同进程 Activity
+     * 热重建）时复位 navReady/出口——防死 NavController 在 onResume 即时 drain 中清空队列
+     * 静默丢深链（坑 7 症状）；重建后组合重新挂接即恢复。
+     */
+    fun onNavDisposed() {
+        navReady = false
+        navigate = null
+        clearNotifications = null
+    }
+
     /** RN MainNavigator.tsx:38-40 Main 挂载 useEffect。 */
     fun onMainMounted() {
         drainNow()

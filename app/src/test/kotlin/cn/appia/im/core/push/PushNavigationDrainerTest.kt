@@ -186,4 +186,25 @@ class PushNavigationDrainerTest {
         assertEquals(1, q.pendingCount)
         assertFalse(q.drain().isEmpty())
     }
+
+    @Test
+    fun `nav disposed resets navReady and handlers - rewiring recovers`() {
+        // 评审 F1：同进程 Activity 热重建 → 旧 nav 死引用窗口，drain 必须被抑制（防死 nav
+        // 清空队列静默丢深链）；重建后重新挂接 + onNavReady 即恢复冲刷（RN setAppNavigationRef(null)）。
+        val h = Harness()
+        h.enqueue(rid = "first")
+        h.drainer.onNavReady()
+        assertEquals(listOf("first"), h.navigated.map { it.rid })
+        h.drainer.onNavDisposed()
+        h.enqueue(rid = "hot")
+        h.drainer.onAppForeground() // 死引用窗口：不导航、队列保留、清理出口同被摘除
+        assertTrue(h.navigated.none { it.rid == "hot" })
+        assertEquals(1, h.queue.pendingCount)
+        assertEquals(0, h.clearedNotifications)
+        // 重建后组合重新挂接（新 nav 出口）→ 恢复
+        h.drainer.navigate = { h.navigated += it }
+        h.drainer.onNavReady()
+        assertEquals("hot", h.navigated.last().rid)
+        assertEquals(0, h.queue.pendingCount)
+    }
 }
