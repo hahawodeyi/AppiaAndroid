@@ -152,6 +152,22 @@ cn.appia.im/
 
 **可带走**（终审 triage）：T3 双前缀映射/T5 视觉抛光/T6 BFS 性能/T7 照片单选/T8 UI 恢复件/T9 OKR 边角——均有归属或低风险。
 
+## 4.6 M5 遗留与 M6 前置任务（2026-10-09 M5 终审裁定，不得静默丢失）
+
+**写 M6 计划时必须列为显式任务行**：
+1. **导航 reset 对齐**（T8 期既有）：`navigateToRoom` 平跳 vs RN reset [MineDrawer, Room]——跨房跳转/搜索进房返回栈深度与 RN 不一致；M6 深链导航对齐时单点收口（MainActivity 装配处）
+2. **搜索 VM 生命周期**：GlobalSearchViewModel/RoomSearchViewModel 挂应用级 scope 出屏不取消（popBackStack 后 debounce 仍发一次）——升级 entry 级 androidx ViewModel（RoomMessagesViewModel 同款）或补 dispose 挂点
+3. **注释/文档清理**：T1 asBoolean 故意分歧 KDoc 补一行；MainActivity:253/1063 两条失实 TODO(T5/T6/T7/T8) 占位注释删除
+4. **M6 杂项 backlog 建实体**（终审 M-5）：T5 success:false 空态无重试/contact rid="" 进空房/_id 空 key O(n²)；T8 bump 整行写快照盖回；T9 ServerInfoApi 吞 CancellationException（:46,107）；T2 RoleRefresher inflight 死分支改名；T6 跳转态发送缺 scroll-to-latest/loadEarlier 无 spinner——统一收编
+5. **Maestro roomlist_swipe 登录后流程**：模拟器无凭证未测（边界如实）——用户验收登录后补
+6. **装配 helper 止损观察**（终审 M-6）：MainActivity serverUrl/db/auth remember 三连 ~12 目的地重复，M6 深链再增目的地时抽 rememberServerBoundDb()；文件 1926 行接近装配枢纽舒适上限
+
+**UAT 说明**：M5 验收清单协议第十二/十三节（全局搜索/房间内搜索/跳转高亮/presence/设置五分区/语言切换/InAppWeb）；已知差异 12 项在册（头像只读/字体仅持久化/检查更新跳浏览器/links 启发式/加密房字面 LIKE 等）。
+
+**可带走**（终审 triage）：T9-M1 语言行 stacked/M-3 SettingsCard 底色/M-4 lifecycle observer 只加不减/M-8 letter 头像变体消费/T11 登录下拉 a11y semantics——低危有归属。
+
+**本里程碑流程教训（入册）**：① Activity 基类迁移类改动（ComponentActivity→AppCompatActivity）必须模拟器实启验证——测试套件不触 MainActivity，T11 主题崩溃 C-1 全靠终审字节码级核验+实启抓出；② 代理基础设施劣化期（停滞/529）控制器直接接管实现/评审是有效降级路径，但须在台账明示"控制器亲评/亲实现"以保审计链。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
