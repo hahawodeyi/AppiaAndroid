@@ -100,11 +100,10 @@ fun readManifestPushConfig(context: Context): PushConfig? {
     } catch (_: PackageManager.NameNotFoundException) {
         return null
     }
-    // appkey 是纯数字，manifest 合并后可能落为整型资源，两种形态都要接
-    val appKey = metaData.getString(AliyunPushBootstrap.META_APPKEY)
-        ?: metaData.getInt(AliyunPushBootstrap.META_APPKEY, Int.MIN_VALUE)
-            .takeIf { it != Int.MIN_VALUE }?.toString()
-    val appSecret = metaData.getString(AliyunPushBootstrap.META_APPSECRET)
+    // appkey 是纯数字，manifest 合并后落为整型资源——Bundle.getString 对整型值抛 CCE
+    // 而非返回 null（BaseBundle.getString:1456），必须 get()?.toString() 双形态通吃
+    val appKey = metaData.get(AliyunPushBootstrap.META_APPKEY)?.toString()
+    val appSecret = metaData.get(AliyunPushBootstrap.META_APPSECRET)?.toString()
     if (appKey.isNullOrBlank() || appSecret.isNullOrBlank()) return null
     return PushConfig(appKey, appSecret)
 }
