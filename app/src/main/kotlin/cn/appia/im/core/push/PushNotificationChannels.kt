@@ -29,7 +29,9 @@ object PushNotificationChannels {
             },
         )
         manager.createNotificationChannel(
-            NotificationChannel(DEFAULT_IM_ID, "Messages", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            // RN VoiceNotificationChannels.kt:64 im_default 同为 IMPORTANCE_HIGH——
+            // 通道重要性首建后不可覆盖，首发前必须与 RN 对齐（评审核实）
+            NotificationChannel(DEFAULT_IM_ID, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
                 enableVibration(true)
             },
         )
