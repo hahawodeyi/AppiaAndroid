@@ -132,6 +132,8 @@ dependencies {
     // 阿里云 EMAS 推送：主 SDK + 厂商通道（华为/荣耀/vivo/小米/OPPO/魅族/GCM 桥）
     implementation(libs.aliyun.push)
     implementation(libs.aliyun.third.push)
+    // Agora RTC（M8 会议 greenfield；T1 仅依赖 spike，引擎初始化归 T6）
+    implementation(libs.agora.rtc.full)
 
     testImplementation(libs.bundles.test)
     // Compose UI 测试：Robolectric + createComposeRule（T3 起）；manifest 提供 test activity

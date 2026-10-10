@@ -294,7 +294,8 @@ private class InAppWebNavState {
  * 去重 reload/XHR-fetch 劫持）、跨页 transition 注入、postMessage 桥（SetTitle 标题 /
  * onResetPasswordSuccess 登出）、腾讯会议外链拦截、全分支返回决策链、RECRUITMENT 隐藏顶栏。
  * RN 三类错误埋点（onError/onHttpError/onRenderProcessGone）AA 无 analytics 总线，未移植
- * （renderProcessGone 不 override = 不重载，RN `return false` 同默认）；AntMeeting 预热归 M10。
+ * （renderProcessGone 不 override = 不重载，RN `return false` 同默认）；AntMeeting 预热
+ * 随 M8 原生会议整体作废（WebView 预热不再实现），AntMeeting URL 移交逻辑归 M8 T5。
  */
 @Composable
 fun InAppWebScreen(

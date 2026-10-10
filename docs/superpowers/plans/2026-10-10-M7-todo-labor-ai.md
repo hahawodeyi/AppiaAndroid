@@ -76,7 +76,7 @@
 - Modify: `feature/web/InAppWebScreen.kt` + `core/web/`（新文件按需）——§2.5 七项：
 - [ ] ① **泛微三件套**：Weavertoken 预取（proxy/hrm/resource/token 进程内 promise 去重失败静默）+ 请求头 + cookie 注入+sessionStorage 防循环 reload（onPageFinished/doUpdateVisitedHistory 重现，key `hasReloaded_<url>`）+ XHR/fetch 劫持注入脚本（buildInjectedScripts:88-120 移植）+ 跨页 transition 检测（onNavigationStateChange 等价：非泛微域→泛微域注入+reload）
 - [ ] ② 石墨 appendShimoQueryIfNeeded ③ WPS 入口改写（WPS_ORG_DOC_HOSTS + docs.appia.vip fallback 'all'→docs.bitmain.vip）
-- [ ] ④ 会议外链拦截（腾讯会议 http(s)→外链拒载；wemeet:// scheme 拒载；AntMeeting 归 M10 留桩）
+- [ ] ④ 会议外链拦截（腾讯会议 http(s)→外链拒载；wemeet:// scheme 拒载；AntMeeting 归 M10 留桩——M8 裁定改为原生替换，移交归 M8 T5）
 - [ ] ⑤ postMessage 桥（SetTitle 改标题 / onResetPasswordSuccess→logout+goBack / navigationStateChange）
 - [ ] ⑥ 返回决策链全分支（resolveInAppWebBackAction 完整移植：chat-gpt source pop / BACK_CLOSE_URL_SEGMENTS / 根页 origin+hash 去 query 比较 / ANT_AGENT_FORCE_POP_URLS 两 URL）——替换 M5 简化 BackHandler
 - [ ] ⑦ needVPN 探活（HEAD/GET 10s 超时→「需 VPN」错误页）+ RECRUITMENT 隐藏顶栏注入 + WebView props（mixedContentMode/sharedCookies/multipleWindows false/geo）
