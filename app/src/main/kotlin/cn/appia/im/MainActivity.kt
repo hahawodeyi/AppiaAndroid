@@ -1443,8 +1443,8 @@ fun AppiaNavHost(
                 )
             }
         }
-        // 应用内 WebView 壳（M5-T10 / RN InAppWebScreen 最小版：白名单换码+同源 Cookie+返回栈；
-        // 泛微/石墨/WPS/会议拦截归 M7）
+        // 应用内 WebView（M7-T5 七项全量：泛微三件套/石墨/WPS/返回链/postMessage/VPN 探活；
+        // M5 壳：白名单换码+同源 Cookie+返回栈）
         composable<InAppWebRoute> { entry ->
             val route = entry.toRoute<InAppWebRoute>()
             if (deps == null) {
@@ -1454,22 +1454,35 @@ fun AppiaNavHost(
                 val auth = bound.auth
                 val serverUrl = bound.serverUrl
                 val db = bound.db
+                val gateway = session // 登出链与手动登出同构（teardown+删库由 gateway.logout 内聚）
                 var enterpriseId by remember { mutableStateOf("") }
+                var fanweiMobileUrl by remember { mutableStateOf("https://m.appia.vip") }
                 LaunchedEffect(db) {
                     enterpriseId = db.settingDao().getById("Enterprise_ID")?.value_as_string.orEmpty()
+                    // RN :75-77：(valueAsString.trim() || 'https://m.appia.vip').replace(/\/$/, '')
+                    fanweiMobileUrl = (
+                        db.settingDao().getById("Appia_Fanwei_Mobile_Url")?.value_as_string
+                            ?.trim()?.takeIf { it.isNotEmpty() } ?: "https://m.appia.vip"
+                        ).trimEnd('/')
                 }
                 InAppWebScreen(
                     url = route.url,
                     title = route.title,
                     needAuth = route.needAuth,
                     source = route.source,
+                    needVPN = route.needVPN,
                     sdk = deps.sdk,
                     serverUrl = serverUrl,
                     token = auth?.token,
                     userId = auth?.user?.id,
                     username = auth?.user?.username,
                     enterpriseId = enterpriseId,
+                    fanweiMobileUrl = fanweiMobileUrl,
                     onBack = { nav.popBackStack() },
+                    onLogout = {
+                        nav.popBackStack()
+                        if (gateway != null && gateway.logout()) goAuth()
+                    },
                 )
             }
         }

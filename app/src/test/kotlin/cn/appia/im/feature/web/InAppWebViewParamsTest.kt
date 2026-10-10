@@ -39,23 +39,34 @@ class InAppWebViewParamsTest {
         assertNull(matchNeedAuthHost(""))
     }
 
-    // ── resolveInAppWebViewParams（RN needAuthWhitelist.ts:48-60）──
+    // ── resolveInAppWebViewParams（RN needAuthWhitelist.ts:48-60，Triple 含 needVPN）──
 
     @Test
     fun `whitelist hit forces needAuth and overrides source`() {
-        val (needAuth, src) = resolveInAppWebViewParams("https://survey.appia.cn/q", needAuth = false, source = "custom")
+        val (needAuth, src, vpn) = resolveInAppWebViewParams("https://survey.appia.cn/q", needAuth = false, source = "custom")
         assertTrue(needAuth)
         assertEquals("", src) // 白名单规则 source 覆盖入参
+        assertFalse(vpn)
     }
 
     @Test
     fun `non whitelist keeps caller needAuth and source`() {
-        val (a, b) = resolveInAppWebViewParams("https://example.com/x")
+        val (a, b, v) = resolveInAppWebViewParams("https://example.com/x")
         assertFalse(a)
         assertNull(b)
-        val (c, d) = resolveInAppWebViewParams("https://example.com/x", needAuth = true, source = "custom")
+        assertFalse(v)
+        val (c, d, w) = resolveInAppWebViewParams("https://example.com/x", needAuth = true, source = "custom")
         assertTrue(c)
         assertEquals("custom", d)
+        assertFalse(w)
+    }
+
+    @Test
+    fun `lexiang whitelist rule and explicit param both force vpn`() {
+        val (_, _, vpnRule) = resolveInAppWebViewParams("https://lexiang.appia.cn/p", needVPN = false)
+        assertTrue(vpnRule)
+        val (_, _, vpnParam) = resolveInAppWebViewParams("https://example.com/x", needVPN = true)
+        assertTrue(vpnParam)
     }
 
     // ── buildNeedAuthUrl（RN resolveWebViewUrl.ts:26-103 最小面）──
@@ -108,6 +119,28 @@ class InAppWebViewParamsTest {
     }
 
     @Test
+    fun `chat-gpt source uses session token as code`() {
+        val out = buildNeedAuthUrl(
+            "https://bot.example/app",
+            ExternalTokenResult(), // 换码空结果降级，chat-gpt 用 IM sessionToken
+            source = "chat-gpt", userId = "u1", username = "alice", enterpriseId = "E1",
+            sessionToken = "sess-tok",
+        )
+        assertEquals("sess-tok", parse(out).queryParameter("code"))
+    }
+
+    @Test
+    fun `chat-gpt without session token degrades to bare url`() {
+        val out = buildNeedAuthUrl(
+            "https://bot.example/app",
+            null,
+            source = "chat-gpt", userId = "u1", username = "alice", enterpriseId = "E1",
+            sessionToken = "",
+        )
+        assertEquals("https://bot.example/app", out)
+    }
+
+    @Test
     fun `LEXIANG source appends params onto accessUrl`() {
         val out = buildNeedAuthUrl(
             "https://lexiang.appia.cn/x",
@@ -122,27 +155,9 @@ class InAppWebViewParamsTest {
         assertEquals("appia", u.queryParameter("from"))
     }
 
-    // ── shouldWebViewGoBack（返回栈域外判定，RN resolveInAppWebBackAction 简明化）──
-
-    @Test
-    fun `cannot go back pops stack`() {
-        assertFalse(shouldWebViewGoBack("https://a.com/", canGoBack = false, rootUrl = "https://a.com/"))
-    }
-
-    @Test
-    fun `out of domain current page pops stack`() {
-        assertFalse(shouldWebViewGoBack("https://other.com/x", canGoBack = true, rootUrl = "https://a.com/"))
-    }
-
-    @Test
-    fun `same domain subpage goes webview back`() {
-        assertTrue(shouldWebViewGoBack("https://a.com/list", canGoBack = true, rootUrl = "https://a.com/home"))
-    }
-
-    @Test
-    fun `back at root page pops stack`() {
-        assertFalse(shouldWebViewGoBack("https://a.com/home", canGoBack = true, rootUrl = "https://a.com/home"))
-    }
+    // ── shouldWebViewGoBack 已删除：M7-T5 起 BackHandler 走 resolveInAppWebBackAction 全分支
+    //（chat-gpt/BACK_CLOSE_URL_SEGMENTS/根页 origin+hash 去 query 比较/ANT_AGENT_FORCE_POP_URLS），
+    // 对应用例迁至 InAppWebInterceptsTest。
 
     // ── urlsSameOrigin（RN urlsSameOrigin.ts:1-7）──
 
