@@ -184,6 +184,23 @@ cn.appia.im/
 
 **本里程碑流程教训（入册）**：①模拟器走查再次抓出测试不可见真 bug（meta-data 整型 appkey CCE——Bundle.getString 对整型抛异常非返 null，getString→getInt 回退模式永远走不到）——SDK init/manifest 解析类代码必须实启验证 logcat；②简报中的 RN 事实须实现者二次核实（T2 im_default 通道重要性简报笔误被实现者披露纠正；T6 coerce 简化等价声明被评审反例驳倒）——"简报写了"不等于"RN 是这样"。
 
+## 4.8 M7 遗留与 M8 前置任务（2026-10-10 M7 终审裁定，不得静默丢失）
+
+**M7 终审 APPROVED 零修复波通过**（0C/0I/2minor deferred；坑清单 12/12 PASS 独立复核）。
+
+**写 M8 计划时必须列为显式任务行**：
+1. **M7-F-1 rider**：InAppWebIntercepts.kt:184 每 probe 新建 OkHttpClient——改 RocketHttp.newBuilder 共享连接池（一行）
+2. **M7-F-2 rider**：TodoListRepository 多实例语义文档化（现 refetch-on-entry 行为等价——补 KDoc）
+3. **M8 会议域入口数据**：推送 callMsg/oncall 分支（M6-M10 既有 TODO 桩）+ AntMeeting 预热（M6-M10 划出）+ 语音 oncall 通知升级（M6-M10 划出）——三桩同归 M8/M10 会议/语音域，M8 计划时盘点接线
+4. **staffService 客服域**（M7 划出确认）：csSession/转人工/评价/FastModelMessage 引文（bot.docs citation）+ saveToStaffServiceAgent 完整域——M8 不做则顺延 M10，明确归属
+5. **M7 minor 批量**：T2 报告算术笔误/T3 置顶星与 todo 徽标重叠视觉/T4 unparseable-200 返空分歧注释/T6 Infinity-NaN shim 孤 \r 分隔符——低危随触碰收敛
+
+**运维/用户域**：AI 真流式验收需服务端 bot 可用（Agent_Bot_List 在线）；工作台真实配置；泛微/石墨/WPS 内网环境。
+
+**可带走**：T2 报告 §6 算术笔误/T8 bubble 包裹与 username 兜底视觉/T9 前各任务累计 FQN 风格——低危。
+
+**本里程碑流程教训（入册）**：①研究报告会过时（M7-T2 两处"已实现非缺失"——排序四分早已完成/段头枚举已存在）——简报引研究前先抽查现状；②实现者自纠值得保护（T6 取消机制 channelFlow 自纠+原始 socket 钉死、T8 滑壳排除顺带修 LazyColumn 崩溃帧）——评审对"披露的自纠"按正向资产对待。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
