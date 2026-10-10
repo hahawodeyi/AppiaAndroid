@@ -92,6 +92,7 @@ fun resolveInAppWebViewParams(
 
 /**
  * needAuth 拼 code（RN resolveWebViewUrl.ts buildNeedAuthUrl :26-103）：
+ * needAuth=false → 裸 URL 原样返回（RN :40 门，评审 I-1 补回——chat-gpt source 不得绕过）；
  * accessUrl 命中 → 直接改跳 accessUrl（LEXIANG source 叠参保留）；仅 token → 追加
  * from/code/userId/username/enterpriseId query（chat-gpt source 用 IM sessionToken 作 code）；
  * 两者皆空（失败降级）→ 裸 URL 原样返回。urlType=1 hash-query 分支未入（AA 路由无 urlType，
@@ -100,12 +101,14 @@ fun resolveInAppWebViewParams(
 fun buildNeedAuthUrl(
     rawUrl: String,
     auth: ExternalTokenResult?,
+    needAuth: Boolean,
     source: String?,
     userId: String,
     username: String,
     enterpriseId: String,
     sessionToken: String = "",
 ): String {
+    if (!needAuth) return rawUrl // RN :40
     val accessUrl = auth?.accessUrl
     if (!accessUrl.isNullOrEmpty()) {
         if (source != "LEXIANG") return accessUrl
@@ -374,7 +377,7 @@ fun InAppWebScreen(
         var next = trimmed
         rewriteWpsAccessEntryUrl(next, enterpriseId)?.let { next = it }
         next = buildNeedAuthUrl(
-            next, auth, effectiveSource,
+            next, auth, effectiveNeedAuth, effectiveSource,
             userId.orEmpty(), username.orEmpty(), enterpriseId,
             sessionToken = token.orEmpty(),
         )

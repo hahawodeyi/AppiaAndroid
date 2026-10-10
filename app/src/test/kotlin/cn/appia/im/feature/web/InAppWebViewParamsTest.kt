@@ -78,7 +78,7 @@ class InAppWebViewParamsTest {
         val out = buildNeedAuthUrl(
             "https://ssc-docs.appia.vip/doc",
             ExternalTokenResult(success = true, accessUrl = "https://sso.example/login?t=1"),
-            source = null, userId = "u1", username = "alice", enterpriseId = "E1",
+            needAuth = true, source = null, userId = "u1", username = "alice", enterpriseId = "E1",
         )
         assertEquals("https://sso.example/login?t=1", out)
     }
@@ -88,7 +88,7 @@ class InAppWebViewParamsTest {
         val out = buildNeedAuthUrl(
             "https://survey.appia.cn/form?existing=1",
             ExternalTokenResult(success = true, token = "C1"),
-            source = null, userId = "u1", username = "alice", enterpriseId = "E9",
+            needAuth = true, source = null, userId = "u1", username = "alice", enterpriseId = "E9",
         )
         val u = parse(out)
         assertEquals("appia", u.queryParameter("from"))
@@ -103,7 +103,7 @@ class InAppWebViewParamsTest {
     fun `null auth degrades to bare url`() {
         val out = buildNeedAuthUrl(
             "https://survey.appia.cn/form",
-            null, source = null, userId = "u1", username = "alice", enterpriseId = "E1",
+            null, needAuth = true, source = null, userId = "u1", username = "alice", enterpriseId = "E1",
         )
         assertEquals("https://survey.appia.cn/form", out)
     }
@@ -113,7 +113,7 @@ class InAppWebViewParamsTest {
         val out = buildNeedAuthUrl(
             "https://survey.appia.cn/form",
             ExternalTokenResult(), // success=false 无 token/accessUrl
-            source = null, userId = "u1", username = "alice", enterpriseId = "E1",
+            needAuth = true, source = null, userId = "u1", username = "alice", enterpriseId = "E1",
         )
         assertEquals("https://survey.appia.cn/form", out)
     }
@@ -123,7 +123,7 @@ class InAppWebViewParamsTest {
         val out = buildNeedAuthUrl(
             "https://bot.example/app",
             ExternalTokenResult(), // 换码空结果降级，chat-gpt 用 IM sessionToken
-            source = "chat-gpt", userId = "u1", username = "alice", enterpriseId = "E1",
+            needAuth = true, source = "chat-gpt", userId = "u1", username = "alice", enterpriseId = "E1",
             sessionToken = "sess-tok",
         )
         assertEquals("sess-tok", parse(out).queryParameter("code"))
@@ -134,8 +134,20 @@ class InAppWebViewParamsTest {
         val out = buildNeedAuthUrl(
             "https://bot.example/app",
             null,
-            source = "chat-gpt", userId = "u1", username = "alice", enterpriseId = "E1",
+            needAuth = true, source = "chat-gpt", userId = "u1", username = "alice", enterpriseId = "E1",
             sessionToken = "",
+        )
+        assertEquals("https://bot.example/app", out)
+    }
+
+    @Test
+    fun `chat-gpt with needAuth false returns url unchanged RN gate`() {
+        // RN :40 `if (!needAuth) return rawUrl`：评审 I-1 反例——sessionToken 不得静默拼上
+        val out = buildNeedAuthUrl(
+            "https://bot.example/app",
+            null,
+            needAuth = false, source = "chat-gpt", userId = "u1", username = "alice", enterpriseId = "E1",
+            sessionToken = "sess-tok",
         )
         assertEquals("https://bot.example/app", out)
     }
@@ -145,7 +157,7 @@ class InAppWebViewParamsTest {
         val out = buildNeedAuthUrl(
             "https://lexiang.appia.cn/x",
             ExternalTokenResult(success = true, accessUrl = "https://lexiang.appia.cn/enter", token = "C7"),
-            source = "LEXIANG", userId = "u1", username = "alice", enterpriseId = "E3",
+            needAuth = true, source = "LEXIANG", userId = "u1", username = "alice", enterpriseId = "E3",
         )
         val u = parse(out)
         assertEquals("C7", u.queryParameter("code"))

@@ -146,7 +146,7 @@ class InAppWebInterceptsTest {
         val wps = rewriteWpsAccessEntryUrl("https://docs.bitmain.vip/x", "bitmain")!!
         val next = buildNeedAuthUrl(
             wps, ExternalTokenResult(success = true, token = "C1"),
-            source = null, userId = "u1", username = "al", enterpriseId = "E1",
+            needAuth = true, source = null, userId = "u1", username = "al", enterpriseId = "E1",
         )
         val u = next.toHttpUrlOrNull()!!
         assertEquals("C1", u.queryParameter("code"))
@@ -160,7 +160,7 @@ class InAppWebInterceptsTest {
         // needAuth 先拼 token → 石墨段 includes('token') 命中跳过（RN 同序同果）
         val next = buildNeedAuthUrl(
             "https://k.shimo.im/shimo-web/s", ExternalTokenResult(success = true, token = "C1"),
-            source = null, userId = "u1", username = "al", enterpriseId = "E1",
+            needAuth = true, source = null, userId = "u1", username = "al", enterpriseId = "E1",
         )
         val out = appendShimoQueryIfNeeded(next, "E1", "u1", "sess")
         assertEquals(next, out)
