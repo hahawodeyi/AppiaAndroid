@@ -1603,9 +1603,10 @@ fun AppiaNavHost(
                         }
                     },
                 )
-                // 深链 initialQuery 种入（RN route.params.initialQuery 初值）
+                // 深链 initialQuery 种入（RN route.params.initialQuery 初值）——seed-once 守卫在 VM
+                // （backlog #10）：entry 级 VM 活过旋转，本 effect 旋转重建重跑时二次调用被守卫吞
                 LaunchedEffect(Unit) {
-                    if (route.initialQuery.isNotBlank()) viewModel.onQueryChanged(route.initialQuery)
+                    viewModel.seedInitialQuery(route.initialQuery)
                 }
                 val state by viewModel.state.collectAsState()
                 GlobalSearchScreen(

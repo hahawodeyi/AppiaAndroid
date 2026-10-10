@@ -294,6 +294,71 @@ class GlobalSearchViewModelTest {
         assertEquals("", vm.state.value.query)
     }
 
+    // \u2500\u2500 \u6df1\u94fe initialQuery seed-once \u5b88\u536b\uff08backlog #10 / RN route.params \u521d\u503c\uff09\u2500\u2500
+
+    private fun vm(calls: IntArray, scope: kotlinx.coroutines.CoroutineScope): GlobalSearchViewModel =
+        GlobalSearchViewModel(
+            fetchGlobalSearch = { calls[0]++; emptySpotlightObject },
+            fetchMessagesFull = { emptySpotlightObject },
+            fetchFilesPage = { _, _ -> FilesSearchApi.Page(emptyList(), null, false) },
+            chatsFlow = MutableStateFlow(emptyList()),
+            currentUserId = "me",
+            scope = scope,
+            t = tResolver(),
+        )
+
+    @Test
+    fun `seedInitialQuery triggers search once and guards re-seed`() = runTest {
+        // \u65cb\u8f6c/\u91cd\u5efa\u91cd\u8dd1 MainActivity \u7684 LaunchedEffect \u2192 seedInitialQuery \u4e8c\u6b21\u8c03\u7528\u987b\u88ab\u541e
+        val calls = IntArray(1)
+        val vm = vm(calls, backgroundScope)
+        vm.seedInitialQuery("abc")
+        advanceTimeBy(301)
+        runCurrent()
+        assertEquals(1, calls[0])
+        assertEquals("abc", vm.state.value.query)
+
+        vm.seedInitialQuery("abc") // \u65cb\u8f6c\u91cd\u5efa\u91cd\u64ad\u79cd\u2014\u2014\u5b88\u536b\u62e6\u622a
+        advanceTimeBy(600)
+        runCurrent()
+        assertEquals(1, calls[0])
+    }
+
+    @Test
+    fun `seed once guard does not overwrite user-cleared input`() = runTest {
+        val calls = IntArray(1)
+        val vm = vm(calls, backgroundScope)
+        vm.seedInitialQuery("abc")
+        advanceTimeBy(301)
+        runCurrent()
+        assertEquals(1, calls[0])
+        assertEquals("abc", vm.state.value.query)
+
+        vm.onQueryChanged("") // \u7528\u6237\u6e05\u7a7a\u8f93\u5165
+        assertEquals("", vm.state.value.query)
+
+        vm.seedInitialQuery("abc") // \u65cb\u8f6c\u540e\u91cd\u64ad\u79cd\u2014\u2014\u4e0d\u5f97\u590d\u6d3b\u5df2\u6e05\u7a7a\u7684\u8bcd/\u91cd\u89e6\u53d1\u641c\u7d22
+        advanceTimeBy(600)
+        runCurrent()
+        assertEquals(1, calls[0])
+        assertEquals("", vm.state.value.query)
+    }
+
+    @Test
+    fun `blank seed consumes guard without searching`() = runTest {
+        val calls = IntArray(1)
+        val vm = vm(calls, backgroundScope)
+        vm.seedInitialQuery("")
+        advanceTimeBy(600)
+        runCurrent()
+        assertEquals(0, calls[0])
+
+        vm.seedInitialQuery("abc") // \u5b88\u536b\u5df2\u88ab\u7a7a\u8bcd\u6d88\u8017\u2014\u2014\u4e0d\u79cd\u5b50
+        advanceTimeBy(600)
+        runCurrent()
+        assertEquals(0, calls[0])
+    }
+
     @Test
     fun `retyping within debounce window cancels pending search`() = runTest {
         val vm = GlobalSearchViewModel(

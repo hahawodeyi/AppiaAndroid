@@ -10,7 +10,9 @@ import com.alibaba.sdk.android.push.notification.CPushMessage
  *
  * 点击动作（opened / clickedWithNoAction，RN pushService.ts:130-132 同径）→ PushClickRouter：
  * 解析 extra 的 ejson → host 校验 → 90s 待导航队列（T5 drain 进房）。
- * 到达/移除仍仅日志（语音分流归 M10；到达时跨组织未读刷新归 M7，见 backlog-m6 #9）。
+ * 到达（onNotification / receivedInApp）→ CrossOrgUnreadRefresh：跨组织未读刷新
+ * （backlog #9，RN pushService.ts:127/:137；sink 缝未注册前仅日志）。移除仍仅日志；
+ * onMessage 透传分流归 M10（CPushMessage 无 extraMap，不挂刷新）。
  */
 class AppiaAliyunPushReceiver : MessageReceiver() {
     companion object {
@@ -19,6 +21,7 @@ class AppiaAliyunPushReceiver : MessageReceiver() {
 
     override fun onNotification(context: Context, title: String, summary: String, extraMap: Map<String, String>) {
         Log.i(TAG, "onNotification title=$title summary=$summary extras=$extraMap")
+        CrossOrgUnreadRefresh.routeFromExtraMap(extraMap)
     }
 
     override fun onNotificationOpened(context: Context, title: String, summary: String, extraMap: String) {
@@ -51,5 +54,6 @@ class AppiaAliyunPushReceiver : MessageReceiver() {
         openUrl: String,
     ) {
         Log.i(TAG, "onNotificationReceivedInApp title=$title openType=$openType")
+        CrossOrgUnreadRefresh.routeFromExtraMap(extraMap) // RN pushService.ts:137 前台到达同刷新
     }
 }

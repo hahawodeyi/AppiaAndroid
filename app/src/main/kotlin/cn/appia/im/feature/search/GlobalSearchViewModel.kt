@@ -133,6 +133,19 @@ class GlobalSearchViewModel(
 
     override fun onCleared() = dispose()
 
+    /**
+     * 深链 initialQuery 种入 seed-once 守卫（backlog #10 / RN route.params.initialQuery 初值语义）：
+     * 仅首次调用生效——entry 级 VM 活过旋转，MainActivity 重组/Activity 重建重跑 LaunchedEffect
+     * 时二次调用被吞，不覆盖用户清空后的输入、不重触发搜索。
+     */
+    private var seeded = false
+
+    fun seedInitialQuery(text: String) {
+        if (seeded) return
+        seeded = true
+        if (text.isNotBlank()) onQueryChanged(text)
+    }
+
     /** 空词立即清空；非空 300ms 防抖后搜索（RN useDebouncedTrimmed + effect）。 */
     fun onQueryChanged(text: String) {
         val q = text.trim()
