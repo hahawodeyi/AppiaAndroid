@@ -85,6 +85,8 @@ fun ChatListScreen(
     // 待办入口（M7-T3 / RN MineMenu :202-280 抽屉待办卡的菜单化迁移——AA 无抽屉，M5-T9 同裁定）：
     // REST total 计数 + 首条预览（tag 前缀 + 标题），点击 → TodoList
     onOpenTodoList: () -> Unit = {},
+    // 工作台入口（M7-T4 / RN MineMenu :308-319 工作台行的菜单化迁移），点击 → Labor
+    onOpenLabor: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -229,6 +231,15 @@ fun ChatListScreen(
                             onOpenTodoList()
                         },
                         modifier = Modifier.testTag("qa-room-list-menu-todo"),
+                    )
+                    // 工作台入口（M7-T4 / RN MineMenu :308-319 工作台行 → Labor 的菜单化迁移）
+                    DropdownMenuItem(
+                        text = { Text(context.t("labor_title")) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenLabor()
+                        },
+                        modifier = Modifier.testTag("qa-room-list-menu-labor"),
                     )
                     // RN MineMenu.tsx:329 通讯录入口（team_title）
                     DropdownMenuItem(

@@ -109,6 +109,8 @@ import cn.appia.im.feature.todo.TodoActions
 import cn.appia.im.feature.todo.TodoListRepository
 import cn.appia.im.feature.todo.ui.RoomTodoScreen
 import cn.appia.im.feature.todo.ui.TodoListScreen
+import cn.appia.im.feature.labor.LaborRepository
+import cn.appia.im.feature.labor.ui.LaborScreen
 import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
 import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.feature.chatlist.ChatRowActions
@@ -302,6 +304,7 @@ data class MemberProfileRoute(val username: String, val userId: String? = null)
 /**
  * 应用内 WebView（M5-T10，RN navigate('InAppWeb', {url, title?, needAuth?, source?})）：
  * needAuth 白名单命中自动换 code；同源注入 rc Cookie；返回栈域外出栈。
+ * needVPN（M7-T4 Labor extra.needVPN 透传，RN :90）：探活/错误页归 InAppWeb shell M7 扩展（§2.5-7）。
  */
 @Serializable
 data class InAppWebRoute(
@@ -309,6 +312,7 @@ data class InAppWebRoute(
     val title: String = "",
     val needAuth: Boolean = false,
     val source: String? = null,
+    val needVPN: Boolean = false,
 )
 
 /** 我的二维码名片（M4-T9 临时顶栏挂点已移除；M5-T9 迁正：ProfileScreen 二维码行唯一入口）。 */
@@ -361,6 +365,10 @@ data class GlobalSearchMessageDetailRoute(
 /** 全量待办（M7-T3，RN navigate('TodoList')）。 */
 @Serializable
 data object TodoListRoute
+
+/** 工作台（M7-T4，RN navigate('Labor')）。 */
+@Serializable
+data object LaborRoute
 
 /** 房间待办（M7-T3，RN push('RoomTodo', {rid, t, title})；RN fromAgent 参 AA Room 域尚无（AI 任务），暂缺）。 */
 @Serializable
@@ -724,6 +732,8 @@ fun AppiaNavHost(
                     onOpenSearch = { nav.navigate(GlobalSearchRoute()) },
                     // 待办入口（M7-T3 / RN MineMenu 待办卡菜单化迁移：REST total + 首条预览）
                     onOpenTodoList = { nav.navigate(TodoListRoute) },
+                    // 工作台入口（M7-T4 / RN MineMenu :308-319 工作台行菜单化迁移）
+                    onOpenLabor = { nav.navigate(LaborRoute) },
                 )
             }
         }
@@ -1754,6 +1764,39 @@ fun AppiaNavHost(
                         )
                     },
                     onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        // 工作台（M7-T4 / RN LaborScreen）：server-driven 宫格 + 三支路由（DM 链/待办/InAppWeb）
+        composable<LaborRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                LaborScreen(
+                    repo = remember(bound.serverUrl) { LaborRepository() },
+                    serverUrl = bound.serverUrl,
+                    username = bound.auth?.user?.username.orEmpty(),
+                    onBack = { nav.popBackStack() },
+                    // RN navigateToRoom { rid, t: 'd', title: item.name }
+                    onOpenRoom = { rid, title, roomType ->
+                        nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = title, roomType = roomType))
+                    },
+                    onOpenTodoList = { nav.navigate(TodoListRoute) },
+                    // RN navigate('InAppWeb', {url, title, needAuth, source, needVPN})
+                    onOpenInAppWeb = { action ->
+                        nav.navigate(
+                            InAppWebRoute(
+                                url = action.url,
+                                title = action.title,
+                                needAuth = action.needAuth,
+                                source = action.source,
+                                needVPN = action.needVPN,
+                            ),
+                        )
+                    },
+                    // M4 openDirectMessage 链（RN openLaborItem :46 createDirectRoom 的链化等价）
+                    resolveDm = { username -> resolveDirectChatRid(bound.db.chatDao(), deps.sdk, username) },
                 )
             }
         }

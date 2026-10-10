@@ -11,6 +11,10 @@
         android:maxSdkVersion="28" />
     <!-- M5 T9：设置页通知分区申请电池优化豁免（系统弹窗，普通权限；机型门限 GMS 系） -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- M7 T4：工作台考勤打卡/企业滴滴打开 WebView 前的定位门槛（RN ensureAndroidFineLocation
+         fine+coarse 双申请同款；WebView 地理定位页亦依赖） -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- M6 T2：阿里云推送（对齐 RN manifest:19-29,46） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
