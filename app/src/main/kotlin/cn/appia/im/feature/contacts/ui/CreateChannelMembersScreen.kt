@@ -40,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -811,6 +813,7 @@ fun CreateChannelMembersScreen(
                                                         .clickable(enabled = actionEnabled) {
                                                             onOpenAgentEditor("edit", agent)
                                                         }
+                                                        .semantics { contentDescription = context.t("agents_editA11y") }
                                                         .padding(6.dp)
                                                         .testTag("qa-ccm-agent-edit-${agent.id}"),
                                                 )
@@ -823,6 +826,7 @@ fun CreateChannelMembersScreen(
                                                             .clickable(enabled = actionEnabled) {
                                                                 confirmAgentAction = "restore" to agent
                                                             }
+                                                            .semantics { contentDescription = context.t("agents_restoreA11y") }
                                                             .padding(6.dp)
                                                             .testTag("qa-ccm-agent-restore-${agent.id}"),
                                                     )
@@ -835,6 +839,7 @@ fun CreateChannelMembersScreen(
                                                             .clickable(enabled = actionEnabled) {
                                                                 confirmAgentAction = "disable" to agent
                                                             }
+                                                            .semantics { contentDescription = context.t("agents_disableA11y") }
                                                             .padding(6.dp)
                                                             .testTag("qa-ccm-agent-disable-${agent.id}"),
                                                     )

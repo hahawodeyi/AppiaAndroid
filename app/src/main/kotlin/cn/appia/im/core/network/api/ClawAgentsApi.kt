@@ -65,11 +65,14 @@ object ClawAgentsApi {
     fun orderAgents(items: List<ClawAgentItem>): List<ClawAgentItem> =
         items.sortedBy { if (it.active) 0 else 1 }
 
-    /** RN filterClawAgents（lib/agents/clawAgents.ts:101-113）：name/username 局部匹配。 */
+    /** RN filterClawAgents（lib/agents/clawAgents.ts:101-113）：name/username/agentId/serviceUrl 四字段局部匹配。 */
     fun filterAgents(items: List<ClawAgentItem>, keyword: String): List<ClawAgentItem> {
         val q = keyword.trim().lowercase()
         if (q.isEmpty()) return items
-        return items.filter { it.name.lowercase().contains(q) || it.username.lowercase().contains(q) }
+        return items.filter {
+            it.name.lowercase().contains(q) || it.username.lowercase().contains(q) ||
+                it.agentId?.lowercase()?.contains(q) == true || it.serviceUrl?.lowercase()?.contains(q) == true
+        }
     }
 
     /**
