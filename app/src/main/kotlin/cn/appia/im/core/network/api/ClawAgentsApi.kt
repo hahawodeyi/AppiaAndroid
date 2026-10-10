@@ -5,21 +5,55 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 
-/** RN IClawAgentCatalogItem（types/clawAgent.ts）选人器所需子集（管理字段 M5+ 域）。 */
+/** RN IClawAgentCatalogItem（types/clawAgent.ts）选人/管理所需子集。 */
 data class ClawAgentItem(
     val id: String,
     val username: String,
     val name: String,
     val active: Boolean,
+    /** RN appiaOpenClawAgentId（编辑表单回填）。 */
+    val agentId: String? = null,
+    /** RN appiaOpenClawBaseurl（编辑表单回填）。 */
+    val serviceUrl: String? = null,
+    /** RN appiaClawAgentCreatorUserId（canManageClawAgent 判定）。 */
+    val creatorUserId: String? = null,
+)
+
+/** RN IClawAgentPayload（types/clawAgent.ts）：创建/编辑提交体（调用方已 trim）。 */
+data class ClawAgentPayload(
+    val name: String,
+    val agentId: String,
+    val url: String,
+    val apiKey: String,
 )
 
 /**
- * Claw agents 目录（RN services/api/clawAgents.ts fetchClawAgents +
- * lib/agents/clawAgents.ts orderClawAgents/filterClawAgents 对照）。
- * M4 简化：**仅选择**——编辑/禁用/恢复（appia.updateClawAgent/deleteClawAgent/restoreClawAgent
- * 与 AgentEditor 导航）归 M5+，本层不落地。
+ * RN buildClawBotUsername（lib/agents/clawAgents.ts:72-86）：`claw.<body>.bot`，
+ * body = agentId||name||'claw' 小写、非法字符折叠为 `.`、首尾点剔除；body 过短补
+ * base36 时间戳，超长截 48。与四 POST 同层（core 不依赖 feature）。
+ */
+fun buildClawBotUsername(payload: ClawAgentPayload, timestamp: Long = System.currentTimeMillis()): String {
+    val normalizedBody = (payload.agentId.ifEmpty { payload.name }.ifEmpty { "claw" })
+        .lowercase()
+        .replace(Regex("[^a-z0-9._-]+"), ".")
+        .replace(Regex("\\.+"), ".")
+        .trim('.')
+    val timestampPart = timestamp.toString(36)
+    var body = normalizedBody
+    if (body.length < 2) {
+        // RN :79-81：body 非空补 `.时间戳`，空则整个用时间戳
+        body = if (body.isEmpty()) timestampPart else "$body.$timestampPart"
+    }
+    return "claw.${if (body.length > 55) body.take(48) else body}.bot"
+}
+
+/**
+ * Claw agents 目录 + 管理动作（RN services/api/clawAgents.ts 全量对照：
+ * fetchClawAgents + create/update/delete/restore 四 POST + ensureMutationSuccess）。
  */
 object ClawAgentsApi {
 
@@ -37,6 +71,67 @@ object ClawAgentsApi {
         if (q.isEmpty()) return items
         return items.filter { it.name.lowercase().contains(q) || it.username.lowercase().contains(q) }
     }
+
+    /**
+     * RN createClawAgentWithGeneratedUsername（clawAgents.ts:121-140）：username 客户端生成
+     * （buildClawBotUsername），成功返回 {username}；success:false 抛错（含服务端重复 id 文案，
+     * 供 isDuplicateClawAgentIdError 识别）。
+     */
+    suspend fun createClawAgent(
+        sdk: RocketSdk,
+        payload: ClawAgentPayload,
+        timestamp: Long = System.currentTimeMillis(),
+    ): String {
+        val username = buildClawBotUsername(payload, timestamp)
+        val response = sdk.post(
+            "appia.createClawAgents",
+            buildJsonObject {
+                put("username", username)
+                put("appiaOpenClawName", payload.name.trim())
+                put("appiaOpenClawBaseurl", payload.url.trim())
+                put("appiaOpenClawApiSecret", payload.apiKey.trim())
+                put("appiaOpenClawAgentId", payload.agentId.trim())
+            },
+        )
+        ensureMutationSuccess(response)
+        return username
+    }
+
+    /** RN updateClawAgent（clawAgents.ts:142-160）：apiKey 留空则不携带密钥字段（沿用旧密钥）。 */
+    suspend fun updateClawAgent(sdk: RocketSdk, id: String, payload: ClawAgentPayload) {
+        val response = sdk.post(
+            "appia.updateClawAgent",
+            buildJsonObject {
+                put("_id", id)
+                put("appiaOpenClawName", payload.name.trim())
+                put("appiaOpenClawBaseurl", payload.url.trim())
+                put("appiaOpenClawAgentId", payload.agentId.trim())
+                if (payload.apiKey.trim().isNotEmpty()) put("appiaOpenClawApiSecret", payload.apiKey.trim())
+            },
+        )
+        ensureMutationSuccess(response)
+    }
+
+    /** RN disableClawAgent（clawAgents.ts:162-166）：`POST appia.deleteClawAgent {_id}`（软删=禁用）。 */
+    suspend fun disableClawAgent(sdk: RocketSdk, id: String) {
+        ensureMutationSuccess(sdk.post("appia.deleteClawAgent", buildJsonObject { put("_id", id) }))
+    }
+
+    /** RN restoreClawAgent（clawAgents.ts:168-172）：`POST appia.restoreClawAgent {_id}`。 */
+    suspend fun restoreClawAgent(sdk: RocketSdk, id: String) {
+        ensureMutationSuccess(sdk.post("appia.restoreClawAgent", buildJsonObject { put("_id", id) }))
+    }
+}
+
+/** RN ensureMutationSuccess（clawAgents.ts:20-28）：success===false 抛 message||error||兜底。 */
+private fun ensureMutationSuccess(response: JsonElement) {
+    val obj = response as? JsonObject ?: return
+    val success = (obj["success"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+    if (success != false) return
+    fun str(key: String): String? =
+        (obj[key] as? JsonPrimitive)?.takeIf { it !is kotlinx.serialization.json.JsonNull }
+            ?.contentOrNull?.trim()
+    throw IllegalStateException(str("message") ?: str("error") ?: "Claw Agent request failed")
 }
 
 /** RN extractRows + mapClawAgentToCatalogItem（clawAgents.ts:26-81）：三层 envelope 兼容。 */

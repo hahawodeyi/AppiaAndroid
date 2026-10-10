@@ -51,7 +51,14 @@ class ChatListViewModel(
             if (!activeDbMatchesAuth()) {
                 emptyList()
             } else {
-                buildRoomListSections(rows, currentUserId(), query)
+                val base = buildRoomListSections(rows, currentUserId(), query)
+                // myAgents 虚拟行（M7-T8 / RN RoomListScreen :321-331）：真实自聊 DM 缺席时
+                // assistant 段固定占位（搜索态不注入，RN :323-325 同）
+                if (query.isNotBlank()) {
+                    base
+                } else {
+                    injectAgentChannelRow(base, agentChannelRowOrNull(rows, currentUserId()))
+                }
             }
         }
             .flowOn(Dispatchers.Default)

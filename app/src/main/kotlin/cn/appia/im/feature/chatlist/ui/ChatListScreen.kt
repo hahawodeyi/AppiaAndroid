@@ -45,9 +45,13 @@ import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.domain.session.RoomsSyncRepository
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
 import cn.appia.im.feature.chatlist.ChatListViewModel
+import cn.appia.im.feature.chatlist.ChatRow
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.SwipeableChatRow
 import cn.appia.im.feature.chatlist.chatAvatarUrl
+import cn.appia.im.feature.chatlist.ensureAgentRoom
+import cn.appia.im.feature.chatlist.isAgentChannelRow
+import cn.appia.im.feature.chatlist.isSelfDirectAssistantChat
 import cn.appia.im.feature.chatlist.roomTitleFromChat
 import cn.appia.im.feature.org.ui.OrgSwitchSheet
 import kotlinx.coroutines.CancellationException
@@ -70,7 +74,8 @@ fun ChatListScreen(
     deps: RouteDeps,
     phase: RealtimeTransportPhase,
     networkOnline: Boolean?,
-    onOpenRoom: (rid: String, title: String, roomType: String) -> Unit,
+    // myAgents（M7-T8）：fromAgent = 自聊助手行（含虚拟行）——RoomRoute 触发/@门控参数
+    onOpenRoom: (rid: String, title: String, roomType: String, fromAgent: Boolean) -> Unit,
     onLogout: () -> Unit,
     onOpenContacts: () -> Unit = {},
     // 个人资料入口（M5-T9 / RN MineMenu 底部个人信息行 → Profile 的菜单化迁移）；
@@ -303,7 +308,9 @@ fun ChatListScreen(
             onRefresh = ::onRefresh,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         ) {
-            LazyColumn(Modifier.fillMaxSize().testTag("qa-room-list")) {
+            // 空段守卫：stateIn 初值空帧 + LazyListState 恢复并存的瞬态里，空 content 上的
+            // key 重映射可崩（LazyLayoutIntervalContent.getKey Index 0 size 0）——整列不组合
+            if (sections.isNotEmpty()) LazyColumn(Modifier.fillMaxSize().testTag("qa-room-list")) {
                 sections.forEach { section ->
                     item(key = "header-${section.key}", contentType = "header") {
                         Column(Modifier.fillMaxWidth()) {
@@ -318,37 +325,71 @@ fun ChatListScreen(
                         }
                     }
                     items(section.chats, key = { it._id }, contentType = { "chat" }) { chat ->
-                        SwipeableChatRow(
-                            chat = chat,
-                            // 双身份：标题/自直接助手判定走 user.id，预览前缀判自己走 user.username
-                            currentUserId = currentUserId,
-                            currentUsername = currentUsername,
-                            useRealName = useRealName,
-                            avatarUrl = chatAvatarUrl(
-                                serverUrl,
-                                chat.name,
-                                chat.avatar_etag,
-                                userId = currentUserId,
-                                token = session?.token,
-                                sizePx = with(density) { 48.dp.roundToPx() }, // 渲染 48dp×密度（RN avatarSize=48 同款）
-                            ),
-                            onMarkRead = {
-                                deps.scope.launch { runCatching { chatActions.markRoomRead(chat._id) } }
-                            },
-                            onMarkUnread = {
-                                deps.scope.launch { runCatching { chatActions.markRoomUnread(chat._id) } }
-                            },
-                            onToggleFavorite = {
-                                deps.scope.launch { runCatching { chatActions.setRoomFavorite(chat._id, !chat.f) } }
-                            },
-                            onPress = {
-                                onOpenRoom(
-                                    chat._id,
-                                    roomTitleFromChat(chat, currentUserId, context.t("Agent")),
-                                    chat.t,
-                                )
-                            },
-                        )
+                        // 虚拟 myAgents 行不走滑壳（占位行无已读/置顶动作，避免假 rid 打服务端）
+                        if (isAgentChannelRow(chat)) {
+                            ChatRow(
+                                chat = chat,
+                                currentUserId = currentUserId,
+                                currentUsername = currentUsername,
+                                avatarUrl = chatAvatarUrl(
+                                    serverUrl,
+                                    chat.name,
+                                    chat.avatar_etag,
+                                    userId = currentUserId,
+                                    token = session?.token,
+                                    sizePx = with(density) { 48.dp.roundToPx() },
+                                ),
+                                onPress = {
+                                    scope.launch {
+                                        runCatching {
+                                            ensureAgentRoom(deps.kv, deps.sdk, currentUsername.orEmpty(), serverUrl)
+                                        }.onSuccess { rid ->
+                                            onOpenRoom(rid, context.t("Agent"), "d", true)
+                                        }.onFailure {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                context.t("roomList_agentCreateFailed"),
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    }
+                                },
+                            )
+                        } else {
+                            SwipeableChatRow(
+                                chat = chat,
+                                // 双身份：标题/自直接助手判定走 user.id，预览前缀判自己走 user.username
+                                currentUserId = currentUserId,
+                                currentUsername = currentUsername,
+                                useRealName = useRealName,
+                                avatarUrl = chatAvatarUrl(
+                                    serverUrl,
+                                    chat.name,
+                                    chat.avatar_etag,
+                                    userId = currentUserId,
+                                    token = session?.token,
+                                    sizePx = with(density) { 48.dp.roundToPx() }, // 渲染 48dp×密度（RN avatarSize=48 同款）
+                                ),
+                                onMarkRead = {
+                                    deps.scope.launch { runCatching { chatActions.markRoomRead(chat._id) } }
+                                },
+                                onMarkUnread = {
+                                    deps.scope.launch { runCatching { chatActions.markRoomUnread(chat._id) } }
+                                },
+                                onToggleFavorite = {
+                                    deps.scope.launch { runCatching { chatActions.setRoomFavorite(chat._id, !chat.f) } }
+                                },
+                                onPress = {
+                                    // RN navigateToRoom applyAgentInference：自聊助手房 fromAgent=true
+                                    onOpenRoom(
+                                        chat._id,
+                                        roomTitleFromChat(chat, currentUserId, context.t("Agent")),
+                                        chat.t,
+                                        isSelfDirectAssistantChat(chat, currentUserId),
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }

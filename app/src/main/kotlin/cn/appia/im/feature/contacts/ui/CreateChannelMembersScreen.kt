@@ -68,6 +68,7 @@ import cn.appia.im.core.network.api.RoomSettingsApi
 import cn.appia.im.core.network.api.SpotlightApi
 import cn.appia.im.core.network.api.SpotlightApi.SpotlightUser
 import cn.appia.im.core.theme.LocalAppiaColors
+import cn.appia.im.feature.agents.canManageClawAgent
 import cn.appia.im.feature.chat.forward.ForwardDeptCheckState
 import cn.appia.im.feature.chat.forward.ForwardOrgRow
 import cn.appia.im.feature.chat.forward.buildDeptDescendantUsernames
@@ -188,6 +189,15 @@ fun CreateChannelMembersScreen(
     currentUsername: String?,
     onBack: () -> Unit,
     onCreated: (rid: String, title: String?) -> Unit = { _, _ -> },
+    // Agent 管理（M7-T8 / RN CreateChannelMembers agents tab）：编辑/创建入口 + 编辑器结果回投
+    onOpenAgentEditor: (mode: String, agent: ClawAgentItem?) -> Unit = { _, _ -> },
+    /** AgentEditor 创建成功回投的 username（回插选中）；空串 = 无。 */
+    agentCreatedUsername: kotlinx.coroutines.flow.StateFlow<String> =
+        kotlinx.coroutines.flow.MutableStateFlow(""),
+    /** AgentEditor 有过编辑/禁用外变更 → 目录重拉（RN invalidateQueries 等价）。 */
+    agentCatalogDirty: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        kotlinx.coroutines.flow.MutableStateFlow(false),
+    onAgentEditorResultConsumed: () -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -230,6 +240,20 @@ fun CreateChannelMembersScreen(
     var agents by remember { mutableStateOf<List<ClawAgentItem>>(emptyList()) }
     var agentsError by remember { mutableStateOf(false) }
     var agentsLoaded by remember { mutableStateOf(false) }
+    // Agent 管理（M7-T8 / RN agentMutationInFlight + agentActionId + 禁用/恢复确认弹窗）
+    var agentMutationInFlight by remember { mutableStateOf(false) }
+    var agentActionId by remember { mutableStateOf<String?>(null) }
+    var confirmAgentAction by remember { mutableStateOf<Pair<String, ClawAgentItem>?>(null) }
+
+    /** RN useClawAgents refetch：目录重拉 + active 置前（AgentEditor 保存/管理动作后调用）。 */
+    suspend fun fetchAgents(s: RocketSdk) {
+        agentsLoading = true
+        agentsError = false
+        runCatching { ClawAgentsApi.fetchClawAgents(s) }
+            .onSuccess { agents = ClawAgentsApi.orderAgents(it) }
+            .onFailure { agentsError = true }
+        agentsLoading = false
+    }
 
     // UI 状态（rememberSaveable：旋屏/进程恢复）
     var mode by rememberSaveable { mutableStateOf(CreateChannelMode.MEMBERS) }
@@ -318,14 +342,23 @@ fun CreateChannelMembersScreen(
             partnersLoading = false
         }
         if (memberSource == MemberSource.AGENTS && !agentsLoaded) {
-            agentsLoading = true
-            agentsError = false
             agentsLoaded = true
-            runCatching { ClawAgentsApi.fetchClawAgents(s) }
-                .onSuccess { agents = ClawAgentsApi.orderAgents(it) }
-                .onFailure { agentsError = true }
-            agentsLoading = false
+            fetchAgents(s)
         }
+    }
+
+    // AgentEditor 结果（RN :90-93,181-188 createdAgentUsername + invalidateQueries）：
+    // 创建 → 回插选中 + 目录重拉；编辑/管理外变更 → 目录重拉。消费即清键（粘性流防重放）。
+    val createdUsername by agentCreatedUsername.collectAsState()
+    val catalogDirty by agentCatalogDirty.collectAsState()
+    LaunchedEffect(createdUsername, catalogDirty) {
+        if (createdUsername.isEmpty() && !catalogDirty) return@LaunchedEffect
+        val newAgent = createdUsername.takeIf { it.isNotEmpty() }
+        onAgentEditorResultConsumed()
+        if (newAgent != null && newAgent !in selectedUsernames) {
+            selectedUsernames = selectedUsernames + newAgent
+        }
+        sdk?.let { fetchAgents(it) }
     }
 
     // 判定（纯函数）
@@ -347,6 +380,36 @@ fun CreateChannelMembersScreen(
     fun toggleUsername(u: String) {
         if (u.trim().isEmpty() || isUserDisabled(u)) return
         selectedUsernames = if (u in selectedUsernames) selectedUsernames - u else selectedUsernames + u
+    }
+
+    // Agent 禁用/恢复（M7-T8 / RN requestDisableAgent/requestRestoreAgent + 确认弹窗）：
+    // 成功 toast + 目录重拉（RN invalidateQueries 同义）；失败提示保存失败标题
+    fun runAgentAction(agent: ClawAgentItem, disable: Boolean) {
+        val s = sdk ?: return
+        agentMutationInFlight = true
+        agentActionId = agent.id
+        scope.launch {
+            try {
+                if (disable) {
+                    ClawAgentsApi.disableClawAgent(s, agent.id)
+                } else {
+                    ClawAgentsApi.restoreClawAgent(s, agent.id)
+                }
+                android.widget.Toast.makeText(
+                    context,
+                    context.t(if (disable) "agents_disabled" else "agents_restored"),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+                fetchAgents(s)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                alertMsg = context.t("agents_savefailedtitle")
+            } finally {
+                agentMutationInFlight = false
+                agentActionId = null
+            }
+        }
     }
 
     fun toggleDepId(id: String) {
@@ -681,15 +744,106 @@ fun CreateChannelMembersScreen(
                         agentsLoading -> CenterHint(context.t("agents_loading"))
                         agentsError -> CenterHint(context.t("agents_loadfailed"))
                         else -> LazyColumn(state = agentsListState, modifier = Modifier.fillMaxSize().testTag("qa-ccm-agents-list")) {
+                            // 创建卡（RN renderAgentCreateCard :1039-1060）
+                            item(key = "agent-create", contentType = "agent-create") {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = !agentMutationInFlight) {
+                                            onOpenAgentEditor("create", null)
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                                        .testTag("qa-ccm-agent-create"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF2878FF)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text("+", color = Color.White, fontSize = 20.sp)
+                                    }
+                                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                        Text(context.t("agents_createTitle"), color = colors.titleText, fontSize = 15.sp)
+                                        Text(
+                                            context.t("agents_createDesc"),
+                                            color = colors.auxiliaryText,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                            // 空态提示（RN :1396-1402：create 卡 + agents_empty）
+                            if (visibleAgents.isEmpty()) {
+                                item(key = "agent-empty", contentType = "agent-empty") {
+                                    Text(
+                                        context.t("agents_empty"),
+                                        color = colors.auxiliaryText,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
+                            }
                             items(visibleAgents, key = { it.id }) { agent ->
+                                val canManage = canManageClawAgent(currentUserId.orEmpty(), agent)
                                 MemberRow(
                                     title = agent.name,
-                                    subtitle = agent.username,
+                                    subtitle = agent.agentId ?: agent.serviceUrl ?: agent.username,
                                     checked = agent.username in selectedUsernames,
-                                    disabled = !agent.active || isUserDisabled(agent.username),
+                                    disabled = !agent.active || isUserDisabled(agent.username) || agentMutationInFlight,
                                     onToggle = { toggleUsername(agent.username) },
                                     testTag = "qa-ccm-agent-row-${agent.username}",
                                     presenceUsername = agent.username,
+                                    // 行尾管理动作（RN renderAgentRow :959-1029：编辑 + 禁用/恢复）
+                                    trailing = if (canManage) {
+                                        {
+                                            val actionEnabled = !agentMutationInFlight && agentActionId != agent.id
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    "✎",
+                                                    color = Color(0xFFC9CDD4),
+                                                    fontSize = 16.sp,
+                                                    modifier = Modifier
+                                                        .clickable(enabled = actionEnabled) {
+                                                            onOpenAgentEditor("edit", agent)
+                                                        }
+                                                        .padding(6.dp)
+                                                        .testTag("qa-ccm-agent-edit-${agent.id}"),
+                                                )
+                                                if (!agent.active) {
+                                                    Text(
+                                                        "↺",
+                                                        color = Color(0xFF00B42A),
+                                                        fontSize = 16.sp,
+                                                        modifier = Modifier
+                                                            .clickable(enabled = actionEnabled) {
+                                                                confirmAgentAction = "restore" to agent
+                                                            }
+                                                            .padding(6.dp)
+                                                            .testTag("qa-ccm-agent-restore-${agent.id}"),
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        "✕",
+                                                        color = Color(0xFFF53F3F),
+                                                        fontSize = 16.sp,
+                                                        modifier = Modifier
+                                                            .clickable(enabled = actionEnabled) {
+                                                                confirmAgentAction = "disable" to agent
+                                                            }
+                                                            .padding(6.dp)
+                                                            .testTag("qa-ccm-agent-disable-${agent.id}"),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 )
                             }
                         }
@@ -833,6 +987,25 @@ fun CreateChannelMembersScreen(
             },
         )
     }
+
+    // Agent 禁用/恢复确认弹窗（M7-T8 / RN requestDisableAgent :954-957 + Confirm 弹窗）
+    confirmAgentAction?.let { (action, agent) ->
+        val disable = action == "disable"
+        AlertDialog(
+            onDismissRequest = { confirmAgentAction = null },
+            title = { Text(context.t(if (disable) "agents_disableConfirmTitle" else "agents_restoreConfirmTitle")) },
+            text = { Text(context.t(if (disable) "agents_disableConfirmContent" else "agents_restoreConfirmContent")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmAgentAction = null
+                    runAgentAction(agent, disable)
+                }) { Text(context.t("voice_ok")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmAgentAction = null }) { Text(context.t("agents_cancel")) }
+            },
+        )
+    }
 }
 
 // ── 内部组件 ──
@@ -883,6 +1056,8 @@ private fun MemberRow(
     onToggle: () -> Unit,
     testTag: String,
     presenceUsername: String? = null, // M5-T3：RN resolvePresenceUserId（userMap _id）→ Android resolver 链
+    /** 行尾动作槽（M7-T8 agent 行：编辑 + 禁用/恢复；其余源不传）。 */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalAppiaColors.current
     // M5-T3：单聊绿点（RN DirectAvatar presenceUserId；username 经 resolver 400ms 解析）
@@ -918,6 +1093,7 @@ private fun MemberRow(
                 Text(subtitle, color = colors.auxiliaryText, fontSize = 12.sp, maxLines = 1)
             }
         }
+        trailing?.invoke()
     }
 }
 

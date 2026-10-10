@@ -71,6 +71,7 @@ import cn.appia.im.feature.settings.ui.AppUpdatePromptHost
 import cn.appia.im.core.chat.resolveDirectChatRid
 import cn.appia.im.domain.chat.ChatBumper
 import cn.appia.im.feature.chat.DraftController
+import cn.appia.im.feature.agents.ui.AgentEditorScreen
 import cn.appia.im.feature.chat.DraftRepository
 import cn.appia.im.feature.chat.MessageJumpUiState
 import cn.appia.im.feature.chat.RecallActions
@@ -225,6 +226,11 @@ data class RoomRoute(
      * 重试，离房取消重试再兜底 bump，防停留期 DDP 覆盖清掉 tSearch）。
      */
     val fromGlobalSearch: Boolean = false,
+    /**
+     * myAgents 房（M7-T8 / RN Room route `fromAgent`）：AI 触发 inAgentRoom、@ 门控豁免、
+     * MentionSuggestion bot 候选（isAgentRoom）三处数据源。
+     */
+    val fromAgent: Boolean = false,
 )
 
 /** 图片预览页路由（T7）：ViewerImage 列表 JSON 串（type-safe nav 不支持 List<自定义>，同 LoginRoute 裁定）。 */
@@ -261,12 +267,14 @@ data class ReadReceiptRoute(
     val roomType: String = "c",
 )
 
-/** @提及选人页路由（T12，RN navigate('MentionSuggestion', {chatId, t, initialQuery})；agent 房 M4 接入）。 */
+/** @提及选人页路由（T12，RN navigate('MentionSuggestion', {chatId, t, initialQuery, isAgentRoom})）。 */
 @Serializable
 data class MentionSuggestionRoute(
     val rid: String,
     val roomType: String = "c",
     val initialQuery: String = "",
+    /** M7-T8 / RN ChatInputBar isAgentRoom: fromAgent === true——agent 房 @ 候选为 bot 列表。 */
+    val isAgentRoom: Boolean = false,
 )
 
 /** 房间信息页路由（M4-T4，RN navigate('RoomInfo', {rid, t})）。 */
@@ -378,16 +386,32 @@ data object TodoListRoute
 @Serializable
 data object LaborRoute
 
-/** 房间待办（M7-T3，RN push('RoomTodo', {rid, t, title})；RN fromAgent 参 AA Room 域尚无（AI 任务），暂缺）。 */
+/** 房间待办（M7-T3，RN push('RoomTodo', {rid, t, title, fromAgent})）。 */
 @Serializable
 data class RoomTodoRoute(
     val rid: String,
     val roomType: String = "c",
     val title: String = "",
+    /** M7-T8 concern ①：myAgents 房参——同房「去处理」跳回时原样带回（RN RoomTodoScreen :116）。 */
+    val fromAgent: Boolean = false,
 )
 
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
 const val MENTION_SELECTED_KEY = "mention_selected"
+
+/** AgentEditor 结果回投键（M7-T8）：创建返回 username（选中回插），编辑/无创建置 dirty 触发目录重拉。 */
+const val AGENT_CREATED_USERNAME_KEY = "agent_created_username"
+const val AGENT_CATALOG_DIRTY_KEY = "agent_catalog_dirty"
+
+/** Agent 编辑/创建页（M7-T8，RN navigate('AgentEditor', {mode, agent?, sourceParams})）。 */
+@Serializable
+data class AgentEditorRoute(
+    val mode: String = "create",
+    val id: String = "",
+    val name: String = "",
+    val agentId: String = "",
+    val serviceUrl: String = "",
+)
 
 /** LoginState 构造缝：仅导航流 UI 测试注入 fake deps（预设输入/ic 免触网）；生产恒 null 走默认。 */
 private typealias LoginStateFactory =
@@ -733,7 +757,11 @@ fun AppiaNavHost(
                     phase = phase,
                     networkOnline = online,
                     useRealName = useRealName,
-                    onOpenRoom = { rid, title, roomType -> nav.navigateToRoomFromAppRoot(RoomRoute(rid, title, roomType)) },
+                    onOpenRoom = { rid, title, roomType, fromAgent ->
+                        nav.navigateToRoomFromAppRoot(
+                            RoomRoute(rid = rid, title = title, roomType = roomType, fromAgent = fromAgent),
+                        )
+                    },
                     onLogout = { goAuth() }, // 登出 → 回企业码页（RN logout 后回 Auth 首屏）
                     onOpenContacts = { nav.navigate(TeamRoute()) },
                     // 个人资料/工作签名（M5-T9：MineMenu 底部行/签名行的菜单化迁移；MyCard 顶栏入口移除）
@@ -949,6 +977,8 @@ fun AppiaNavHost(
                     loadFirstUnread = { rid -> ReadReceiptsApi.getFirstUnread(deps.sdk, rid) },
                     // 只读房（T11 / RN isRoomReadOnly = archived||ro）：拦长按菜单
                     isRoomReadOnly = chatRow?.archived == true || chatRow?.ro == true,
+                    // myAgents 房（M7-T8 / RN route fromAgent）：@ 门控 + MentionSuggestion bot 候选 + AI 触发
+                    fromAgent = route.fromAgent,
                     // 待办（M7-T3 / RN RoomScreen :326-335,355）：头部入口（todoCount>0，DDP 计数线）
                     // + 长按设/完成动作
                     todoCount = (chatRow?.todoCount ?: 0.0).toInt(),
@@ -958,6 +988,7 @@ fun AppiaNavHost(
                                 rid = route.rid,
                                 roomType = route.roomType,
                                 title = resolveRoomHeaderTitle(route.title, chatRow),
+                                fromAgent = route.fromAgent,
                             ),
                         )
                     },
@@ -975,7 +1006,8 @@ fun AppiaNavHost(
                                 deps.aiRooms,
                                 AiTurnInput(
                                     rid = route.rid,
-                                    fromAgent = false, // myAgents 入口域未落地（M7 后续任务），路由参待补
+                                    // M7-T8 回填：myAgents 房 AI 触发 inAgentRoom（T7 曾为常量 false）
+                                    fromAgent = route.fromAgent,
                                     isStaffService = false, // staffService 域 M10 划出
                                     staffAssignType = null,
                                     msg = msgText,
@@ -1024,6 +1056,8 @@ fun AppiaNavHost(
                                 rid = route.rid,
                                 roomType = route.roomType,
                                 initialQuery = initialQuery,
+                                // RN ChatInputBar :1039/:1270 isAgentRoom: fromAgent === true
+                                isAgentRoom = route.fromAgent,
                             ),
                         )
                     },
@@ -1219,7 +1253,7 @@ fun AppiaNavHost(
                 val db = bound.db
                 MentionSuggestionScreen(
                     initialQuery = route.initialQuery,
-                    isAgentRoom = false, // agent 房（myAgents）M4 域；门控数据源已备（settings 拉齐后即通）
+                    isAgentRoom = route.isAgentRoom,
                     loadCandidates = { isAgentRoom ->
                         if (isAgentRoom) {
                             // Agent_Bot_List × Appia_Claw_Agent_Visibility 门控（settings 表 M5 拉齐前为空集）
@@ -1474,6 +1508,51 @@ fun AppiaNavHost(
                     onCreated = { rid, title ->
                         nav.navigateToRoomFromAppRoot(RoomRoute(rid = rid, title = title.orEmpty(), roomType = "c"))
                     },
+                    // Agent 管理入口（M7-T8 / RN renderAgentRow 编辑 + renderAgentCreateCard 创建）
+                    onOpenAgentEditor = { mode, agent ->
+                        nav.navigate(
+                            AgentEditorRoute(
+                                mode = mode,
+                                id = agent?.id.orEmpty(),
+                                name = agent?.name.orEmpty(),
+                                agentId = agent?.agentId.orEmpty(),
+                                serviceUrl = agent?.serviceUrl.orEmpty(),
+                            ),
+                        )
+                    },
+                    // AgentEditor 结果回投（RN createdAgentUsername 路由参 + invalidateQueries）：
+                    // previousBackStackEntry = 本选人器 entry；粘性流消费即清（MentionSelected 同款）
+                    agentCreatedUsername = entry.savedStateHandle.getStateFlow(AGENT_CREATED_USERNAME_KEY, ""),
+                    agentCatalogDirty = entry.savedStateHandle.getStateFlow(AGENT_CATALOG_DIRTY_KEY, false),
+                    onAgentEditorResultConsumed = {
+                        entry.savedStateHandle.set(AGENT_CREATED_USERNAME_KEY, "")
+                        entry.savedStateHandle.set(AGENT_CATALOG_DIRTY_KEY, false)
+                    },
+                )
+            }
+        }
+        // Agent 创建/编辑（M7-T8 / RN AgentEditorScreen：快捷添加凭证 + 四字段 + 保存）
+        composable<AgentEditorRoute> { entry ->
+            val route = entry.toRoute<AgentEditorRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                AgentEditorScreen(
+                    mode = route.mode,
+                    sdk = deps.sdk,
+                    onBack = { nav.popBackStack() },
+                    onSaved = { createdUsername ->
+                        val prev = nav.previousBackStackEntry
+                        if (createdUsername != null) {
+                            prev?.savedStateHandle?.set(AGENT_CREATED_USERNAME_KEY, createdUsername)
+                        }
+                        prev?.savedStateHandle?.set(AGENT_CATALOG_DIRTY_KEY, true)
+                        nav.popBackStack()
+                    },
+                    initialName = route.name,
+                    initialAgentId = route.agentId,
+                    initialServiceUrl = route.serviceUrl,
+                    initialId = route.id,
                 )
             }
         }
@@ -1940,6 +2019,7 @@ fun AppiaNavHost(
                     rid = route.rid,
                     roomType = route.roomType,
                     routeTitle = route.title,
+                    fromAgent = route.fromAgent,
                     repo = repo,
                     username = bound.auth?.user?.username.orEmpty(),
                     serverUrl = bound.serverUrl,
@@ -1947,10 +2027,16 @@ fun AppiaNavHost(
                     token = bound.auth?.token.orEmpty(),
                     kv = deps.kv,
                     onBack = { nav.popBackStack() },
-                    // 同房：屏侧保留 roomType/title（RN :109-118 fromAgent AA 域尚无）
-                    onGotoSession = { rid, roomType, title, messageId ->
+                    // 同房：屏侧保留 roomType/title/fromAgent（RN :109-118）；跨房 = 条目自身参数
+                    onGotoSession = { rid, roomType, title, messageId, fromAgent ->
                         nav.navigateToRoomFromAppRoot(
-                            RoomRoute(rid = rid, title = title, roomType = roomType, jumpToMessageId = messageId),
+                            RoomRoute(
+                                rid = rid,
+                                title = title,
+                                roomType = roomType,
+                                jumpToMessageId = messageId,
+                                fromAgent = fromAgent,
+                            ),
                         )
                     },
                     onOpenAllTodos = { nav.navigate(TodoListRoute) },

@@ -89,7 +89,9 @@ class ChatListScreenTest {
                 deps = fixture.deps,
                 phase = phase,
                 networkOnline = online,
-                onOpenRoom = { rid, title, roomType -> fixture.opened.add(Triple(rid, title, roomType)) },
+                onOpenRoom = { rid, title, roomType, fromAgent ->
+                    fixture.opened.add(RoomTap(rid, title, roomType, fromAgent))
+                },
                 onLogout = { fixture.logoutCalls.incrementAndGet() },
             )
         }
@@ -106,10 +108,29 @@ class ChatListScreenTest {
         rule.onNodeWithText(context.t("roomList_sectionChannels")).assertExists()
         rule.onNodeWithText("General").assertExists()
 
-        // 行点击 → RoomRoute 参数（rid + roomTitleFromChat 兜底标题 + t）
+        // 行点击 → RoomRoute 参数（rid + roomTitleFromChat 兜底标题 + t + 自聊助手 fromAgent）
         rule.onNodeWithText("General").performClick()
         rule.waitForIdle()
-        assertEquals(listOf(Triple("rid-general", "General", "c")), fixture.opened.toList())
+        assertEquals(listOf(RoomTap("rid-general", "General", "c", false)), fixture.opened.toList())
+    }
+
+    /** myAgents 虚拟行（M7-T8）：真实自聊 DM 缺席 → assistant 段固定行；点击走 rid 缓存直进（fromAgent=true）。 */
+    @Test
+    fun `myAgents virtual row renders and tap opens agent room with fromAgent`() {
+        fixture.seedChats(withSelfAgentDm = false)
+        fixture.kv.putString("AGEMNT_ROOM_ID_KEY_https://s1bob", "cached-rid")
+        setContent(RealtimeTransportPhase.CONNECTED, online = true)
+
+        rule.waitUntil(5_000) { tagExists("qa-room-list-section-assistant") }
+        rule.onNodeWithText(context.t("Agent")).assertExists()
+
+        rule.onNodeWithText(context.t("Agent")).performClick()
+        rule.waitForIdle()
+        rule.waitUntil(5_000) { fixture.opened.isNotEmpty() }
+        assertEquals(
+            listOf(RoomTap("cached-rid", context.t("Agent"), "d", true)),
+            fixture.opened.toList(),
+        )
     }
 
     @Test
@@ -122,7 +143,7 @@ class ChatListScreenTest {
                 deps = fixture.deps,
                 phase = RealtimeTransportPhase.CONNECTED,
                 networkOnline = online.value,
-                onOpenRoom = { _, _, _ -> },
+                onOpenRoom = { _, _, _, _ -> },
                 onLogout = {},
             )
         }
@@ -160,7 +181,8 @@ class ChatListScreenTest {
         val sdk = RocketSdk(client = OkHttpClient())
         sdk.hydrateRestSession(server.url("/").toString(), "tok-1", "u-1")
         fixture = Fixture(context, sdk)
-        fixture.seedChats()
+        // withSelfAgentDm=false：助手段仅剩虚拟 myAgents 行（不走滑壳），滑壳行序与行点击断言不变
+        fixture.seedChats(withSelfAgentDm = false)
         runBlocking {
             fixture.dbManager.active.chatDao().insertAll(
                 listOf(chatRow(_id = "rid-unread", name = "unread-room", fname = "UnreadRoom", unread = 5.0, lm = 95.0)),
@@ -228,12 +250,15 @@ class ChatListScreenTest {
     }
 }
 
+/** 行点击串联记录（M7-T8 起 4 元组：+fromAgent）。 */
+private data class RoomTap(val rid: String, val title: String, val roomType: String, val fromAgent: Boolean)
+
 /** 真 orchestrator + 全 fakes（同 MainNavigationFlowTest Fixture 约定）；bootstrap 缝改记录器。 */
 private class Fixture(context: Context, sdkOverride: RocketSdk = RocketSdk()) {
     val kv = InMemoryKvStore()
     val store = AuthSessionStore(kv)
     val dbManager = DatabaseManager(context)
-    val opened = CopyOnWriteArrayList<Triple<String, String, String>>()
+    val opened = CopyOnWriteArrayList<RoomTap>()
     val logoutCalls = java.util.concurrent.atomic.AtomicInteger(0)
     val scopes = CopyOnWriteArrayList<CoroutineScope>()
 
@@ -282,16 +307,20 @@ private class Fixture(context: Context, sdkOverride: RocketSdk = RocketSdk()) {
         networkMonitor = NetworkMonitor(context),
     )
 
-    /** 预置目标库会话行 + 激活库（ChatListViewModel 守卫要求 active == 绑定库）。 */
-    fun seedChats(serverUrl: String = "https://s1") {
+    /** 预置目标库会话行 + 激活库（ChatListViewModel 守卫要求 active == 绑定库）。
+     *  withSelfAgentDm=true 预置真实自聊助手 DM（M7-T8：压制 myAgents 虚拟行，保既有行序断言）。 */
+    fun seedChats(serverUrl: String = "https://s1", withSelfAgentDm: Boolean = true) {
         store.save(AuthSession("tok-1", AuthUser(id = "u-1", username = "bob", name = "Bob"), serverUrl))
         dbManager.switchDatabase(serverUrl)
         kotlinx.coroutines.runBlocking {
             dbManager.databaseFor(dbManager.normalizeServer(serverUrl)).chatDao().insertAll(
-                listOf(
-                    chatRow(_id = "rid-general", name = "general", fname = "General", lm = 100.0),
-                    chatRow(_id = "rid-todo", name = "todo", fname = "Todo", todoCount = 1.0, lm = 90.0),
-                ),
+                buildList {
+                    if (withSelfAgentDm) {
+                        add(chatRow(_id = "self-dm", t = "d", uids = """["u-1"]""", lm = 120.0))
+                    }
+                    add(chatRow(_id = "rid-general", name = "general", fname = "General", lm = 100.0))
+                    add(chatRow(_id = "rid-todo", name = "todo", fname = "Todo", todoCount = 1.0, lm = 90.0))
+                },
             )
         }
     }

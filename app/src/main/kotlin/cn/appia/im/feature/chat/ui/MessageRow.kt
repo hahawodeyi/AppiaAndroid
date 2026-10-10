@@ -419,6 +419,11 @@ fun MessageRow(
                         )
                     } else {
                         val context = LocalContext.current
+                        // AI 消息分型（M7-T8 / RN AppiaMessage resolveAiMsgKind）：
+                        // ai_response → M3 markdown 链 + AI 代码块复制；fastModelMsg → 桩（staffService 域 M10）
+                        val aiKind = remember(message.msg_type, message.msg_data) {
+                            resolveAiMsgKind(message.msg_type, message.msg_data)
+                        }
                         // md 渲染红线：resolveMessageMd 直读 md/msg 列（勿重 parse msg）；
                         // 已编辑且 md 列非空 → appendEditedTagToMd 行内尾随（RN MessageBody :53-59，
                         // md 列口径判定——resolveMessageMd 在 md 空时回退 parse msg，根非空 ≠ 有 md）
@@ -434,10 +439,12 @@ fun MessageRow(
                         val env = remember(message, currentUsername, serverUrl, getCustomEmoji, useRealName) {
                             buildInlineEnv(mentions, currentUsername, serverUrl, getCustomEmoji, useRealName = useRealName)
                         }
-                        if (md != null) {
+                        if (aiKind == AiMsgKind.AI_FAST_MODEL) {
+                            FastModelMessageStub(message)
+                        } else if (md != null) {
                             MessageBody(
                                 root = md,
-                                aiCodeBlock = message.msg_type == "ai_response",
+                                aiCodeBlock = aiKind == AiMsgKind.AI_RESPONSE,
                                 onTableOpen = onTableOpen,
                                 onKatexClick = onKatexClick,
                                 env = env,

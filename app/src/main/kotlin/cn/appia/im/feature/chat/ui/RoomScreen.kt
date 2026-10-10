@@ -198,6 +198,12 @@ fun RoomScreen(
     loadFirstUnread: suspend (String) -> cn.appia.im.core.network.api.FirstUnread? = { null },
     /** 房间只读（T11 / RN isRoomReadOnly = archived||ro）：只读房拦长按菜单。 */
     isRoomReadOnly: Boolean = false,
+    /**
+     * myAgents 房（M7-T8 / RN ChatInputBar route `fromAgent`）：
+     * @ 工具钮与 @ 键入流 DM 房豁免（RN :1029/:1256 `chatType !== 'd' || fromAgent`）；
+     * 装配处同参驱动 AiTurnInput.fromAgent 与 MentionSuggestion.isAgentRoom。
+     */
+    fromAgent: Boolean = false,
     /** 撤回（T11 / RN onRecall doRecall：先快照后 POST，装配处 = RecallActions.recall）。 */
     onRecall: suspend (MessageEntity) -> Unit = {},
     /** 批量撤回（T11 多选条 / RN handleBatchRecall：POST message.batch.recall，装配处实现）。 */
@@ -975,9 +981,10 @@ fun RoomScreen(
                 controller.rpcBridge?.updateScrollThresholdAndMargin(padding)
             }
 
-            // mention-trigger → 选人页（RN ChatInputBar :1249-1273；DM 房不触发，RN :1256 同守卫）
+            // mention-trigger → 选人页（RN ChatInputBar :1249-1273；DM 房不触发，
+            // RN :1256 `chatType !== 'd' || fromAgent`——myAgents 房豁免）
             controller.onMentionNavigate = { query, cursorPos ->
-                if (rid.isNotEmpty() && state.roomType != "d") {
+                if (rid.isNotEmpty() && (state.roomType != "d" || fromAgent)) {
                     onOpenMentionSuggestion(query)
                 } else {
                     controller.mentionRange = null
@@ -1117,8 +1124,8 @@ fun RoomScreen(
                     .testTag("qa-room-toolbar"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // @ 门控（RN :1031 `chatType !== 'd' || fromAgent`——DM 无提及；fromAgent 域 M4/M5）
-                if (state.roomType != "d") {
+                // @ 门控（RN ChatInputBar :1029 `chatType !== 'd' || fromAgent`——myAgents 房豁免）
+                if (state.roomType != "d" || fromAgent) {
                     ToolbarTextButton("@", active = false, tag = "qa-toolbar-mention") {
                         controller.mentionRange = null
                         onOpenMentionSuggestion("")

@@ -26,6 +26,8 @@ fun RoomTodoScreen(
     rid: String,
     roomType: String,
     routeTitle: String,
+    /** myAgents 房参（M7-T8 / RN route `fromAgent`）：同房跳回原样带回，跨房不带走（RN :116）。 */
+    fromAgent: Boolean = false,
     repo: TodoListRepository,
     username: String,
     serverUrl: String,
@@ -33,7 +35,7 @@ fun RoomTodoScreen(
     token: String,
     kv: KvStore,
     onBack: () -> Unit,
-    onGotoSession: (rid: String, roomType: String, title: String, messageId: String) -> Unit,
+    onGotoSession: (rid: String, roomType: String, title: String, messageId: String, fromAgent: Boolean) -> Unit,
     onOpenAllTodos: () -> Unit,
     onOpenImage: (List<ViewerImage>, Int) -> Unit,
     onOpenDoc: (DocPreviewParams) -> Unit,
@@ -60,6 +62,8 @@ fun RoomTodoScreen(
                         if (isSameRoom) roomType else coerceRoomType(item.t),
                         if (isSameRoom) routeTitle else item.name.orEmpty(),
                         item.mid,
+                        // T3 concern ① 回填：同房保留路由参（含 fromAgent），跨房 = 条目自身参数
+                        if (isSameRoom) fromAgent else false,
                     )
                 }
             },
