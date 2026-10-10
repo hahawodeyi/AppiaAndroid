@@ -1,7 +1,7 @@
-# Appia 原生重写用户自测协议（M1 登录链路 + M2 会话列表/聊天 + M3 富文本消息 + M4 群组/通讯录 + M5 搜索/设置 + M6 推送/自更新，版本 0.7.0）
+# Appia 原生重写用户自测协议（M1 登录链路 + M2 会话列表/聊天 + M3 富文本消息 + M4 群组/通讯录 + M5 搜索/设置 + M6 推送/自更新 + M7 待办/工作台/AI，版本 0.8.0）
 
-> 本文是面向自测人的操作手册。原生版（`cn.appia.im.debug`，versionName **0.7.0**）已实现 M1 全部链路（企业码验证 → 服务器列表 → SMS 登录 → 会话持久化 → 组织切换 → 登出/会话失效）、M2 全部链路（会话列表 + 房间聊天）、M3 全部链路（富文本编辑/渲染、附件收发查看、转发、表情回应、已读回执、编辑/撤回、@提及、长按菜单）与 M4 全部链路（房间信息页/成员管理/公告/改名/选人器/通讯录/名片/房间访问丢失）。
-> 自测方法：**与 RN 版（appiaMobile）side-by-side 对照**——同一操作在两个版本各做一遍，比较表现差异。M1 链路见第二~五节，M2 见第六~七节，M3 见第八~九节，M4 见第十~十一节，M5 见第十二~十三节，M6 见第十四~十五节。
+> 本文是面向自测人的操作手册。原生版（`cn.appia.im.debug`，versionName **0.8.0**）已实现 M1 全部链路（企业码验证 → 服务器列表 → SMS 登录 → 会话持久化 → 组织切换 → 登出/会话失效）、M2 全部链路（会话列表 + 房间聊天）、M3 全部链路（富文本编辑/渲染、附件收发查看、转发、表情回应、已读回执、编辑/撤回、@提及、长按菜单）与 M4 全部链路（房间信息页/成员管理/公告/改名/选人器/通讯录/名片/房间访问丢失）。
+> 自测方法：**与 RN 版（appiaMobile）side-by-side 对照**——同一操作在两个版本各做一遍，比较表现差异。M1 链路见第二~五节，M2 见第六~七节，M3 见第八~九节，M4 见第十~十一节，M5 见第十二~十三节，M6 见第十四~十五节，M7 见第十六~十七节。
 
 ## 一、安装步骤
 
@@ -12,7 +12,7 @@ APK 由开发侧交付（也可自建：仓库根目录执行 `./gradlew :app:as
 adb install -r app-debug.apk
 ```
 
-启动：桌面点开 **Appia** 图标（debug 版）。确认版本号 0.7.0：企业码页底部页脚常驻版本行，应显示 `0.7.0`。
+启动：桌面点开 **Appia** 图标（debug 版）。确认版本号 0.8.0：企业码页底部页脚常驻版本行，应显示 `0.8.0`。
 
 **与生产版共存**：debug 包名为 `cn.appia.im.debug`（生产版为 `cn.appia.im`），二者可同时安装在同一台设备，数据完全隔离，互不影响。注意 debug 版**不会**覆盖 RN/生产版的数据，需用真实账号重新登录一次。
 
@@ -119,7 +119,7 @@ sqlite3 /tmp/appia.db "SELECT _id, substr(custom_fields,1,80) FROM rooms LIMIT 5
 2. **RN 表现**：（同操作在 RN 版的行为/文案/时序；「RN 也这样」也要写明）
 3. **原生表现**：实际看到的行为/文案/时序
 4. **截图/录屏**：两侧各一张（`adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png`）
-5. 环境：设备型号、Android 版本、App 版本号（0.7.0）
+5. 环境：设备型号、Android 版本、App 版本号（0.8.0）
 
 示例：
 
@@ -127,7 +127,7 @@ sqlite3 /tmp/appia.db "SELECT _id, substr(custom_fields,1,80) FROM rooms LIMIT 5
 > - RN 表现：弹层内点击后约 1s 主屏切换完成
 > - 原生表现：点击后主屏立即切换，但连接状态文本 3s 内显示「离线」再变「在线」
 > - 截图：attach
-> - 环境：Pixel 7 / Android 14 / 0.7.0
+> - 环境：Pixel 7 / Android 14 / 0.8.0
 
 ## 四、已知差异（对照 RN 版，非缺陷，请勿按缺陷反馈）
 
@@ -586,3 +586,68 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 10. **通知清理时序**：冷启动 onResume 即清（早于 RN JS-mount）——无行为差（payload 已入队）。
 11. **semver 比较省略 RN 正则的长度帽/边界锚**（19+ 位数字段抛异常 vs RN 降级字典序）——服务端可控输入，判不可达。
 12. **跨房跳转/深链返回栈**：M6-T1 已对齐 RN reset 语义（M5 遗留差异 10 收口）。
+
+## 十六、M7 自测清单（待办/工作台/AI，双端对照）
+
+> **外部依赖前置（用户域）**：①AI 真流式需服务端 bot 可用（Agent_Bot_List 配置的 bot 在线）；②工作台宫格需服务端 worktable_config 有配置数据；③泛微/石墨/WPS 页面需对应内网/账号环境。
+
+### 1. 待办（双计数源为 RN 同构——两处数字短暂不一致非缺陷）
+
+- [ ] **抽屉待办卡**（⋮ 菜单）：显示 total 计数 + 首条待办标题；点击 → 全量待办列表
+- [ ] **会话行红点**：todoCount>0 的会话头像右上红点（>99 显示 99+）；与抽屉数字短暂不一致=RN 同构勿报
+- [ ] **待办分区**：todoCount>0 会话单列「待办」段（段内高优+草稿>高优>普通+草稿>普通）
+- [ ] **房间头入口**：todoCount>0 显示 ☑；点击 → 房间待办列表
+- [ ] **长按设待办**：消息长按 → 设待办 → 消息出现待办样式（DDP 回流稍候）；再长按 → 完成待办
+- [ ] **列表完成**：待办卡「完成」→ 条目消失 + 房间内消息待办样式消失（双写——本地即时清）
+- [ ] **改提醒**：待办卡提醒时间选择 → 过去时间拒提；保存后条目更新
+- [ ] **附件跳转**：图片附件 → 大图查看器（鉴权加载）；文件附件 → 文档预览
+- [ ] **去处理**：跳转来源房间（同房保留参跳消息高亮）
+
+### 2. 工作台
+
+- [ ] **宫格**：抽屉 → 工作台 → 服务端配置的分组宫格（无配置数据显示空态）
+- [ ] **搜索**：名称过滤即时生效
+- [ ] **三支路由**：type3 员工服务 → 建私信进房；「消息待办」→ 待办列表；其余 → InAppWeb 应用内打开
+- [ ] **考勤打卡**：定位权限未授予 → 先弹权限；拒绝 → Alert 不打开
+- [ ] url 为空条目 → nonsupport 页
+
+### 3. InAppWeb 拦截族（M5 壳的全量补齐）
+
+- [ ] **泛微**：进入泛微域页面 → 自动带 Weavertoken（头+cookie+reload 一次）；跨页跳入泛微域同样生效；XHR/fetch 请求带 token
+- [ ] **石墨**：shimo-web 链接自动拼 org/source/userId/token 参数
+- [ ] **WPS**：docs.appia.vip 等命中域 → 改写 getAccessToken 入口
+- [ ] **返回链**：/approve/list、/error、/404 等错误页按返回 → 直接出栈；antagent 两 URL 强制出栈；普通 H5 返回 → webview 后退
+- [ ] **会议外链**：腾讯会议 http(s) 链接 → 拉起外部浏览器；wemeet:// 不拉起
+- [ ] **SetTitle 桥**：H5 调 postMessage SetTitle → 头部标题跟随
+- [ ] **lexiang（needVPN）**：不通 → 「需 VPN」提示页
+- [ ] **招聘页**：source=RECRUITMENT → 顶栏隐藏
+
+### 4. AI Agent（需服务端 bot 可用）
+
+- [ ] **myAgents 房**：会话列表「个人助手」段固定行 → 点击进房（首次 im.create 自聊）；标题显示 Agent
+- [ ] **@bot 触发**：普通房间 @xxx.bot 发消息 → 消息后出现三点动画槽位 → 流式文本渐进上屏 → 完成后变正式消息（markdown 渲染+复制按钮）
+- [ ] **prompt 剔除**：发 @bot 的 prompt 不含 @xxx.bot 字样（服务端侧确认）
+- [ ] **附件 prompt**：带图片/文件 @bot → prompt 含 image-url/file-proxy 模板
+- [ ] **停止**：流式中点停止 → 流中断；已生成文本仍持久化为正式消息
+- [ ] **串行**：连续 @两个 bot → 依次流式（第一完成后第二开始）
+- [ ] **15s 兜底**：流完成但持久化消息未到 → 15s 后槽位自动清理（不死锁）
+- [ ] **agents 管理**：AgentEditor 创建/编辑/禁用/恢复（含快捷添加 base64）；禁用后 @ 候选消失
+
+### 5. 回归抽查
+
+- [ ] 启动无崩溃；M1-M6 抽查各 1-2 项
+
+## 十七、M7 已知差异（对照 RN 版，非缺陷，请勿按缺陷反馈）
+
+1. **staffService 客服域划 M10**：客服会话/转人工/评价/FastModelMessage 引文（bot.docs citation）未做——fastModelMsg 消息显示纯文本占位；saveToStaffServiceAgent 端点映射保留。
+2. **AntMeeting 预热划 M10**：会议链接 openAntMeetingWeb 不拦截（腾讯会议/wemeet 拦截已做）。
+3. **抽屉待办卡简化**：迁 ⋮ 菜单（M5-T9 裁定）后附件缩略图/元信息框无宿主未移植——仅 total+首条标题。
+4. **待办双计数源**：抽屉=REST total、红点=DDP todoCount——短暂不一致为 RN 同构。
+5. **AI 流式文本纯文本渲染**：完成后的正式消息才走 markdown（RN 同构）；完成后槽位未替换前纯 Text。
+6. **跨触发交错**：连续触发首流未 finalize 即丢弃部分文本（RN unmount 同型）。
+7. **urlType=1 hash-query 拼参未入**：Labor 条目未带 urlType（RN 仅 hash-query 调用方用）——需要时补路由参数。
+8. **遥测埋点 skip**：InAppWeb onError/HttpError/RenderProcessGone 上报 AA 无 analytics 总线（KDoc 注明）。
+9. **onMessage 透传未挂跨组织刷新**：CPushMessage 无 extraMap（aar 解验证）——M10 TODO。
+10. **泛微 token 快路竞态**：并发首调可能多一次冗余 HTTP（creator 持锁 await——仅冗余无错误）。
+11. **Android 泛微注入时序**：onPageStarted/Finished+doUpdateVisitedHistory 重现 RN injectedJavaScriptBeforeContentLoaded（M6 已证与 RN-on-Android 逐位同）。
+12. **AgentEditor edit+success 冒烟等待裁撤**：Robolectric 下 onSaved 到达慢——wire 断言保留，真机走查如复现再查。
