@@ -148,4 +148,52 @@ class ChatListSorterTest {
             ids(sortChatsForTodoSection(listOf(highPlain, highPinned))),
         )
     }
+
+    @Test
+    fun `todo four buckets scrambled input yields full segment order`() {
+        val highDraft = chatRow(_id = "hd", draft_message = "x", lm = 1.0, highTodoCount = 1.0)
+        val defaultPlain = chatRow(_id = "dp", lm = 9.0, highTodoCount = 0.0, todoCount = 1.0)
+        val highPlain = chatRow(_id = "hp", lm = 9.0, highTodoCount = 3.0)
+        val defaultDraft = chatRow(_id = "dd", draft_message = "y", lm = 1.0, highTodoCount = 0.0)
+        assertEquals(
+            listOf("hd", "hp", "dd", "dp"),
+            ids(sortChatsForTodoSection(listOf(defaultPlain, highPlain, defaultDraft, highDraft))),
+        )
+    }
+
+    @Test
+    fun `null highTodoCount lands in default bucket`() {
+        val nullHigh = chatRow(_id = "n", lm = 1.0, highTodoCount = null, todoCount = 2.0)
+        val highPlain = chatRow(_id = "h", lm = 9.0, highTodoCount = 1.0)
+        assertEquals(
+            listOf("h", "n"),
+            ids(sortChatsForTodoSection(listOf(nullHigh, highPlain))),
+        )
+    }
+
+    @Test
+    fun `zero highTodoCount is not high bucket`() {
+        val zeroHigh = chatRow(_id = "z", lm = 1.0, highTodoCount = 0.0, todoCount = 1.0)
+        val highPlain = chatRow(_id = "h", lm = 9.0, highTodoCount = 0.5)
+        assertEquals(
+            listOf("h", "z"),
+            ids(sortChatsForTodoSection(listOf(zeroHigh, highPlain))),
+        )
+    }
+
+    @Test
+    fun `empty and single todo sections pass through`() {
+        assertEquals(0, sortChatsForTodoSection(emptyList()).size)
+        val single = chatRow(_id = "only", todoCount = 1.0)
+        assertEquals(listOf("only"), ids(sortChatsForTodoSection(listOf(single))))
+    }
+
+    @Test
+    fun `todo section sort returns new list without mutating input`() {
+        val a = chatRow(_id = "a", lm = 1.0, highTodoCount = 1.0)
+        val b = chatRow(_id = "b", lm = 2.0, highTodoCount = 0.0)
+        val input = mutableListOf(b, a)
+        sortChatsForTodoSection(input)
+        assertEquals(listOf("b", "a"), ids(input))
+    }
 }

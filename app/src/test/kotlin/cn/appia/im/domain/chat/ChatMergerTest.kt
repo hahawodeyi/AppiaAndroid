@@ -374,4 +374,68 @@ class ChatMergerTest {
         assertEquals(1, deduped.size)
         assertEquals("second", deduped[0].name)
     }
+
+    // ---- 待办计数字段（mergeSubscriptionAndRoom.ts:384,392-394 → Chat 列，驱动红点/待办分区） ----
+
+    @Test
+    fun `subscription todo counters land in chat row`() {
+        val next = applyMergedChatFields(
+            entity("ridTodo", t = "p"),
+            merge(
+                obj(
+                    "_id" to s("sub1"),
+                    "rid" to s("ridTodo"),
+                    "t" to s("p"),
+                    "todoCount" to n(3),
+                    "highTodoCount" to n(1),
+                    "defaultTodoCount" to n(2),
+                    "isRoomToDo" to b(true),
+                ),
+            ),
+        )
+        assertEquals(3.0, next.todoCount)
+        assertEquals(1.0, next.highTodoCount)
+        assertEquals(2.0, next.defaultTodoCount)
+        assertEquals(true, next.isRoomToDo)
+    }
+
+    @Test
+    fun `increment without todo keys preserves previous counters`() {
+        // DDP 增量补丁常不带待办计数；省略时保留本地值，防止待办房间落入频道段
+        val prev = applyMergedChatFields(
+            entity("ridTodo", t = "p"),
+            merge(
+                obj(
+                    "_id" to s("sub1"),
+                    "rid" to s("ridTodo"),
+                    "t" to s("p"),
+                    "todoCount" to n(3),
+                    "highTodoCount" to n(1),
+                    "defaultTodoCount" to n(2),
+                    "isRoomToDo" to b(true),
+                ),
+            ),
+        )
+        val next = applyMergedChatFields(
+            prev,
+            merge(obj("_id" to s("sub1"), "rid" to s("ridTodo"), "t" to s("p"), "open" to b(true))),
+        )
+        assertEquals(3.0, next.todoCount)
+        assertEquals(1.0, next.highTodoCount)
+        assertEquals(2.0, next.defaultTodoCount)
+        assertEquals(true, next.isRoomToDo)
+    }
+
+    @Test
+    fun `absent todo counters start null not zero`() {
+        // null（非 0）语义：hasRoomTodoCount 走 (todoCount ?: 0.0) > 0，缺字段房间不进待办段
+        val next = applyMergedChatFields(
+            entity("ridPlain", t = "p"),
+            merge(obj("_id" to s("sub2"), "rid" to s("ridPlain"), "t" to s("p"))),
+        )
+        assertNull(next.todoCount)
+        assertNull(next.highTodoCount)
+        assertNull(next.defaultTodoCount)
+        assertNull(next.isRoomToDo)
+    }
 }
