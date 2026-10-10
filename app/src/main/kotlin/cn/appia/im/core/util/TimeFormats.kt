@@ -45,7 +45,7 @@ fun formatRoomMessageHeaderTime(
     return "$formatted $tzString"
 }
 
-private fun trimDecimal(value: Double): String =
+internal fun trimDecimal(value: Double): String =
     if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 
 /** RN isSameCalendarDay：两时刻在同一本地日历日。 */
