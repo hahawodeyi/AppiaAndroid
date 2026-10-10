@@ -6,7 +6,9 @@
 set -e
 # 逐行读入数组：文件名含空格时不做 word-split（bash 3.2 无 mapfile）
 FILES=()
-while IFS= read -r f; do FILES+=("$f"); done < <(git diff --cached --name-only --diff-filter=ACM | grep '\.kt$' || true)
+# core/ai/ 白名单：AI prompt 模板为发往 AI 服务器的功能性数据（非用户可见 UI 文案），
+# 与 Web 端 extractAIPrompt 对齐保留中文（RN .husky/check_chinese.rb 白名单同款）。
+while IFS= read -r f; do FILES+=("$f"); done < <(git diff --cached --name-only --diff-filter=ACM | grep '\.kt$' | grep -v 'core/ai/' || true)
 [ ${#FILES[@]} -eq 0 ] && exit 0
 violations=$(perl -CSD -ne '
   s{(?<!:)//.*$}{};   # 剔除行尾 // 注释（(?<!:) 避免误伤 https:// 字符串）
