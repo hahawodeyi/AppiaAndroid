@@ -102,6 +102,13 @@ class GlobalSearchViewModel(
     private val scope: CoroutineScope,
     /** RN t(key, opts)：args 即 {{k}} 插值表。 */
     private val t: (key: String, args: Map<String, String>) -> String,
+    /**
+     * 深链 initialQuery（RN route.params.initialQuery，backlog #10 / 评审 I-1）：构造器消费一次——
+     * entry 级 VM 活过旋转，构造后不存在重播种入口（旋转/重组无法复活已清空的词）。
+     * 词同步入 state（屏侧输入框初值取 state.query，t0 即见词，同 RN useState 初值），
+     * 网络部分仍走 300ms 防抖。
+     */
+    private val initialQuery: String = "",
 ) : ViewModel() {
     private val _state = MutableStateFlow(GlobalSearchUiState())
     val state: StateFlow<GlobalSearchUiState> = _state.asStateFlow()
@@ -124,6 +131,16 @@ class GlobalSearchViewModel(
 
     init {
         vmScope.launch { chatsFlow.collect { chats = it } }
+        // 深链种子：词立即入 state（loading=true 防抖窗口即 pending，RN 同），取词不经过
+        // onQueryChanged（其防抖前不动 state.query——竞态守卫测试锁定的行为）
+        val q = initialQuery.trim()
+        if (q.isNotEmpty()) {
+            _state.value = GlobalSearchUiState(query = q, loading = true)
+            debounceJob = vmScope.launch {
+                delay(GLOBAL_SEARCH_DEBOUNCE_MS)
+                runSearch(q)
+            }
+        }
     }
 
     /** RN unmount cancel 等价收口（宿主 onCleared 与测试缝共用）。 */
@@ -132,19 +149,6 @@ class GlobalSearchViewModel(
     }
 
     override fun onCleared() = dispose()
-
-    /**
-     * 深链 initialQuery 种入 seed-once 守卫（backlog #10 / RN route.params.initialQuery 初值语义）：
-     * 仅首次调用生效——entry 级 VM 活过旋转，MainActivity 重组/Activity 重建重跑 LaunchedEffect
-     * 时二次调用被吞，不覆盖用户清空后的输入、不重触发搜索。
-     */
-    private var seeded = false
-
-    fun seedInitialQuery(text: String) {
-        if (seeded) return
-        seeded = true
-        if (text.isNotBlank()) onQueryChanged(text)
-    }
 
     /** 空词立即清空；非空 300ms 防抖后搜索（RN useDebouncedTrimmed + effect）。 */
     fun onQueryChanged(text: String) {

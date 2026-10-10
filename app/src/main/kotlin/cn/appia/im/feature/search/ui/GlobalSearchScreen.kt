@@ -79,9 +79,9 @@ fun GlobalSearchScreen(
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
-    // 输入框初值：VM 已有在搜词（旋转重建回显示）优先，否则深链 initialQuery（backlog #10：
-    // 旋转后不得复活用户清空/已替换的深链词，须与 VM state.query 同步）
-    var query by remember { mutableStateOf(state.query.ifEmpty { initialQuery }) }
+    // 输入框初值 = VM state.query（深链词由 VM 构造器同步种入 state，t0 即见；旋转后
+    // remember 重建也回读 VM 真值——清空/改词不会被复活，backlog #10 / 评审 I-1）
+    var query by remember { mutableStateOf(state.query) }
     var activeTab by remember { mutableStateOf(GlobalSearchTab.ALL) }
     var expandedMembers by remember { mutableStateOf(false) }
     var expandedMessages by remember { mutableStateOf(false) }

@@ -294,9 +294,9 @@ class GlobalSearchViewModelTest {
         assertEquals("", vm.state.value.query)
     }
 
-    // \u2500\u2500 \u6df1\u94fe initialQuery seed-once \u5b88\u536b\uff08backlog #10 / RN route.params \u521d\u503c\uff09\u2500\u2500
+    // \u2500\u2500 \u6df1\u94fe initialQuery \u6784\u9020\u5668\u79cd\u5b50\uff08backlog #10 / \u8bc4\u5ba1 I-1\uff1aseed-once \u5f52 VM \u6784\u9020\uff0c\u65cb\u8f6c\u4e0d\u590d\u64ad\uff09\u2500\u2500
 
-    private fun vm(calls: IntArray, scope: kotlinx.coroutines.CoroutineScope): GlobalSearchViewModel =
+    private fun vm(calls: IntArray, scope: kotlinx.coroutines.CoroutineScope, initialQuery: String = ""): GlobalSearchViewModel =
         GlobalSearchViewModel(
             fetchGlobalSearch = { calls[0]++; emptySpotlightObject },
             fetchMessagesFull = { emptySpotlightObject },
@@ -305,58 +305,48 @@ class GlobalSearchViewModelTest {
             currentUserId = "me",
             scope = scope,
             t = tResolver(),
+            initialQuery = initialQuery,
         )
 
     @Test
-    fun `seedInitialQuery triggers search once and guards re-seed`() = runTest {
-        // \u65cb\u8f6c/\u91cd\u5efa\u91cd\u8dd1 MainActivity \u7684 LaunchedEffect \u2192 seedInitialQuery \u4e8c\u6b21\u8c03\u7528\u987b\u88ab\u541e
+    fun `constructor initialQuery seeds query synchronously and searches after debounce`() = runTest {
+        // RN useState(route.params.initialQuery)\uff1a\u8f93\u5165\u6846 t0 \u5373\u89c1\u8bcd\uff08\u5c4f\u4fa7 remember{state.query} \u4f9d\u8d56\u6b64\u540c\u6b65\u6027\uff09
         val calls = IntArray(1)
-        val vm = vm(calls, backgroundScope)
-        vm.seedInitialQuery("abc")
+        val vm = vm(calls, backgroundScope, initialQuery = "abc")
+        assertEquals("abc", vm.state.value.query)
+        assertTrue(vm.state.value.loading)
+        assertEquals(0, calls[0]) // \u9632\u6296\u672a\u5230\u4e0d\u53d1
+
         advanceTimeBy(301)
         runCurrent()
         assertEquals(1, calls[0])
-        assertEquals("abc", vm.state.value.query)
-
-        vm.seedInitialQuery("abc") // \u65cb\u8f6c\u91cd\u5efa\u91cd\u64ad\u79cd\u2014\u2014\u5b88\u536b\u62e6\u622a
-        advanceTimeBy(600)
-        runCurrent()
-        assertEquals(1, calls[0])
+        assertTrue(vm.state.value.isResultsReady)
     }
 
     @Test
-    fun `seed once guard does not overwrite user-cleared input`() = runTest {
+    fun `cleared query stays cleared after construction seed`() = runTest {
+        // \u65cb\u8f6c\u6a21\u62df\uff1aVM \u662f\u65cb\u8f6c\u5b58\u6d3b\u5355\u5143\uff0c\u6784\u9020\u540e\u4e0d\u5b58\u5728\u4efb\u4f55\u91cd\u64ad\u79cd\u5165\u53e3\u2014\u2014\u6e05\u7a7a\u5373\u7ec8\u6001
         val calls = IntArray(1)
-        val vm = vm(calls, backgroundScope)
-        vm.seedInitialQuery("abc")
+        val vm = vm(calls, backgroundScope, initialQuery = "abc")
         advanceTimeBy(301)
         runCurrent()
-        assertEquals(1, calls[0])
-        assertEquals("abc", vm.state.value.query)
-
         vm.onQueryChanged("") // \u7528\u6237\u6e05\u7a7a\u8f93\u5165
-        assertEquals("", vm.state.value.query)
-
-        vm.seedInitialQuery("abc") // \u65cb\u8f6c\u540e\u91cd\u64ad\u79cd\u2014\u2014\u4e0d\u5f97\u590d\u6d3b\u5df2\u6e05\u7a7a\u7684\u8bcd/\u91cd\u89e6\u53d1\u641c\u7d22
         advanceTimeBy(600)
         runCurrent()
         assertEquals(1, calls[0])
         assertEquals("", vm.state.value.query)
+        assertFalse(vm.state.value.loading)
     }
 
     @Test
-    fun `blank seed consumes guard without searching`() = runTest {
+    fun `blank initialQuery constructs without search`() = runTest {
         val calls = IntArray(1)
         val vm = vm(calls, backgroundScope)
-        vm.seedInitialQuery("")
         advanceTimeBy(600)
         runCurrent()
         assertEquals(0, calls[0])
-
-        vm.seedInitialQuery("abc") // \u5b88\u536b\u5df2\u88ab\u7a7a\u8bcd\u6d88\u8017\u2014\u2014\u4e0d\u79cd\u5b50
-        advanceTimeBy(600)
-        runCurrent()
-        assertEquals(0, calls[0])
+        assertEquals("", vm.state.value.query)
+        assertFalse(vm.state.value.loading)
     }
 
     @Test

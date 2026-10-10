@@ -1599,15 +1599,13 @@ fun AppiaNavHost(
                                 currentUserId = auth?.user?.id,
                                 scope = deps.scope,
                                 t = tResolver,
+                                // 深链 initialQuery 构造器种子（backlog #10 / 评审 I-1）：factory 仅在
+                                // VM 首建时执行——旋转重建不重播种，清空后旋转不复活深链词
+                                initialQuery = route.initialQuery,
                             )
                         }
                     },
                 )
-                // 深链 initialQuery 种入（RN route.params.initialQuery 初值）——seed-once 守卫在 VM
-                // （backlog #10）：entry 级 VM 活过旋转，本 effect 旋转重建重跑时二次调用被守卫吞
-                LaunchedEffect(Unit) {
-                    viewModel.seedInitialQuery(route.initialQuery)
-                }
                 val state by viewModel.state.collectAsState()
                 GlobalSearchScreen(
                     initialQuery = route.initialQuery,
