@@ -47,24 +47,57 @@ class MessageActionControllerTest {
     // ── getOptions 判定全分支 ──
 
     @Test
-    fun `own plain message has reply edit copy forward multiSelect recall in RN order`() {
+    fun `own plain message has reply edit setTodo copy forward multiSelect recall in RN order`() {
         val options = getOptions(msg(u = own, ts = now.toDouble()), ctx, now)
         assertEquals(
             listOf(
-                MessageAction.REPLY, MessageAction.EDIT, MessageAction.COPY,
-                MessageAction.FORWARD, MessageAction.MULTI_SELECT, MessageAction.RECALL,
+                MessageAction.REPLY, MessageAction.EDIT, MessageAction.SET_TODO,
+                MessageAction.COPY, MessageAction.FORWARD, MessageAction.MULTI_SELECT,
+                MessageAction.RECALL,
             ),
             options,
         )
     }
 
     @Test
-    fun `reply forward multiSelect always present even for others plain message`() {
+    fun `reply setTodo forward multiSelect always present even for others plain message`() {
         val options = getOptions(msg(u = other), ctx, now)
         assertTrue(options.contains(MessageAction.REPLY))
         assertTrue(options.contains(MessageAction.FORWARD))
         assertTrue(options.contains(MessageAction.MULTI_SELECT))
-        assertEquals(4, options.size) // + COPY(msg 有) - 无 EDIT/RECALL/RESEND
+        assertEquals(5, options.size) // + COPY(msg 有) + SET_TODO - 无 EDIT/RECALL/RESEND
+    }
+
+    // ── 待办二元互斥（M7-T3 / RN messageActions.tsx:163-179：无权限门控，唯一开关是状态翻转）──
+
+    @Test
+    fun `no appiaTodo shows setTodo`() {
+        assertTrue(getOptions(msg(u = own), ctx, now).contains(MessageAction.SET_TODO))
+        assertFalse(getOptions(msg(u = own), ctx, now).contains(MessageAction.FINISH_TODO))
+    }
+
+    @Test
+    fun `inProgress status zero swaps setTodo for finishTodo`() {
+        val m = msg(u = own, appiaTodo = """{"status":0,"tid":"t1"}""")
+        val options = getOptions(m, ctx, now)
+        assertTrue(options.contains(MessageAction.FINISH_TODO))
+        assertFalse(options.contains(MessageAction.SET_TODO))
+    }
+
+    @Test
+    fun `nonzero appiaTodo status still shows setTodo`() {
+        // status 1（设待办发送值）回流前 / status -1（已完成）都不算进行中
+        for (raw in listOf("""{"status":1}""", """{"status":-1,"tid":"t1"}""")) {
+            val options = getOptions(msg(u = own, appiaTodo = raw), ctx, now)
+            assertTrue(options.contains(MessageAction.SET_TODO))
+            assertFalse(options.contains(MessageAction.FINISH_TODO))
+        }
+    }
+
+    @Test
+    fun `bad appiaTodo json falls back to setTodo`() {
+        val options = getOptions(msg(u = own, appiaTodo = "not-json"), ctx, now)
+        assertTrue(options.contains(MessageAction.SET_TODO))
     }
 
     @Test
@@ -168,14 +201,15 @@ class MessageActionControllerTest {
     }
 
     @Test
-    fun `todo and summary actions are M7 placeholders and never emitted`() {
+    fun `summary action still M7 placeholder and never emitted`() {
         val m = msg(
             u = own,
             appiaTodo = """{"status":0}""",
             attachments = """[{"image_url":"x","type":"image/jpeg"}]""",
         )
         val titles = getOptions(m, ctx, now).map { it.titleKey }
-        assertFalse(titles.any { it.contains("todo") || it.contains("summary") })
+        assertFalse(titles.any { it.contains("summary") })
+        assertTrue(titles.contains("messageaction_finishtodo")) // 进行中 → 完成待办
     }
 
     @Test

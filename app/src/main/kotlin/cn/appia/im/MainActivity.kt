@@ -105,6 +105,10 @@ import cn.appia.im.feature.chat.buildOrderedFileIds
 import cn.appia.im.feature.chat.editor.RoomEditorViewModel
 import cn.appia.im.feature.chat.filterBotsByClawAgentVisibility
 import cn.appia.im.feature.chat.parseAgentBotMentionList
+import cn.appia.im.feature.todo.TodoActions
+import cn.appia.im.feature.todo.TodoListRepository
+import cn.appia.im.feature.todo.ui.RoomTodoScreen
+import cn.appia.im.feature.todo.ui.TodoListScreen
 import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
 import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.feature.chatlist.ChatRowActions
@@ -352,6 +356,18 @@ data class GlobalSearchMessageDetailRoute(
     val roomType: String = "c",
     val searchText: String = "",
     val avatarName: String? = null,
+)
+
+/** 全量待办（M7-T3，RN navigate('TodoList')）。 */
+@Serializable
+data object TodoListRoute
+
+/** 房间待办（M7-T3，RN push('RoomTodo', {rid, t, title})；RN fromAgent 参 AA Room 域尚无（AI 任务），暂缺）。 */
+@Serializable
+data class RoomTodoRoute(
+    val rid: String,
+    val roomType: String = "c",
+    val title: String = "",
 )
 
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
@@ -706,6 +722,8 @@ fun AppiaNavHost(
                     onOpenStatusEdit = { nav.navigate(StatusEditRoute) },
                     // 全局搜索入口（M5-T5 / RN RoomListSearchBar onFocusNavigate）
                     onOpenSearch = { nav.navigate(GlobalSearchRoute()) },
+                    // 待办入口（M7-T3 / RN MineMenu 待办卡菜单化迁移：REST total + 首条预览）
+                    onOpenTodoList = { nav.navigate(TodoListRoute) },
                 )
             }
         }
@@ -775,6 +793,8 @@ fun AppiaNavHost(
                 val reactionActions = remember(db) { ReactionActions(deps.sdk, db) }
                 // 撤回（T11）：先快照 original_content 再 POST message.recall / batch.recall
                 val recallActions = remember(db) { RecallActions(deps.sdk, db) }
+                // 待办动作（M7-T3）：完成双写（POST + 清本地 appia_todo）/ 设待办 / 改提醒
+                val todoActions = remember(db) { TodoActions(deps.sdk, db) }
                 // 编辑提交（T12）：updateMessage / multiAttachments.replace 双路（评审 Important-4 装配）
                 val editController = remember { MessageEditController(deps.sdk) }
                 // 编辑器控制器 entry 级宿主（fix round 2 Critical-1）：destination 组合导航选人页
@@ -878,6 +898,19 @@ fun AppiaNavHost(
                     loadFirstUnread = { rid -> ReadReceiptsApi.getFirstUnread(deps.sdk, rid) },
                     // 只读房（T11 / RN isRoomReadOnly = archived||ro）：拦长按菜单
                     isRoomReadOnly = chatRow?.archived == true || chatRow?.ro == true,
+                    // 待办（M7-T3 / RN RoomScreen :326-335,355）：头部入口（todoCount>0，DDP 计数线）
+                    // + 长按设/完成动作
+                    todoCount = (chatRow?.todoCount ?: 0.0).toInt(),
+                    onOpenRoomTodo = {
+                        nav.navigate(
+                            RoomTodoRoute(
+                                rid = route.rid,
+                                roomType = route.roomType,
+                                title = resolveRoomHeaderTitle(route.title, chatRow),
+                            ),
+                        )
+                    },
+                    todoActions = todoActions,
                     // 撤回（T11 / RN onRecall doRecall：先快照 original_content 再 POST message.recall）
                     onRecall = { m -> recallActions.recall(m) },
                     // 批量撤回（T11 多选条）：POST message.batch.recall {ids}（不快照，RN 同）
@@ -1721,6 +1754,90 @@ fun AppiaNavHost(
                         )
                     },
                     onBack = { nav.popBackStack() },
+                )
+            }
+        }
+        // 全量待办（M7-T3 / RN TodoListScreen）：进屏即拉（refetchOnMount）、下拉刷新、
+        // mutation 遮罩；「去处理」= 跳原房高亮（jumpToMessageId）；附件 = 鉴权图片/文档预览。
+        composable<TodoListRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val repo = remember(bound.serverUrl) {
+                    TodoListRepository(deps.sdk, TodoActions(deps.sdk, bound.db))
+                }
+                TodoListScreen(
+                    repo = repo,
+                    username = bound.auth?.user?.username.orEmpty(),
+                    serverUrl = bound.serverUrl,
+                    userId = bound.auth?.user?.id.orEmpty(),
+                    token = bound.auth?.token.orEmpty(),
+                    kv = deps.kv,
+                    onBack = { nav.popBackStack() },
+                    // RN useJumpToMessage：navigateToRoom { rid, t, messageId, title }
+                    onGotoSession = { rid, roomType, title, messageId ->
+                        nav.navigateToRoomFromAppRoot(
+                            RoomRoute(rid = rid, title = title, roomType = roomType, jumpToMessageId = messageId),
+                        )
+                    },
+                    onOpenImage = { images, index ->
+                        nav.navigate(MediaViewerRoute(imagesJson = loginRouteJson.encodeToString(images), initialIndex = index))
+                    },
+                    onOpenDoc = { params ->
+                        nav.navigate(
+                            DocPreviewRoute(
+                                title = params.title,
+                                fileId = params.fileId,
+                                downloadUrl = params.downloadUrl,
+                                fileType = params.fileType,
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+        // 房间待办（M7-T3 / RN RoomTodoScreen）：同卡片按 rid；「去处理」同房保留路由参（屏侧裁定）
+        composable<RoomTodoRoute> { entry ->
+            val route = entry.toRoute<RoomTodoRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val repo = remember(bound.serverUrl) {
+                    TodoListRepository(deps.sdk, TodoActions(deps.sdk, bound.db))
+                }
+                RoomTodoScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    routeTitle = route.title,
+                    repo = repo,
+                    username = bound.auth?.user?.username.orEmpty(),
+                    serverUrl = bound.serverUrl,
+                    userId = bound.auth?.user?.id.orEmpty(),
+                    token = bound.auth?.token.orEmpty(),
+                    kv = deps.kv,
+                    onBack = { nav.popBackStack() },
+                    // 同房：屏侧保留 roomType/title（RN :109-118 fromAgent AA 域尚无）
+                    onGotoSession = { rid, roomType, title, messageId ->
+                        nav.navigateToRoomFromAppRoot(
+                            RoomRoute(rid = rid, title = title, roomType = roomType, jumpToMessageId = messageId),
+                        )
+                    },
+                    onOpenAllTodos = { nav.navigate(TodoListRoute) },
+                    onOpenImage = { images, index ->
+                        nav.navigate(MediaViewerRoute(imagesJson = loginRouteJson.encodeToString(images), initialIndex = index))
+                    },
+                    onOpenDoc = { params ->
+                        nav.navigate(
+                            DocPreviewRoute(
+                                title = params.title,
+                                fileId = params.fileId,
+                                downloadUrl = params.downloadUrl,
+                                fileType = params.fileType,
+                            ),
+                        )
+                    },
                 )
             }
         }

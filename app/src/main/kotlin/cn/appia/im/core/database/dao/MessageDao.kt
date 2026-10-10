@@ -75,6 +75,14 @@ interface MessageDao {
     @Query("UPDATE messages SET original_content = :json WHERE _id = :id")
     suspend fun updateOriginalContent(id: String, json: String?)
 
+    /**
+     * appia_todo 单列更新（M7-T3 完成待办双写，RN clearMessageAppiaTodo :9-25 的
+     * prepareUpdate { appiaTodo: '' } 等价）：只触 appia_todo 列（不回写全行，同 updateStatus
+     * 裁定——并发 DDP 回推互不冲列）；无匹配行 = no-op（RN find 失败 catch 忽略同义）。
+     */
+    @Query("UPDATE messages SET appia_todo = '' WHERE _id = :id")
+    suspend fun clearAppiaTodo(id: String)
+
     @Delete
     suspend fun delete(entity: MessageEntity)
 

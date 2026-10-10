@@ -6,6 +6,7 @@ import cn.appia.im.core.messaging.MessageStatus
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.network.api.RecallApi
 import cn.appia.im.feature.chat.ui.parseMessageUser
+import cn.appia.im.feature.todo.isTodoInProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -34,8 +35,9 @@ data class MessageActionContext(
 )
 
 /**
- * 菜单动作全集（RN getOptions :129-245 顺序）。待办（RN #3/4 setTodo/finishTodo）与摘要
- * （RN #8 summary）留 M7 占位——不进本判定集；表情动作 RN 菜单本就没有（T8 反应条在行内）。
+ * 菜单动作全集（RN getOptions :129-245 顺序）。待办（RN #3/4 setTodo/finishTodo）M7-T3 接线
+ * （分发见 RoomScreen dispatchAction）；摘要（RN #8 summary）仍留占位。表情动作 RN 菜单本就没有
+ * （T8 反应条在行内）。
  */
 enum class MessageAction(
     val titleKey: String,
@@ -44,6 +46,8 @@ enum class MessageAction(
 ) {
     REPLY("messageaction_reply", "reply"),
     EDIT("messageaction_edit", "edit"),
+    SET_TODO("messageaction_settodo", "set-todo"),
+    FINISH_TODO("messageaction_finishtodo", "finish-todo"),
     COPY("messageaction_copy", "copy"),
     FORWARD("messageaction_forward", "forward"),
     MULTI_SELECT("messageaction_multiselect", "multi-select"),
@@ -105,9 +109,10 @@ fun formatCopyText(msg: String?): String {
 }
 
 /**
- * RN getOptions :129-245 全集（M7 占位项除外）。顺序：回复恒有 → 编辑（自己+允许+未超时
- * +之后无他人+非 videoconf）→ 复制（有可复制文本）→ 转发 → 多选 → 撤回（canRecall）→
- * 重发（自己 + ERROR 态）。
+ * RN getOptions :129-245 全集。顺序：回复恒有 → 编辑（自己+允许+未超时+之后无他人+非 videoconf）
+ * → 待办（RN #3/4 互斥二元：appia_todo 解析为进行中（status===0）→ 完成待办，否则 → 设为待办；
+ * **无权限/存在性门控**——RN 对任何消息都可设待办，唯一开关即此状态翻转）→ 复制（有可复制文本）
+ * → 转发 → 多选 → 撤回（canRecall）→ 重发（自己 + ERROR 态）。
  */
 fun getOptions(
     message: MessageEntity,
@@ -129,6 +134,9 @@ fun getOptions(
     ) {
         options += MessageAction.EDIT
     }
+
+    // RN #3/4：isTodoInProgress ? finishTodo : setTodo（messageActions.tsx:163-179）
+    options += if (isTodoInProgress(message.appia_todo)) MessageAction.FINISH_TODO else MessageAction.SET_TODO
 
     if (hasCopyableText(message)) options += MessageAction.COPY
 

@@ -31,6 +31,7 @@ import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.domain.presence.resolveDirectPeerUserId
 import cn.appia.im.feature.chat.ui.presenceBadge
+import cn.appia.im.feature.todo.ui.TodoBadge
 import coil3.compose.AsyncImage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -92,7 +93,8 @@ internal fun chatAvatarUrl(
  *   （hideUnread || unread<=0 不渲染；宽三档 16/24/28；>99 显 `99+`）。
  * 双身份参数：`currentUserId`（user.id，标题/自直接助手判定）与 `currentUsername`
  * （user.username，预览前缀判自己）不是同一个值（resolveLastMessagePreview KDoc 同注）。
- * RN 侧滑快捷（SwipeableChatRow 壳）、无障碍串、待办角标不在本行内（壳见 ChatRowActions.kt）。
+ * RN 侧滑快捷（SwipeableChatRow 壳）、无障碍串不在本行内（壳见 ChatRowActions.kt）；
+ * 待办角标 M7-T3 在头像右上（TodoBadge）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -160,6 +162,15 @@ fun ChatRow(
                 contentDescription = null,
                 modifier = Modifier.matchParentSize(),
             )
+            // M7-T3：头像右上待办红点（RN RoomItemWrapper :74,79 + RoomItemTodoBadge：
+            // DDP todoCount，>99 显 99+；与未读徽标分立——未读在行尾，红点在头像上）
+            val todoCount = (chat.todoCount ?: 0.0).toInt()
+            if (todoCount > 0) {
+                TodoBadge(
+                    todoCount = todoCount,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
+            }
             if (chat.f) {
                 Text("★", Modifier.align(Alignment.TopEnd), color = StarGold, fontSize = 14.sp)
             }

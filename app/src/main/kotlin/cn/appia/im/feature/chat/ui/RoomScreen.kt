@@ -88,6 +88,9 @@ import cn.appia.im.feature.chat.isReeditableRollback
 import cn.appia.im.feature.chat.isRoomReadOnly
 import cn.appia.im.feature.chat.serverMessageToEditableFiles
 import cn.appia.im.feature.chat.summarizeSenders
+import cn.appia.im.feature.todo.TodoActions
+import cn.appia.im.feature.todo.parseAppiaTodo
+import cn.appia.im.feature.todo.ui.TodoBadge
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.util.Log
@@ -243,6 +246,14 @@ fun RoomScreen(
     onRefresh: () -> Unit = {},
     /** 房间内搜索入口（M5-T7 / RN openRoomSearch：头部搜索钮 → navigate RoomSearch）。 */
     onOpenRoomSearch: (() -> Unit)? = null,
+    /**
+     * 待办（M7-T3 / RN RoomScreen :355,375-381 RoomHeaderTodoEntry）：todoCount>0 才显示
+     * （DDP subscription 计数，非 REST total——研究坑 1 双计数源）；点击 → RoomTodo（装配处）。
+     */
+    todoCount: Int = 0,
+    onOpenRoomTodo: (() -> Unit)? = null,
+    /** 待办动作（M7-T3 / RN onSetTodo/onFinishTodo :834-842；缺省装配前菜单仍显示但无动作）。 */
+    todoActions: TodoActions? = null,
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -481,6 +492,34 @@ fun RoomScreen(
                     Log.w(ROOM_TAG, "recall message failed id=${m._id}", e) // RN console.warn :879
                 }
             }
+            MessageAction.SET_TODO -> {
+                // RN onSetTodo :834-838：只 POST（status:1），本地不写 appia_todo——等 DDP 回流（坑 3）
+                val actions = todoActions ?: return
+                scope.launch {
+                    try {
+                        actions.setTodo(m._id)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(ROOM_TAG, "set todo failed id=${m._id}", e) // RN console.warn :836
+                    }
+                }
+            }
+            MessageAction.FINISH_TODO -> {
+                // RN onFinishTodo :839-842：解析 appiaTodo.tid → updateTodoStatus(tid,-1)；
+                // 完成双写的本地清库在 TodoActions.complete（坑 12）
+                val actions = todoActions ?: return
+                val tid = parseAppiaTodo(m.appia_todo)?.tid ?: return
+                scope.launch {
+                    try {
+                        actions.complete(tid, m._id)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(ROOM_TAG, "finish todo failed id=${m._id}", e) // RN console.warn :841
+                    }
+                }
+            }
             MessageAction.RESEND -> onResend(m)
         }
     }
@@ -601,9 +640,31 @@ fun RoomScreen(
             title = title,
             onBack = onBack,
             onTitleClick = onOpenRoomInfo,
-            // 房间内搜索入口（M5-T7 / RN headerRight searchA11yLabel）：放大镜钮
-            headerAction = onOpenRoomSearch?.let { open ->
-                {
+            // 头部右侧动作（M7-T3 待办入口 + M5-T7 搜索钮，RN headerRight 顺序：todo → search）
+            headerAction = {
+                if (todoCount > 0 && onOpenRoomTodo != null) {
+                    Box(
+                        Modifier
+                            .padding(end = 4.dp)
+                            .size(36.dp)
+                            .wrapContentSize(Alignment.Center),
+                    ) {
+                        Text(
+                            "☑",
+                            color = colors.headerTintColor,
+                            fontSize = 18.sp,
+                            modifier = Modifier
+                                .clickable(onClick = onOpenRoomTodo)
+                                .testTag("qa-room-header-todo"),
+                        )
+                        TodoBadge(
+                            todoCount = todoCount,
+                            small = true,
+                            modifier = Modifier.align(Alignment.TopEnd),
+                        )
+                    }
+                }
+                onOpenRoomSearch?.let { open ->
                     Text(
                         "⌕",
                         color = colors.headerTintColor,

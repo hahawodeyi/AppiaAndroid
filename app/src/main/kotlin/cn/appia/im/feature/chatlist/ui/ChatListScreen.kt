@@ -82,6 +82,9 @@ fun ChatListScreen(
     useRealName: Boolean = true,
     // 全局搜索入口（M5-T5 / RN RoomListSearchBar onFocusNavigate → navigate('GlobalSearch'))
     onOpenSearch: () -> Unit = {},
+    // 待办入口（M7-T3 / RN MineMenu :202-280 抽屉待办卡的菜单化迁移——AA 无抽屉，M5-T9 同裁定）：
+    // REST total 计数 + 首条预览（tag 前缀 + 标题），点击 → TodoList
+    onOpenTodoList: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -114,6 +117,20 @@ fun ChatListScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var showOrgSheet by remember { mutableStateOf(false) }
     var alert by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    // 待办（M7-T3 / RN useTodos(true) = useTodoListQuery REST total——抽屉计数线，坑 1 双计数源）：
+    // 菜单打开即拉（RN 抽屉挂载 refetchOnMount 同义）；不订阅 DDP
+    val todoRepo = remember(serverUrl) {
+        cn.appia.im.feature.todo.TodoListRepository(
+            deps.sdk,
+            cn.appia.im.feature.todo.TodoActions(
+                deps.sdk,
+                deps.dbManager.databaseFor(deps.dbManager.normalizeServer(serverUrl)),
+            ),
+        )
+    }
+    val todoState by todoRepo.observe(null).collectAsState()
+    LaunchedEffect(menuOpen) { if (menuOpen) todoRepo.fetch(null) }
 
     fun onRefresh() {
         // RN RoomListScreenInner.tsx:201-208：组织切换中/刷新中跳过（UI 级防抖；
@@ -190,6 +207,29 @@ fun ChatListScreen(
                         .testTag("qa-room-list-menu"),
                 )
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    // 待办入口（M7-T3 / RN MineMenu :210-238）：待办(total) + 首条预览标题
+                    // （REST total 线；total>0 且有首条才显预览，RN :239-281 预览卡同门槛）
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text("${context.t("drawer_defaulttodo")}(${todoState.total.toInt()})")
+                                todoState.items.firstOrNull()?.let { first ->
+                                    Text(
+                                        cn.appia.im.feature.todo.stripMarkdownLite(first.title.orEmpty()),
+                                        color = colors.auxiliaryText,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onOpenTodoList()
+                        },
+                        modifier = Modifier.testTag("qa-room-list-menu-todo"),
+                    )
                     // RN MineMenu.tsx:329 通讯录入口（team_title）
                     DropdownMenuItem(
                         text = { Text(context.t("team_title")) },
