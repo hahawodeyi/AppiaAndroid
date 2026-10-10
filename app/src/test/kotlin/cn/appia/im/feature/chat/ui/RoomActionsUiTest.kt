@@ -73,7 +73,7 @@ class RoomActionsUiTest {
                     token = "tok",
                     draftController = null,
                     editorController = editor,
-                    onSend = { msg, _ -> sentTexts += msg },
+                    onSend = { msg, _ -> sentTexts += msg; null },
                     onResend = {},
                     onBack = {},
                     onLoadEarlier = {},

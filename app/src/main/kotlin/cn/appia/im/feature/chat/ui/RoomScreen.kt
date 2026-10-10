@@ -50,6 +50,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onGloballyPositioned
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.i18n.t
+import cn.appia.im.domain.ai.AGENT_LOADING_MSG_TYPE
+import cn.appia.im.domain.ai.AiRoomState
+import cn.appia.im.domain.ai.deriveMessagesWithAgentSlot
 import cn.appia.im.core.messaging.EmojiResolver
 import cn.appia.im.core.messaging.buildEditContent
 import cn.appia.im.core.messaging.convertTipTapJsonToMessageParserRoot
@@ -174,7 +177,8 @@ fun RoomScreen(
     serverUrl: String,
     token: String?,
     draftController: DraftController?,
-    onSend: suspend (String, kotlinx.serialization.json.JsonElement?) -> Unit,
+    /** 文本发送（RN enqueueTextMessage）；@return tempId（行 _id，AI 触发的 relatedUserMessageId）。 */
+    onSend: suspend (String, kotlinx.serialization.json.JsonElement?) -> String?,
     /**
      * 文件消息（T6）：ready 附件 + 输入文案 + md → SendOrchestrator.enqueueFileMessage
      * （缺省装配前禁用）。md 对齐 RN ChatInputBar sendReadyAttachments：`plainText.trim() && jsonContent`
@@ -254,6 +258,17 @@ fun RoomScreen(
     onOpenRoomTodo: (() -> Unit)? = null,
     /** 待办动作（M7-T3 / RN onSetTodo/onFinishTodo :834-842；缺省装配前菜单仍显示但无动作）。 */
     todoActions: TodoActions? = null,
+    /**
+     * AI 槽位（M7-T7 / RN useAiStore rooms[rid]）：本房控制态；null = 无 AI 装配（UI 测试缺省）。
+     * 槽位注入派生（deriveMessagesWithAgentSlot）与停止按钮渲染的数据源。
+     */
+    aiRoom: AiRoomState? = null,
+    /** AgentLoading 槽位组件依赖包（流/持久化/端点解析）；null = 槽位行不渲染。 */
+    aiEnv: AgentLoadingEnv? = null,
+    /** 文本发送成功后 AI 触发（RN :675 `void maybeTriggerAiAfterSend(tempId, payload.msg)`，fire-and-forget）。 */
+    onAfterTextSend: (userMessageId: String, msgText: String) -> Unit = { _, _ -> },
+    /** 停止按钮（RN handleStop → stopAiProcessing：setStopping + staffService 后端停止端点）。 */
+    onAiStop: () -> Unit = {},
     onBack: () -> Unit,
     onLoadEarlier: () -> Unit,
 ) {
@@ -266,7 +281,12 @@ fun RoomScreen(
     // 跳转态（M5-T6）源切换：jumpMessages 替换实时窗口（RN useRoomMessageJump displayMessages
     // = jumpMessages ?? paginated :103-106）；两源互不写 = 防 DDP 覆盖的结构性保证
     val activeMessages = jumpState.jumpMessages ?: state.messages
-    val display = remember(activeMessages) { applyDisplayMessageTransforms(activeMessages) }
+    // AI 槽位注入（M7-T7 / RN RoomMessageList :133-153）：isProcessing 且真实消息未到 →
+    // 最新端注入 agentLoadingMsg 行；同 id 已在列表不注入（防闪烁，坑 6）
+    val baseMessages = remember(activeMessages, aiRoom) {
+        deriveMessagesWithAgentSlot(activeMessages, aiRoom)
+    }
+    val display = remember(baseMessages) { applyDisplayMessageTransforms(baseMessages) }
     val visible = remember(display) { filterVisibleDisplayMessages(display) }
     val rollbackGroups = remember(display) {
         display.mapNotNull { d -> d.rollbackGroup?.let { d.message._id to it } }.toMap()
@@ -403,6 +423,8 @@ fun RoomScreen(
         MessageActionContext(currentUserId = currentUserId.orEmpty()) // 权限硬编码对照 RN RoomScreen:423-427
     }
     var sheetMessage by remember(rid) { mutableStateOf<MessageEntity?>(null) }
+    // AI 停止按钮 500ms 防抖（RN ChatInputBar lastStopAtRef :315-324）
+    var lastAiStopAt by remember(rid) { mutableStateOf(0L) }
     var replyTo by remember(rid) { mutableStateOf<MessageEntity?>(null) }
     var batchRecallConfirm by remember(rid) { mutableStateOf(false) }
     val multiSelect = remember(rid) { MessageMultiSelectStore() }
@@ -627,12 +649,15 @@ fun RoomScreen(
             roomType = state.roomType.ifEmpty { null },
             authUserId = currentUserId,
         )
-        onSend(finalMsg, md)
+        val tempId = onSend(finalMsg, md)
         // 发送即退跳转态回实时源（M5-T6 / RN exitJumpAndScrollToLatest）
         jumpController?.exitJumpMode()
         controller.clearEditor()
         draftController?.clearAfterSend(rid)
         replyTo = null // RN :821/:926 发送后清回复态
+        // AI 触发（M7-T7 / RN :675 `void maybeTriggerAiAfterSend(tempId, payload.msg)`）：
+        // fire-and-forget（装配处自带 scope.launch），prompt 用原文（RN payload.msg，无回复引用前缀）
+        if (tempId != null) onAfterTextSend(tempId, plain)
     }
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor)) {
@@ -690,7 +715,7 @@ fun RoomScreen(
             onRefresh = onRefresh,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         ) {
-            if (activeMessages.isEmpty()) {
+            if (baseMessages.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (state.isInitialLoading) {
                         CircularProgressIndicator(Modifier.testTag("qa-room-message-list-loading"))
@@ -714,6 +739,10 @@ fun RoomScreen(
                     items(items, key = { it.key }, contentType = { it.contentType() }) { item ->
                         when (item) {
                             is RoomListItem.Message -> when {
+                                // AI 流式槽位行（M7-T7 / RN agentLoadingMsg → AgentLoadingMessage）
+                                item.message.msg_type == AGENT_LOADING_MSG_TYPE ->
+                                    aiEnv?.let { AgentLoadingMessage(item.message, it) }
+                                        ?: Box(Modifier.fillMaxWidth().height(1.dp))
                                 item.message.t in LOAD_CHUNK_TYPES ->
                                     Box(Modifier.fillMaxWidth().height(1.dp)) // RN load_chunk 1px
                                 isSystemMessageRow(item.message) && rollbackGroups.containsKey(item.message._id) ->
@@ -1015,6 +1044,27 @@ fun RoomScreen(
                         .testTag("qa-room-mention"),
                 )
             }
+            // AI 处理态：停止按钮替换发送键（RN ChatInputBar :1300-1315 isProcessing 分支）
+            if (aiRoom?.isProcessing == true) {
+                val stopping = aiRoom.isStopping
+                Text(
+                    if (stopping) "…" else "⏹",
+                    color = colors.tintColor,
+                    fontSize = 18.sp,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(40.dp)
+                        .wrapContentSize(Alignment.Center)
+                        .clickable(enabled = !stopping) {
+                            val now = System.currentTimeMillis()
+                            if (now - lastAiStopAt >= 500) {
+                                lastAiStopAt = now
+                                onAiStop()
+                            }
+                        }
+                        .testTag("qa-room-ai-stop"),
+                )
+            } else {
             Text(
                 "↑",
                 color = if (controller.plainText.isNotBlank() || pendingAttachments.readyFiles.isNotEmpty()) {
@@ -1037,6 +1087,7 @@ fun RoomScreen(
                     }
                     .testTag("qa-room-send"),
             )
+            } // 发送键（AI 处理态由停止按钮替换）
             }
 
             // ── Aa 格式工具栏（T13 / RN ChatInputBar :1020-1146）──

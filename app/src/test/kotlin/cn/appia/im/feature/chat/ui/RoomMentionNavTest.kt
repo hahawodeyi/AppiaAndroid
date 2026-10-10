@@ -80,7 +80,7 @@ class RoomMentionNavTest {
                     serverUrl = "https://s1",
                     token = "tok",
                     draftController = null,
-                    onSend = { _, _ -> },
+                    onSend = { _, _ -> null },
                     onResend = {},
                     onBack = {},
                     onLoadEarlier = {},

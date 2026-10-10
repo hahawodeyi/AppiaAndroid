@@ -16,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -68,6 +69,8 @@ class RoomMessagesViewModel(
     private val initialLoadTimeoutMs: Long = INITIAL_LOAD_TIMEOUT_MS,
     /** 跳转 resolve/拉取通道（M5-T6）：null = 无会话层（纯 UI 测试）→ 跳转恒 not-found。 */
     private val sdk: RocketSdk? = null,
+    /** AI 控制态机（M7-T7）：真实持久化消息（同槽位 id）到达窗口 → clear(rid)。null = 无 AI 装配。 */
+    private val aiMachine: cn.appia.im.domain.ai.AiRoomStateMachine? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(RoomMessagesUiState())
@@ -143,6 +146,22 @@ class RoomMessagesViewModel(
                 launch {
                     delay(initialLoadTimeoutMs)
                     finishInitialLoading(gen)
+                }
+                // AI 槽位真实消息到达清控制态（M7-T7 / RN RoomMessageList useEffect :168-173）：
+                // 窗口出现同 currentMessageId 的真实持久化消息 → clear(rid)——槽位让位（防闪烁
+                // 不变量的另一侧）、串行 await 放行、停止按钮复位。两源任一变化都核对
+                // （RN deps = [isProcessing, currentMessageId, messages, rid]）。
+                aiMachine?.let { machine ->
+                    launch {
+                        combine(machine.rooms, _state.map { it.messages }) { rooms, msgs -> rooms to msgs }
+                            .collect { (rooms, msgs) ->
+                                val room = rooms[rid]
+                                val mid = room?.currentMessageId
+                                if (room?.isProcessing == true && mid != null && msgs.any { it._id == mid }) {
+                                    machine.clear(rid)
+                                }
+                            }
+                    }
                 }
             }
         }

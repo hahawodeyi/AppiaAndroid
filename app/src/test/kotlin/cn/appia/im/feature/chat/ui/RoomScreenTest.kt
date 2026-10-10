@@ -109,6 +109,7 @@ class RoomScreenTest {
                         val id = "local-${sentTexts.size}"
                         runBlocking { db.messageDao().insert(messageRow(id, msg = msg, status = 1.0, u = """{"_id":"me","username":"me"}""")) }
                         messages = messages + messageRow(id, msg = msg, status = 1.0, u = """{"_id":"me","username":"me"}""")
+                        id
                     },
                     onResend = {},
                     onBack = {},

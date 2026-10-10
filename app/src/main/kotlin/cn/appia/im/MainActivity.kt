@@ -96,6 +96,14 @@ import cn.appia.im.core.network.api.ReadReceiptsApi
 import cn.appia.im.core.network.api.RoomsApi
 import cn.appia.im.core.network.api.FilesSearchApi
 import cn.appia.im.core.network.api.SpotlightApi
+import cn.appia.im.core.ai.AiTurnInput
+import cn.appia.im.core.ai.parseAgentBotList
+import cn.appia.im.core.network.api.AiBotApi
+import cn.appia.im.core.network.api.SaveAiMessageParams
+import cn.appia.im.core.network.sse.AiStreamClient
+import cn.appia.im.domain.ai.AiRoomStateMachine
+import cn.appia.im.domain.ai.maybeTriggerAiAfterSend
+import cn.appia.im.feature.chat.ui.AgentLoadingEnv
 import cn.appia.im.core.media.UploadApi
 import cn.appia.im.feature.chat.MessageEditController
 import cn.appia.im.feature.chat.MentionCandidate
@@ -406,7 +414,10 @@ class RouteDeps(
     val appReleaseCheck: AppReleaseCheckController? = null,
     /** M6-T7 自更新弹窗状态机（会话内静默/手动检查 bypass 接缝在控制器）。 */
     val appUpdatePrompt: AppUpdatePromptController? = null,
-)
+) {
+    /** AI 房间控制态机（M7-T7 / RN aiStore zustand 全局单例同寿：随 app scope，不随路由）。 */
+    val aiRooms: AiRoomStateMachine by lazy { AiRoomStateMachine(scope) }
+}
 
 /** 目的地装配三连（§4.6-6 止损收敛的返回束）：serverUrl + 绑定库 + 会话态。 */
 internal class ServerBoundDeps(val serverUrl: String, val db: AppiaDatabase, val auth: AuthSession?)
@@ -760,6 +771,7 @@ fun AppiaNavHost(
                                 db,
                                 deps.scope,
                                 sdk = deps.sdk, // M5-T6：跳转 resolve（chat.getMessage）/loadSurroundingMessages
+                                aiMachine = deps.aiRooms, // M7-T7：真实消息（同槽位 id）到达窗口 → clear
                             )
                         }
                     },
@@ -854,6 +866,35 @@ fun AppiaNavHost(
                     deps.roomStreams.incomingMessages.collect { rid -> readMarker.onMessagePersisted(rid) }
                 }
 
+                // AI 槽位装配（M7-T7 / RN RoomScreen useAiStore + ChatInputBar isProcessing）：
+                // 本房控制态收集 + AgentLoading 依赖包 + 发送后触发 + 停止按钮（stopAiProcessing
+                // = setStopping + staffService.bot 后端停止端点）。
+                val aiRooms by deps.aiRooms.rooms.collectAsState()
+                val aiRoom = aiRooms[route.rid]
+                val aiClient = remember { AiStreamClient() }
+                var agentBotList by remember(db) { mutableStateOf(emptyList<String>()) }
+                LaunchedEffect(db) {
+                    agentBotList = parseAgentBotList(db.settingDao().getById("Agent_Bot_List")?.value_as_string)
+                }
+                val aiEnv = if (auth == null) null else remember(aiClient, agentBotList, serverUrl, auth) {
+                    AgentLoadingEnv(
+                        machine = deps.aiRooms,
+                        stream = { aiClient.stream(it) },
+                        saveAiMessage = { rid, toUsername, mid, botName, content, inAgentRoom ->
+                            AiBotApi.saveAiMessage(
+                                deps.sdk,
+                                SaveAiMessageParams(rid, toUsername, mid, botName, content, inAgentRoom),
+                            )
+                            Unit
+                        },
+                        agentBotList = agentBotList,
+                        serverUrl = serverUrl,
+                        token = auth.token,
+                        userId = auth.user.id,
+                        currentUsername = auth.user.username,
+                    )
+                }
+
                 RoomScreen(
                     rid = route.rid,
                     title = resolveRoomHeaderTitle(route.title, chatRow),
@@ -921,6 +962,38 @@ fun AppiaNavHost(
                         )
                     },
                     todoActions = todoActions,
+                    // AI 槽位（M7-T7 / RN aiStore rooms[rid] 消费面）：控制态下发 + 停止按钮 +
+                    // 发送后 AI 触发（fire-and-forget 跑 app 级 scope，RN `void maybeTriggerAi...`）
+                    aiRoom = aiRoom,
+                    aiEnv = aiEnv,
+                    onAfterTextSend = { userMessageId, msgText ->
+                        deps.scope.launch {
+                            val siteUrl = runCatching {
+                                db.settingDao().getById("Site_Url")?.value_as_string
+                            }.getOrNull().orEmpty()
+                            maybeTriggerAiAfterSend(
+                                deps.aiRooms,
+                                AiTurnInput(
+                                    rid = route.rid,
+                                    fromAgent = false, // myAgents 入口域未落地（M7 后续任务），路由参待补
+                                    isStaffService = false, // staffService 域 M10 划出
+                                    staffAssignType = null,
+                                    msg = msgText,
+                                ),
+                                agentBotList,
+                                siteUrl,
+                                userMessageId,
+                            )
+                        }
+                    },
+                    onAiStop = {
+                        deps.aiRooms.setStopping(route.rid) // RN stopAiProcessing.setStopping
+                        if (deps.aiRooms.room(route.rid)?.currentBotUsername == "staffService.bot") {
+                            deps.scope.launch {
+                                runCatching { AiBotApi.stopToStaffServiceAgent(deps.sdk, route.rid) }
+                            }
+                        }
+                    },
                     // 撤回（T11 / RN onRecall doRecall：先快照 original_content 再 POST message.recall）
                     onRecall = { m -> recallActions.recall(m) },
                     // 批量撤回（T11 多选条）：POST message.batch.recall {ids}（不快照，RN 同）

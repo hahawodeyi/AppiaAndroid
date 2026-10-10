@@ -93,7 +93,7 @@ class JumpHighlightUiTest {
                     jumpState = cn.appia.im.feature.chat.MessageJumpUiState(isJumpLoading = true),
                     draftController = null,
                     editorController = cn.appia.im.feature.chat.editor.rememberChatInputBarController(),
-                    onSend = { _, _ -> },
+                    onSend = { _, _ -> null },
                     onResend = {},
                     onBack = {},
                     onLoadEarlier = {},
