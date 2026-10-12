@@ -1958,10 +1958,8 @@ fun AppiaNavHost(
                         if (gateway != null && gateway.logout()) goAuth()
                     },
                     // M8-T5：AntMeeting URL 移交（初始/页内/openLink）——出栈由 InAppWebScreen 内聚
-                    //（RN openAntMeetingWeb 成功后 goBack 同义）；join seam T7 前降级 toast
-                    onAntMeetingHandoff = { _ ->
-                        Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
-                    },
+                    //（RN openAntMeetingWeb 成功后 goBack 同义）；M8-T7 移交落原生会议室
+                    onAntMeetingHandoff = { url -> openMeetingRoom(url, null) },
                 )
             }
         }
