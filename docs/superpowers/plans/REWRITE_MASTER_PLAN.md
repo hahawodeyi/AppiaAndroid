@@ -201,6 +201,24 @@ cn.appia.im/
 
 **本里程碑流程教训（入册）**：①研究报告会过时（M7-T2 两处"已实现非缺失"——排序四分早已完成/段头枚举已存在）——简报引研究前先抽查现状；②实现者自纠值得保护（T6 取消机制 channelFlow 自纠+原始 socket 钉死、T8 滑壳排除顺带修 LazyColumn 崩溃帧）——评审对"披露的自纠"按正向资产对待。
 
+## 4.9 M8 遗留与 M9 前置任务（2026-10-12 M8 终审裁定，不得静默丢失）
+
+**M8 终审 APPROVED_WITH_ACTIONS**（0C/2I/8minor/6note；坑清单 12/12 全交代；终审收口三项 abiFilters/进程级事件消费/Settings 接线已修收敛）。
+
+**写 M9 计划时必须列为显式任务行**：
+1. **RTC 凭据抓包回填**（用户域一次性，仍未闭合）：credentials 响应体字段名（appId/token/uid 反推）——spike 文档 §4 六步流程；回填后收紧 parseMeetingCredentials 模型（现为宽容建模+cert-less 兜底）
+2. **视频帧上屏**（M8 范围外遗留）：tile 现呈参与者态——帧渲染需扩 AgoraRtcApi（setupRemoteVideo/setupLocalVideo canvas 面）+宫格接帧
+3. **abiFilters splits**（已裁定归 M11）：现 arm64-v8a 单 ABI 93.1MB（x86_64/Intel 模拟器需临时移行重建）；M11 发布清单含 per-ABI 拆分评估
+4. **会议域 minor 批量**（终审 Minor headline+各任务 deferred）：MeetingHome data-key 碰撞/initial-handoff pop 未 success-gated（T7 seam 换时重审——已换，仍待验）/<1e9 数值阈值分歧/卡片双解析不一致/createTitle 终末回退测试/分组补至 8——backlog-m6.md 模式建 backlog-m8.md 收编
+5. **消息内链接 openLink 接线**（T5 评审前向发现，pre-existing）：InlineEnv.onLinkPress 未接线——T13 组装收口（接线后 AntMeeting 链接自动走会议移交+全部链接走 openLink 分流）
+6. **RTC 真会议验收**（用户域）：Agora AppId+二设备+网络；协议十八节操作步骤已列
+
+**运维/用户域**：EMAS 控制台（M6 遗留）、服务端 worktable/bot/凭据抓包、Agora AppId。
+
+**可带走**：T5 未用 import/T8 mojibake 备注/T9 uiMode 超集（future candidate）/各任务计数笔误——低危有记录。
+
+**本里程碑流程教训（入册）**：①评审探针实证价值（T8 C-2 拖拽不累积由评审临时探针实证——Robolectric 320px 视口巧合掩盖真机 bug）；②简报引研究前先抽查现状（M7 教训延续——M8 简报 SYSTEM_ALERT_WINDOW"已声明"实为研究引 RN manifest，实现者纠正）；③计划明文授权的简化被评审误读为缺陷时，控制器对账计划原文裁定（T4 时间轴）——授权记录是裁决依据。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
