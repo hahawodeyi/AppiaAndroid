@@ -189,4 +189,70 @@ class MeetingRoomScreenSmokeTest {
         resumedFlag.value = false
         idleTwice()
     }
+
+    @Test
+    fun `orientation triggers share toggle rotate button and minimize force portrait`() {
+        // M8-T9 三触发源 UI 面（逻辑判定归 MeetingOrientationTest）：共享开→横屏、关→竖屏；
+        // 转屏按钮按实际方向取反；最小化强制竖屏 + 出栈（RN MeetingWebView:109-117 /
+        // useOrientationToggle:25-40 / forcePortrait）。Robolectric 不真旋转，actualIsLandscape
+        // 恒 false——与 policies 的记忆/取反语义不冲突（悬浮顶栏分支归真机验收）。
+        val handle = newHandle(MeetingCredentials(appId = "app", token = "t"))
+        // createComposeRule 不暴露宿主 activity——Robolectric 另建一只注入 LocalActivity，
+        // 断言 setRequestedOrientation 真实落在 Activity 上（三触发源的 UI 面）
+        val activity = org.robolectric.Robolectric.setupActivity(androidx.activity.ComponentActivity::class.java)
+        rule.setContent {
+            AppiaTheme(isDark = false) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.activity.compose.LocalActivity provides activity,
+                ) {
+                    androidx.compose.runtime.key(routeKey.value) {
+                        MeetingRoomScreen(
+                            channelName = "room-1",
+                            meetingNumber = "123456",
+                            title = "weekly sync",
+                            userId = "user-1",
+                            handle = handle,
+                            onBack = { backCount++ },
+                            resumed = resumedFlag.value,
+                        )
+                    }
+                }
+            }
+        }
+        idleTwice()
+        // ① 共享开 → sensor landscape 锁
+        rule.onNodeWithTag("qa-meeting-room-share").performClick()
+        idleTwice()
+        assertEquals(
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            activity.requestedOrientation,
+        )
+        assertTrue(handle.orientation.prefersLandscape)
+        // ① 共享关 → 竖屏（RN meeting:orientation:portrait 一次性锁语义）
+        rule.onNodeWithTag("qa-meeting-room-share").performClick()
+        idleTwice()
+        assertEquals(
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+            activity.requestedOrientation,
+        )
+        assertFalse(handle.orientation.prefersLandscape)
+        // ② 转屏按钮：实际竖屏 → 切横屏（useOrientationToggle 直调语义；Robolectric 不真旋转，
+        // 二次点击回竖屏的取反语义依赖实际 configuration——归 MeetingOrientationTest 判定）
+        rule.onNodeWithTag("qa-meeting-room-rotate").performClick()
+        idleTwice()
+        assertEquals(
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            activity.requestedOrientation,
+        )
+        assertTrue(handle.orientation.prefersLandscape)
+        // ③a 最小化 → 强制竖屏 + 相位 minimized + 路由出栈
+        rule.onNodeWithTag("qa-meeting-room-minimize").performClick()
+        idleTwice()
+        assertEquals(
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+            activity.requestedOrientation,
+        )
+        assertEquals(MeetingPhase.Minimized, handle.machine.phase)
+        assertEquals(1, backCount)
+    }
 }

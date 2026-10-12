@@ -603,6 +603,7 @@
     <string name="meeting_room_raise_hand">Raise hand</string>
     <string name="meeting_room_share">{{name}} is sharing</string>
     <string name="meeting_room_sharescreen">Share screen</string>
+    <string name="meeting_room_sharescreen_stop">Stop sharing</string>
     <string name="meeting_room_joinfailed">Failed to join the meeting. Try again later.</string>
     <string name="meeting_room_speaker">Speaker</string>
     <string name="meeting_room_switch_camera">Switch camera</string>

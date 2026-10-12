@@ -25,6 +25,8 @@ class MeetingRoomHandle(
     val engine: AgoraMeetingEngine,
     val machine: MeetingSessionStateMachine,
     val controller: MeetingSessionController,
+    /** 横屏三触发源（M8-T9）：app 域——横屏记忆跨最小化出栈存活；默认值保测试直构兼容。 */
+    val orientation: MeetingOrientationState = MeetingOrientationState(),
 )
 
 @Module

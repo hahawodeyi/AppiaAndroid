@@ -42,9 +42,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Appia">
 
+        <!-- M8-T9 横屏三触发源：unspecified + configChanges 对齐 RN manifest:84-86——
+             setRequestedOrientation 原地旋转不重建 Activity（会议引擎/状态机 @Singleton
+             存活是第二重保险；无 configChanges 时旋转会整树重建掉导航态） -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize"
             android:exported="true"
+            android:screenOrientation="unspecified"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

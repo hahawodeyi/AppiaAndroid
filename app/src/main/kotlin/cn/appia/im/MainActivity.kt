@@ -166,6 +166,7 @@ import cn.appia.im.feature.meetingroom.MeetingRoomHandle
 import cn.appia.im.feature.meetingroom.MeetingFloatAppStateWatcher
 import cn.appia.im.feature.meetingroom.ui.MeetingMinimizeBubbleOverlay
 import cn.appia.im.feature.meetingroom.ui.MeetingRoomScreen
+import cn.appia.im.feature.meetingroom.ui.toActivityInfo
 import cn.appia.im.core.meeting.meetingBooking
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
 import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
@@ -632,7 +633,11 @@ fun AppiaNavHost(
      * M8-T7 原生会议室入会（三 join 站点统一：RN openAntMeetingWeb 的原生替代落点）：
      * AntMeeting URL → 会议号（extractMeetingNumberFromUrl）→ MeetingRoomRoute。
      * 解析不出会议号（首页形状）→ toast（无号即无频道，无可加入对象）。
-     * 语音互斥（坑 6 语音侧）归 T9 收口——M10 语音相位尚未落地，此处无源可查。
+     * 语音互斥（坑 6）收口缝（M8-T9）：会议被语音阻塞的判定 = [cn.appia.im.domain.meeting.
+     * meetingBlockedByVoice]（语音任意非 idle 相位，RN openAntMeetingWeb.ts:29-33）；M10 语音
+     * 状态机落地后在此（及 MeetingHomeScreen/面板 join seam）以 voice.phase 查询即收口——
+     * 当前语音域尚未落地，无源可查（如实跳过）；反向（会议阻塞语音）= 状态机 blocksVoiceStart，
+     * T6 已落地并测（仅 InMeeting|Minimized，preheating 不算）。
      */
     fun openMeetingRoom(url: String, subject: String?) {
         val number = extractMeetingNumberFromUrl(url)
@@ -2605,6 +2610,9 @@ fun AppiaNavHost(
     // 回填——join 重入拒绝不触发：屏内恢复路径免 join）。
     // 位置注记：NavHost 的 builder lambda 非 @Composable（2.9.x builder 仅注册目的地），
     // 浮层必须作 NavHost 的兄弟节点置于 Box 内。
+    // 横屏触发③b（M8-T9）：恢复回最小化前记忆方向（RN useOrientationToggle forcePortrait=false
+    // 时 effect 重跑）——房间屏 dispose 已落竖屏，此处按记忆重设。
+    val hostActivity = LocalActivity.current
     val meetingRoomHandle = deps?.meetingRoom
     if (meetingRoomHandle != null) {
         MeetingMinimizeBubbleOverlay(
@@ -2612,6 +2620,8 @@ fun AppiaNavHost(
             kv = deps.kv,
             onRestore = {
                 meetingRoomHandle.machine.restore()
+                hostActivity?.requestedOrientation =
+                    meetingRoomHandle.orientation.onRestored().toActivityInfo()
                 val s = meetingRoomHandle.machine.state.value
                 nav.navigate(
                     MeetingRoomRoute(

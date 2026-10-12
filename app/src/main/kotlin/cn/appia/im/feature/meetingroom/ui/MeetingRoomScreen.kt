@@ -1,7 +1,9 @@
 package cn.appia.im.feature.meetingroom.ui
 
+import android.content.pm.ActivityInfo
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,9 +52,11 @@ import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.domain.meeting.MeetingPhase
 import cn.appia.im.domain.meeting.MeetingSessionController
 import cn.appia.im.feature.chat.ui.RoomHeader
+import cn.appia.im.feature.meetingroom.MeetingOrientation
 import cn.appia.im.feature.meetingroom.MeetingRoomHandle
 import cn.appia.im.feature.meetingroom.MeetingRoomParticipant
 import cn.appia.im.feature.meetingroom.MeetingRoomSignal
+import cn.appia.im.feature.meetingroom.meetingKeepScreenOn
 import cn.appia.im.feature.meetingroom.applySelfCamera
 import cn.appia.im.feature.meetingroom.applySelfMic
 import cn.appia.im.feature.meetingroom.foldMeetingRoomParticipants
@@ -63,12 +69,25 @@ import cn.appia.im.feature.meetingroom.uidForMeeting
  * - 视频宫格：participants 由引擎事件折叠（[foldMeetingRoomParticipants]；self tile 由 Joined 插入），
  *   真实视频帧渲染需 RtcEngine canvas API（T6 命令面未含）——tile 呈现参与者态（静音/出帧高亮），
  *   帧上屏归用户域验收边界（模拟器无摄像头/麦克风）。
- * - 控制条：静音/摄像头（引擎+状态机+宫格三写）、共享（占位 toast）、成员 sheet、离开。
+ * - 控制条：静音/摄像头（引擎+状态机+宫格三写）、共享（开关→横竖屏三触发源①）、成员 sheet、离开。
+ * - 横屏三触发源（M8-T9，[cn.appia.im.feature.meetingroom.MeetingOrientationState] 纯逻辑）：
+ *   ① 共享开→横屏、关→竖屏（RN MeetingWebView:109-117 一次性锁）；② 顶栏转屏按钮按实际方向
+ *   取反直调（RN useOrientationToggle.toggle 不依赖 state）；③ 最小化强制竖屏（dispose 兜底
+ *   恢复竖屏，RN 卸载恢复语义）。引擎/状态机 @Singleton + manifest configChanges → 旋转不重建。
+ * - 共享态顶栏（RN MeetingMinimizeShell:122-177）：共享+横屏时顶栏悬浮压在视频上方（不挤压），
+ *   点视频区显隐（hover 等价 tap）；否则常驻占位。
+ * - 会中常亮（RN useKeepScreenOn）：InMeeting 期 FLAG_KEEP_SCREEN_ON，退出/最小化（屏卸载）即清。
  * - 坑 4：会中返回 = 离开确认弹层（[MeetingSessionStateMachine.consumesBack] 单源）；preheating
  *   返回直接出栈（join 协程随 composition 取消 → 控制器回 idle）。
  * - 信号分叉：Error(inMeeting) → kicked toast+离会+出栈（原生面无显式被踢信号，onError 最近似）；
  *   Left(非 idle) → meeting:ended toast+出栈。
  */
+/** MeetingOrientation → ActivityInfo 常量映射（UI 层唯一 android 触点）。 */
+internal fun MeetingOrientation.toActivityInfo(): Int = when (this) {
+    MeetingOrientation.Landscape -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    MeetingOrientation.Portrait -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MeetingRoomScreen(
@@ -99,6 +118,36 @@ fun MeetingRoomScreen(
     var showMembers by remember { mutableStateOf(false) }
 
     val joining = session.phase == MeetingPhase.Preheating
+
+    // ── 横屏三触发源 + 共享态顶栏 + 会中常亮（M8-T9）──
+    // 横竖屏落 Activity（旋转不重建——manifest configChanges orientation|screenSize|smallestScreenSize）
+    val activity = LocalActivity.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
+    // 共享态（触发①源）：AA 无共享 RTC 事件，以控制条共享开关为单源（brief 裁定）
+    var sharing by remember { mutableStateOf(false) }
+    // 共享态顶栏显隐：悬浮态下点视频区 toggle（web sharingHover 的 hover 等价 tap）
+    var headerVisible by remember { mutableStateOf(true) }
+    val headerOverlaysVideo = sharing && isLandscape
+    fun applyOrientation(o: MeetingOrientation) {
+        activity?.requestedOrientation = o.toActivityInfo()
+    }
+
+    // 触发③兜底 + RN useOrientationToggle:23 卸载恢复竖屏：房间屏出栈（离开/最小化）必回竖屏，
+    // 恢复回横屏由气泡 onRestore（MainActivity）按记忆方向重设
+    DisposableEffect(Unit) {
+        onDispose { applyOrientation(MeetingOrientation.Portrait) }
+    }
+
+    // 会中常亮（RN useKeepScreenOn(meetingActive)）：仅 InMeeting 挂 FLAG_KEEP_SCREEN_ON，
+    // 退出/最小化（屏卸载或相位翻转）onDispose 必清
+    DisposableEffect(meetingKeepScreenOn(session.phase)) {
+        val window = activity?.window
+        if (meetingKeepScreenOn(session.phase)) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
 
     // 入会（冷进/重进同路）：重入拒绝（坑 6）在控制器内——会议存活时再开房间路由（openLink 移交/
     // 深链）必 Failed("meeting_already_active") → toast + 出栈，绝不静默渲染错会话。
@@ -149,34 +198,55 @@ fun MeetingRoomScreen(
     BackHandler(enabled = handle.machine.consumesBack()) { showLeaveConfirm = true }
 
     Column(Modifier.fillMaxSize().background(colors.backgroundColor).testTag("qa-meeting-room-screen")) {
-        RoomHeader(
-            title = title.trim().ifEmpty { context.t("drawer_meeting") },
-            onBack = { if (handle.machine.consumesBack()) showLeaveConfirm = true else onBack() },
-            headerAction = {
-                Text(
-                    "${formatMeetingDuration(session.durationSec)} · ${session.participantCount}",
-                    color = colors.auxiliaryText,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(end = 16.dp).testTag("qa-meeting-room-meta"),
-                )
-            },
-        )
-        when {
-            joining -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(context.t("meeting_room_waiting"), color = colors.auxiliaryText, fontSize = 14.sp)
+        // 共享态横屏：顶栏从占位移除、悬浮压在视频上（RN MeetingMinimizeShell:168-177——不挤压
+        // 视频，显隐不引起宫格尺寸跳动）；竖屏/非共享常驻占位（RN headerOverlaysVideo 同判）
+        if (!headerOverlaysVideo) {
+            MeetingRoomHeader(
+                title = title,
+                durationSec = session.durationSec,
+                participantCount = session.participantCount,
+                onBack = { if (handle.machine.consumesBack()) showLeaveConfirm = true else onBack() },
+                onRotate = { applyOrientation(handle.orientation.toggle(isLandscape)) },
+            )
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                // hover 等价 tap：悬浮态点视频区显隐顶栏（RN handleTap 横屏会中分支的原生对位）。
+                // 条件加 clickable（enabled=false 会合并子语义并把 stage 标 Disabled，吞掉宫格
+                // tile 的 testTag/可点性——非悬浮态必须完全不加修饰符）
+                .let { if (headerOverlaysVideo) it.clickable { headerVisible = !headerVisible } else it }
+                .testTag("qa-meeting-room-stage"),
+        ) {
+            when {
+                joining -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(context.t("meeting_room_waiting"), color = colors.auxiliaryText, fontSize = 14.sp)
+                }
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Fixed(if (isLandscape) 4 else 2),
+                    modifier = Modifier.fillMaxSize().padding(8.dp).testTag("qa-meeting-room-grid"),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(participants, key = { it.uid }) { p -> ParticipantTile(p) }
+                }
             }
-            else -> LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp).testTag("qa-meeting-room-grid"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(participants, key = { it.uid }) { p -> ParticipantTile(p) }
+            if (headerOverlaysVideo && headerVisible) {
+                MeetingRoomHeader(
+                    title = title,
+                    durationSec = session.durationSec,
+                    participantCount = session.participantCount,
+                    onBack = { if (handle.machine.consumesBack()) showLeaveConfirm = true else onBack() },
+                    onRotate = { applyOrientation(handle.orientation.toggle(isLandscape)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
         ControlBar(
             isMuted = session.isMuted,
             cameraOn = cameraOn,
+            sharing = sharing,
             onToggleMic = {
                 val muted = !session.isMuted
                 handle.machine.setMicMuted(muted)
@@ -188,13 +258,17 @@ fun MeetingRoomScreen(
                 handle.engine.setCameraMuted(!cameraOn)
                 participants = applySelfCamera(participants, cameraOn)
             },
+            // 触发①共享驱动：开→横屏、关→竖屏（RN MeetingWebView:109-117 一次性锁语义）
             onShare = {
-                Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
+                sharing = !sharing
+                applyOrientation(handle.orientation.onShareToggled(sharing))
+                if (sharing) headerVisible = true
             },
             onMembers = { showMembers = true },
-            // M8-T8 最小化（RN MeetingWebHeader onMinimize）：相位 → minimized；房间路由出栈
-            // （引擎/状态机单例存活），气泡由 app 根浮层接管（MeetingMinimizeBubbleOverlay）
+            // M8-T8 最小化（RN MeetingWebHeader onMinimize）+ 触发③a 强制竖屏（RN forcePortrait）：
+            // 相位 → minimized；房间路由出栈（引擎/状态机单例存活），气泡由 app 根浮层接管
             onMinimize = {
+                applyOrientation(handle.orientation.onMinimized())
                 handle.machine.minimize()
                 onBack()
             },
@@ -301,11 +375,52 @@ private fun ParticipantTile(p: MeetingRoomParticipant) {
     }
 }
 
-/** 控制条（静音/摄像头/共享占位/成员/最小化/离开——离开红色）。 */
+/**
+ * 会议室顶栏（RN MeetingWebHeader：返回/标题/转屏/时长）：占位与悬浮两形态复用。
+ * 转屏按钮 = 横屏触发②（RN useOrientationToggle.toggle 模式：直接调 API 不依赖 state）。
+ */
+@Composable
+private fun MeetingRoomHeader(
+    title: String,
+    durationSec: Long,
+    participantCount: Int,
+    onBack: () -> Unit,
+    onRotate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalAppiaColors.current
+    val context = LocalContext.current
+    RoomHeader(
+        title = title.trim().ifEmpty { context.t("drawer_meeting") },
+        onBack = onBack,
+        modifier = modifier,
+        headerAction = {
+            Text(
+                context.t("meeting_rotate"),
+                color = colors.primary,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onRotate)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .testTag("qa-meeting-room-rotate"),
+            )
+            Text(
+                "${formatMeetingDuration(durationSec)} · $participantCount",
+                color = colors.auxiliaryText,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(end = 16.dp).testTag("qa-meeting-room-meta"),
+            )
+        },
+    )
+}
+
+/** 控制条（静音/摄像头/共享/成员/最小化/离开——离开红色）。 */
 @Composable
 private fun ControlBar(
     isMuted: Boolean,
     cameraOn: Boolean,
+    sharing: Boolean,
     onToggleMic: () -> Unit,
     onToggleCamera: () -> Unit,
     onShare: () -> Unit,
@@ -321,7 +436,12 @@ private fun ControlBar(
     ) {
         BarButton(context.t(if (isMuted) "meeting_room_mic_on" else "meeting_room_mic_off"), !isMuted, "qa-meeting-room-mic", onToggleMic)
         BarButton(context.t(if (cameraOn) "meeting_room_camera_off" else "meeting_room_camera_on"), cameraOn, "qa-meeting-room-camera", onToggleCamera)
-        BarButton(context.t("meeting_room_sharescreen"), false, "qa-meeting-room-share", onShare)
+        BarButton(
+            context.t(if (sharing) "meeting_room_sharescreen_stop" else "meeting_room_sharescreen"),
+            sharing,
+            "qa-meeting-room-share",
+            onShare,
+        )
         BarButton(context.t("meeting_room_members"), false, "qa-meeting-room-members", onMembers)
         BarButton(context.t("meeting_minimize"), false, "qa-meeting-room-minimize", onMinimize)
         BarButton(context.t("meeting_room_leave"), true, "qa-meeting-room-leave", onLeave, tintLeave = true)
