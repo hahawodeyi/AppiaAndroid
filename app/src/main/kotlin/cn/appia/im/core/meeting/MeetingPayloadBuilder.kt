@@ -5,6 +5,7 @@ import cn.appia.im.core.util.trimDecimal
 import java.util.Calendar
 import java.util.TimeZone
 import kotlin.math.abs
+import kotlinx.serialization.Serializable
 
 /**
  * 会议表单 payload 构建 + 校验（逐行移植 appiaMobile/src/lib/meeting/buildMeetingPayload.ts
@@ -14,8 +15,11 @@ import kotlin.math.abs
  */
 
 /** RN MeetingFormState（start/end → epoch millis；periodicPreset '0'-'6' 字符串字面量保留）。 */
+@Serializable
 enum class MonthWeekly { MONTHDAILY, MONTHWEEKLY }
 
+/** @Serializable：T4 表单 rememberSaveable Saver 走 meetingJson 编码（旋屏/回栈保态）。 */
+@Serializable
 data class MeetingFormState(
     val rid: String,
     val subject: String,

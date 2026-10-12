@@ -91,7 +91,11 @@ private fun addWithLimitToast(pending: PendingAttachments, sources: List<Selecte
  * ——不直接调用，规避 minSdk 24 的 NewApi；个别异常设备由 launch 处的 runCatching 兜底不崩）。
  */
 @Composable
-fun RoomAttachmentButton(pending: PendingAttachments) {
+fun RoomAttachmentButton(
+    pending: PendingAttachments,
+    showMeeting: Boolean = false,
+    onMeeting: () -> Unit = {},
+) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -142,6 +146,17 @@ fun RoomAttachmentButton(pending: PendingAttachments) {
                 },
                 modifier = Modifier.testTag("qa-room-attachment-file"),
             )
+            // 会议（M8-T4 / RN AttachmentPanel showMeeting → RoomScreen :683 push MeetingForm）
+            if (showMeeting) {
+                DropdownMenuItem(
+                    text = { Text(context.t("chatinput_meeting")) },
+                    onClick = {
+                        menuOpen = false
+                        onMeeting()
+                    },
+                    modifier = Modifier.testTag("qa-room-attachment-meeting"),
+                )
+            }
         }
     }
 }

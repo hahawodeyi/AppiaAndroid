@@ -257,6 +257,12 @@ fun RoomScreen(
     /** 房间内搜索入口（M5-T7 / RN openRoomSearch：头部搜索钮 → navigate RoomSearch）。 */
     onOpenRoomSearch: (() -> Unit)? = null,
     /**
+     * 聊天 "+" 附件「会议」入口（M8-T4 / RN RoomScreen showMeeting :239-249 + :683-685 push MeetingForm）。
+     * 门控在装配处（canShowMeetingAttachment，坑 8）；false 时菜单项不显示。
+     */
+    showMeetingAttachment: Boolean = false,
+    onOpenMeetingForm: () -> Unit = {},
+    /**
      * 待办（M7-T3 / RN RoomScreen :355,375-381 RoomHeaderTodoEntry）：todoCount>0 才显示
      * （DDP subscription 计数，非 REST total——研究坑 1 双计数源）；点击 → RoomTodo（装配处）。
      */
@@ -1011,7 +1017,11 @@ fun RoomScreen(
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-            RoomAttachmentButton(pending = pendingAttachments)
+            RoomAttachmentButton(
+                pending = pendingAttachments,
+                showMeeting = showMeetingAttachment,
+                onMeeting = onOpenMeetingForm,
+            )
             Box(
                 Modifier
                     .weight(1f)

@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
  *   wemeet:// 或 https）。delete 走 postSaveRoomSettings roomAnnouncementData type:delete（周期单次走
  *   cancelPeriodicSingleMeeting，[MeetingDeleteScope]）；周期记录弹单次/整串三钮确认（promptMeetingDelete.ts）。
  * - 纪要 tab：ymd/updateTime 倒序卡片 → [onOpenMinutes]（详情纯本地渲染）。
- * - 右上 +（canEdit 且预订 tab，RN :92-111）→ [onCreateMeeting]（T4 表单 seam，T5 接线）。
+ * - 右上 +（canEdit 且预订 tab，RN :92-111）→ [onCreateMeeting]（M8-T4 已接 MeetingFormRoute）。
  * - 进页 [onRefresh]（RN useFocusEffect :52-56 → refreshRoomAnnouncementsFromApi rooms.info 刷新公告两列；
  *   AA 同链路 = M4 RoomInfoActions.refreshRoomAnnouncements，公告屏/信息页共用，面板数据随之新鲜）。
  */

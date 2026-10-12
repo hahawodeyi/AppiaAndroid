@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
@@ -149,9 +150,14 @@ import cn.appia.im.feature.roominfo.canEditRoomSettings
 import cn.appia.im.feature.roominfo.ui.announcementAttachmentKind
 import cn.appia.im.feature.roominfo.ui.AnnouncementKind
 import cn.appia.im.feature.meeting.MeetingDeleteScope
+import cn.appia.im.feature.meeting.MeetingEditMode
+import cn.appia.im.feature.meeting.canShowMeetingAttachment
 import cn.appia.im.feature.meeting.executeMeetingDelete
+import cn.appia.im.feature.meeting.parseRoomUsernames
+import cn.appia.im.feature.meeting.ui.MeetingFormScreen
 import cn.appia.im.feature.meeting.ui.MeetingSummaryDetailScreen
 import cn.appia.im.feature.meeting.ui.RoomMeetingScreen
+import cn.appia.im.core.meeting.meetingBooking
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
 import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
@@ -312,6 +318,19 @@ data class RoomMeetingRoute(val rid: String, val roomType: String = "c")
 // M8-T3 纪要详情：RN navigate('MeetingSummaryDetail', {rid, announcementId}（RoomMeetingScreen:169-172）
 @Serializable
 data class MeetingSummaryDetailRoute(val rid: String, val announcementId: String)
+
+/**
+ * M8-T4 会议预订表单：RN navigate('MeetingForm', {rid, roomType, editMeeting?, editMode?}）。
+ * editMeetingJson = 编辑记录（navigateMeetingEdit 已并 announcementId 的 meetingRoomBookRecord 原文，
+ * navigateMeetingEdit.ts:25-31）；editMode = 'edit-normal'|'edit-periodic-single'|'edit-periodic-all'。
+ */
+@Serializable
+data class MeetingFormRoute(
+    val rid: String,
+    val roomType: String = "c",
+    val editMeetingJson: String? = null,
+    val editMode: String = "edit-normal",
+)
 
 // T8 已落地（选人器）：RN navigate('CreateChannelMembers', {intent, rid?, t?, teamId?,
 // existingMemberUsernames?, preselectedUsernames?})；teamId 来自 RN RoomInfo :200
@@ -940,6 +959,18 @@ fun AppiaNavHost(
                     )
                 }
 
+                // 聊天「会议」附件入口门（M8-T4 / 坑 8 RN RoomScreen :239-249）：
+                // Appia_Meeting_Enable !== false（未同步视为开）+ 非 omnichannel + 非 1:1 单聊
+                var meetingEnabled by remember { mutableStateOf(true) }
+                LaunchedEffect(db) {
+                    meetingEnabled = db.settingDao().getById("Appia_Meeting_Enable")?.value_as_boolean != false
+                }
+                val showMeetingAttachment = canShowMeetingAttachment(
+                    meetingEnabled = meetingEnabled,
+                    roomType = route.roomType,
+                    usernames = parseRoomUsernames(chatRow?.usernames),
+                )
+
                 RoomScreen(
                     rid = route.rid,
                     title = resolveRoomHeaderTitle(route.title, chatRow),
@@ -1010,6 +1041,11 @@ fun AppiaNavHost(
                         )
                     },
                     todoActions = todoActions,
+                    // 聊天「会议」附件入口（M8-T4 / RN :683-685 push MeetingForm）
+                    showMeetingAttachment = showMeetingAttachment,
+                    onOpenMeetingForm = {
+                        nav.navigate(MeetingFormRoute(rid = route.rid, roomType = route.roomType))
+                    },
                     // AI 槽位（M7-T7 / RN aiStore rooms[rid] 消费面）：控制态下发 + 停止按钮 +
                     // 发送后 AI 触发（fire-and-forget 跑 app 级 scope，RN `void maybeTriggerAi...`）
                     aiRoom = aiRoom,
@@ -1485,7 +1521,7 @@ fun AppiaNavHost(
         // 会议面板（M8-T3 / RN screens/RoomMeetingScreen）：双 tab（预订 upcoming/past 分组 + 纪要）。
         // 进页 rooms.info 刷新公告两列（RN useFocusEffect refreshRoomAnnouncementsFromApi 同链路）；
         // 加入（坑 9）：AntMeeting 形状 → onJoinAntMeeting（T7 原生会议室 seam——会议室 UI 未建前降级 toast），
-        // 腾讯记录外跳在屏内 Intent；+ 编辑/创建（T4 表单 seam，T5 接线）降级 toast。
+        // 腾讯记录外跳在屏内 Intent；+ / 编辑 → MeetingFormRoute（M8-T4 表单，提交成功 goBack 回面板重进刷新）。
         composable<RoomMeetingRoute> { entry ->
             val route = entry.toRoute<RoomMeetingRoute>()
             if (deps == null) {
@@ -1504,6 +1540,19 @@ fun AppiaNavHost(
                 }
                 val roomActions = remember(db) { RoomInfoActions(deps.sdk, db) }
                 val context = LocalContext.current
+                // 周期记录编辑分支（RN navigateMeetingEdit.ts:36-49）：单次 / 整串 Alert 三选
+                var periodicEditTarget by remember { mutableStateOf<cn.appia.im.core.meeting.Meeting?>(null) }
+                fun pushEditForm(record: cn.appia.im.core.meeting.Meeting, mode: String) {
+                    nav.navigate(
+                        MeetingFormRoute(
+                            rid = route.rid,
+                            roomType = route.roomType,
+                            editMeetingJson = cn.appia.im.core.meeting.meetingJson
+                                .encodeToString(cn.appia.im.core.meeting.Meeting.serializer(), record),
+                            editMode = mode,
+                        ),
+                    )
+                }
                 RoomMeetingScreen(
                     rid = route.rid,
                     roomType = route.roomType,
@@ -1516,20 +1565,18 @@ fun AppiaNavHost(
                         executeMeetingDelete(deps.sdk, route.rid, announcementId, scope)
                     },
                     onCreateMeeting = {
-                        // TODO(M8-T4/T5): nav.navigate(MeetingFormRoute(rid, roomType))——表单落地后由 T5 接线
-                        Toast.makeText(
-                            context,
-                            context.t("feature_not_implemented"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        nav.navigate(MeetingFormRoute(rid = route.rid, roomType = route.roomType))
                     },
-                    onEditMeeting = { _ ->
-                        // TODO(M8-T4/T5): nav.navigate(MeetingFormRoute(edit 参数面))——同上
-                        Toast.makeText(
-                            context,
-                            context.t("feature_not_implemented"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                    onEditMeeting = { item ->
+                        // RN navigateMeetingEdit（navigateMeetingEdit.ts）：record 并 announcementId 后进表单；
+                        // 周期记录弹单次/整串选择
+                        val record = item.meetingBooking() ?: return@RoomMeetingScreen
+                        val merged = record.copy(announcementId = item.id ?: record.announcementId)
+                        if (record.periodic == true) {
+                            periodicEditTarget = merged
+                        } else {
+                            pushEditForm(merged, MeetingEditMode.NORMAL)
+                        }
                     },
                     onJoinAntMeeting = { _ ->
                         // TODO(M8-T7): 原生会议室入会（feature/meetingroom）——房间 UI 未建前降级 toast
@@ -1542,6 +1589,51 @@ fun AppiaNavHost(
                     onOpenMinutes = { announcementId ->
                         nav.navigate(MeetingSummaryDetailRoute(rid = route.rid, announcementId = announcementId))
                     },
+                )
+                periodicEditTarget?.let { target ->
+                    AlertDialog(
+                        onDismissRequest = { periodicEditTarget = null },
+                        title = { Text(context.t("meeting_editPeriodicTitle")) },
+                        text = { Text(context.t("meeting_cancelperiodichint")) },
+                        confirmButton = {
+                            Row {
+                                TextButton(onClick = {
+                                    periodicEditTarget = null
+                                    pushEditForm(target, MeetingEditMode.PERIODIC_SINGLE)
+                                }) { Text(context.t("meeting_cancelThisOccurrence")) }
+                                TextButton(onClick = {
+                                    periodicEditTarget = null
+                                    pushEditForm(target, MeetingEditMode.PERIODIC_ALL)
+                                }) { Text(context.t("meeting_editEntireSeries")) }
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { periodicEditTarget = null }) { Text(context.t("cancel")) }
+                        },
+                    )
+                }
+            }
+        }
+        // 会议预订表单（M8-T4 / RN screens/MeetingFormScreen）：新建/编辑（普通·周期单次·周期整串）
+        // 全字段；提交成功 goBack 回面板（面板 LaunchedEffect(rid) onRefresh 重进即刷新公告两列）。
+        composable<MeetingFormRoute> { entry ->
+            val route = entry.toRoute<MeetingFormRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val auth = bound.auth
+                MeetingFormScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    editMeetingJson = route.editMeetingJson,
+                    editMode = route.editMode,
+                    sdk = deps.sdk,
+                    dbManager = deps.dbManager,
+                    serverUrl = bound.serverUrl,
+                    currentUserName = auth?.user?.name,
+                    currentUsername = auth?.user?.username,
+                    onBack = { nav.popBackStack() },
                 )
             }
         }
