@@ -30,6 +30,11 @@
     <uses-permission android:name="com.huawei.android.launcher.permission.CHANGE_BADGE" />
     <uses-permission android:name="com.vivo.notification.permission.BADGE_ICON" />
 
+    <!-- M8-T8 会议浮窗（对齐 RN manifest:48-50）：前台服务保活 + SPECIAL_USE 类型 + overlay 横条 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".AppiaApplication"
         android:allowBackup="false"
@@ -75,6 +80,17 @@
                     android:scheme="agoo" />
             </intent-filter>
         </activity>
+
+        <!-- 会议前台服务（M8-T8 / RN manifest:147-155 verbatim）：API 34+ 必须声明 specialUse
+             类型与 PROPERTY_SPECIAL_USE_FGS_SUBTYPE 子类型 -->
+        <service
+            android:name=".core.meeting.floatwin.MeetingForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="meeting-overlay" />
+        </service>
 
         <!-- 阿里云推送消息接收器（3 action，对齐 RN manifest:151-162） -->
         <receiver

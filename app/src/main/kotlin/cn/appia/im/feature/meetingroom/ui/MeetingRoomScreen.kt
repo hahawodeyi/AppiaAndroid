@@ -78,6 +78,8 @@ fun MeetingRoomScreen(
     userId: String,
     handle: MeetingRoomHandle?,
     onBack: () -> Unit,
+    /** 最小化气泡恢复重入（M8-T8）：会话存活免 join；普通重入（深链/openLink）仍走重入拒绝。 */
+    resumed: Boolean = false,
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -99,8 +101,16 @@ fun MeetingRoomScreen(
     val joining = session.phase == MeetingPhase.Preheating
 
     // 入会（冷进/重进同路）：重入拒绝（坑 6）在控制器内——会议存活时再开房间路由（openLink 移交/
-    // 深链）必 Failed("meeting_already_active") → toast + 出栈，绝不静默渲染错会话
+    // 深链）必 Failed("meeting_already_active") → toast + 出栈，绝不静默渲染错会话。
+    // 恢复路径（M8-T8）：气泡点击 → restore() → 复路由，相位已 InMeeting/Minimized → 免 join，
+    // self tile 种子回宫格（远端 tile 待引擎事件回流补齐——最小化期间屏未收集事件，如实边界）。
     LaunchedEffect(handle, channelName) {
+        if (resumed && handle.machine.phase != MeetingPhase.Idle) {
+            // 恢复路径：气泡点击 → restore → 复路由。免 join；self tile 种子回宫格
+            //（远端 tile 待引擎事件回流补齐——最小化期间屏未收集事件，如实边界）
+            participants = listOf(MeetingRoomParticipant(selfUid, isSelf = true))
+            return@LaunchedEffect
+        }
         when (val r = handle.controller.join(channelName, selfUid, title)) {
             is MeetingSessionController.JoinResult.Joined -> Unit
             is MeetingSessionController.JoinResult.Failed -> {
@@ -182,6 +192,12 @@ fun MeetingRoomScreen(
                 Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
             },
             onMembers = { showMembers = true },
+            // M8-T8 最小化（RN MeetingWebHeader onMinimize）：相位 → minimized；房间路由出栈
+            // （引擎/状态机单例存活），气泡由 app 根浮层接管（MeetingMinimizeBubbleOverlay）
+            onMinimize = {
+                handle.machine.minimize()
+                onBack()
+            },
             onLeave = { showLeaveConfirm = true },
         )
     }
@@ -285,7 +301,7 @@ private fun ParticipantTile(p: MeetingRoomParticipant) {
     }
 }
 
-/** 控制条（静音/摄像头/共享占位/成员/离开——离开红色）。 */
+/** 控制条（静音/摄像头/共享占位/成员/最小化/离开——离开红色）。 */
 @Composable
 private fun ControlBar(
     isMuted: Boolean,
@@ -294,6 +310,7 @@ private fun ControlBar(
     onToggleCamera: () -> Unit,
     onShare: () -> Unit,
     onMembers: () -> Unit,
+    onMinimize: () -> Unit,
     onLeave: () -> Unit,
 ) {
     val colors = LocalAppiaColors.current
@@ -306,6 +323,7 @@ private fun ControlBar(
         BarButton(context.t(if (cameraOn) "meeting_room_camera_off" else "meeting_room_camera_on"), cameraOn, "qa-meeting-room-camera", onToggleCamera)
         BarButton(context.t("meeting_room_sharescreen"), false, "qa-meeting-room-share", onShare)
         BarButton(context.t("meeting_room_members"), false, "qa-meeting-room-members", onMembers)
+        BarButton(context.t("meeting_minimize"), false, "qa-meeting-room-minimize", onMinimize)
         BarButton(context.t("meeting_room_leave"), true, "qa-meeting-room-leave", onLeave, tintLeave = true)
     }
 }

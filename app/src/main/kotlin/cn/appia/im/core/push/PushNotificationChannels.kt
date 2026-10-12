@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import cn.appia.im.R
 
 /**
  * 通知通道预建（Application.onCreate 最先调，先于推送 init）。
@@ -15,7 +16,11 @@ object PushNotificationChannels {
     const val ALIYUN_FALLBACK_ID = "channel_01"
     const val DEFAULT_IM_ID = "im_default"
 
-    // voice_incoming（来电铃声 + 长震通道）归 M10 语音域，届时在 ensureCreated 补建。
+    /**
+     * 会议前台服务通道（M8-T8 / 坑 7 渠道单一定义：RN MeetingForegroundService CHANNEL_ID 同名，
+     * IMPORTANCE_LOW 无声无振动；服务只引用本常量，不再自建）。voice_incoming 归 M10。
+     */
+    const val MEETING_ACTIVE_ID = "meeting_active"
 
     fun ensureCreated(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -33,6 +38,19 @@ object PushNotificationChannels {
             // 通道重要性首建后不可覆盖；RN VoiceNotificationChannels.kt:64 同为 HIGH
             NotificationChannel(DEFAULT_IM_ID, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
                 enableVibration(true)
+            },
+        )
+        // 会议进行中通道（RN MeetingForegroundService.ensureChannel :92-106 verbatim 语义——
+        // IMPORTANCE_LOW、无声、无振动；文案挪用其原 strings 资源键）
+        manager.createNotificationChannel(
+            NotificationChannel(
+                MEETING_ACTIVE_ID,
+                context.getString(R.string.notification_channel_meeting_active),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = context.getString(R.string.notification_channel_meeting_active_desc)
+                setSound(null, null)
+                enableVibration(false)
             },
         )
     }

@@ -539,9 +539,12 @@
     <string name="meeting_network_fair">网络一般</string>
     <string name="meeting_network_good">网络良好</string>
     <string name="meeting_network_poor">网络较差</string>
+    <string name="meeting_notification_active">会议进行中</string>
+    <string name="meeting_notification_title">会议进行中 - %1$s</string>
     <string name="meeting_onlinegeneric">线上会议</string>
     <string name="meeting_onlineonly">线上</string>
     <string name="meeting_onlinetencent">腾讯会议</string>
+    <string name="meeting_overlay_permission_denied">需要悬浮窗权限才能显示会议气泡</string>
     <string name="meeting_periodicendinvalid">周期结束时间不能早于会议结束时间</string>
     <string name="meeting_periodictag">周期</string>
     <string name="meeting_pickerconfirm">确定({{count}})</string>
@@ -643,6 +646,8 @@
     <string name="meeting_weekdaythu">四</string>
     <string name="meeting_weekdaytue">二</string>
     <string name="meeting_weekdaywed">三</string>
+    <string name="notification_channel_meeting_active">进行中的会议</string>
+    <string name="notification_channel_meeting_active_desc">在后台保持会议进行</string>
     <string name="memberprofile_baselocation">Base 地</string>
     <string name="memberprofile_email">邮箱</string>
     <string name="memberprofile_employeeid">工号</string>

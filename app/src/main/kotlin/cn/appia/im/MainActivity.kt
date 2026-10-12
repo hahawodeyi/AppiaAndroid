@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -162,6 +163,8 @@ import cn.appia.im.feature.meeting.ui.MeetingHomeScreen
 import cn.appia.im.feature.meeting.ui.MeetingSummaryDetailScreen
 import cn.appia.im.feature.meeting.ui.RoomMeetingScreen
 import cn.appia.im.feature.meetingroom.MeetingRoomHandle
+import cn.appia.im.feature.meetingroom.MeetingFloatAppStateWatcher
+import cn.appia.im.feature.meetingroom.ui.MeetingMinimizeBubbleOverlay
 import cn.appia.im.feature.meetingroom.ui.MeetingRoomScreen
 import cn.appia.im.core.meeting.meetingBooking
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
@@ -355,6 +358,8 @@ data class MeetingRoomRoute(
     val channelName: String,
     val meetingNumber: String = "",
     val title: String = "",
+    /** M8-T8：气泡恢复重入（会话存活免 join）；默认 false 保 T7 重入拒绝语义。 */
+    val resumed: Boolean = false,
 )
 
 // T8 已落地（选人器）：RN navigate('CreateChannelMembers', {intent, rid?, t?, teamId?,
@@ -726,6 +731,9 @@ fun AppiaNavHost(
         }
     }
 
+    // M8-T8 最小化气泡：app 根全局浮层（Activity 内 Compose，非系统窗）盖在 NavHost 之上；
+    // Box 仅作层叠容器，子级缩进保持原样（NavHost 体量过大不重排）
+    Box(Modifier.fillMaxSize()) {
     NavHost(navController = nav, startDestination = if (startAuthenticated) MainRoute else EnterpriseCodeRoute) {
         composable<EnterpriseCodeRoute> {
             EnterpriseCodeScreen(verify = verify, onVerified = { servers ->
@@ -1577,6 +1585,7 @@ fun AppiaNavHost(
                     userId = bound.auth?.user?.id.orEmpty(),
                     handle = deps.meetingRoom,
                     onBack = { nav.popBackStack() },
+                    resumed = route.resumed,
                 )
             }
         }
@@ -2591,6 +2600,30 @@ fun AppiaNavHost(
             }
         }
     }
+    // M8-T8 最小化气泡（RN MeetingMinimizeShell 气泡相位）：phase=Minimized 时浮现于任意
+    // 目的地之上；单击 → restore() + 复路由（channelName/title/meetingNumber 单源自状态机
+    // 回填——join 重入拒绝不触发：屏内恢复路径免 join）。
+    // 位置注记：NavHost 的 builder lambda 非 @Composable（2.9.x builder 仅注册目的地），
+    // 浮层必须作 NavHost 的兄弟节点置于 Box 内。
+    val meetingRoomHandle = deps?.meetingRoom
+    if (meetingRoomHandle != null) {
+        MeetingMinimizeBubbleOverlay(
+            machine = meetingRoomHandle.machine,
+            kv = deps.kv,
+            onRestore = {
+                meetingRoomHandle.machine.restore()
+                val s = meetingRoomHandle.machine.state.value
+                nav.navigate(
+                    MeetingRoomRoute(
+                        channelName = s.meetingNumber.orEmpty(),
+                        meetingNumber = s.meetingNumber.orEmpty(),
+                        title = s.title.orEmpty(),
+                    ),
+                )
+            },
+        )
+    }
+    }
 }
 
 /**
@@ -2715,6 +2748,9 @@ class MainActivity : AppCompatActivity() {
         // RootNavigator.tsx:66-95 首帧即定 Auth/Main，无闪屏）；Main 内再异步 bootstrap（RN 同构）
         val startAuthenticated = session.hasRestorableSession()
         // M6-T7：登录态变化驱动检查的收集起点（幂等；RN enabled 流首次收集 = 挂载即查一次）
+        // M8-T8：浮窗 AppState 绑定（meetingFloat.ts:41-68）——会话机为单例，进程级监听只挂一次
+        //（Activity 重建经 ensureRegistered 幂等）；退后台且相位非 idle 起系统浮窗，回前台 hide。
+        MeetingFloatAppStateWatcher.ensureRegistered(application, meetingRoom?.machine)
         appReleaseCheck.start()
         setContent {
             AppiaTheme(isDark = isSystemInDarkTheme()) {

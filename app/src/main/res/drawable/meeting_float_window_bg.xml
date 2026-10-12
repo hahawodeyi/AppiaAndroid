@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- RN voice_chat_window_background.xml verbatim（悬浮窗横条底色/圆角/描边） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#E6FFFFFF" />
+    <corners android:radius="8dp" />
+    <stroke
+        android:width="0.5dp"
+        android:color="#ebebeb" />
+</shape>

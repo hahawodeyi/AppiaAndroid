@@ -539,9 +539,12 @@
     <string name="meeting_network_fair">Fair</string>
     <string name="meeting_network_good">Good</string>
     <string name="meeting_network_poor">Poor</string>
+    <string name="meeting_notification_active">Meeting in progress</string>
+    <string name="meeting_notification_title">Meeting in progress - %1$s</string>
     <string name="meeting_onlinegeneric">Online</string>
     <string name="meeting_onlineonly">Online</string>
     <string name="meeting_onlinetencent">Tencent Meeting</string>
+    <string name="meeting_overlay_permission_denied">Overlay permission is required to show the meeting bubble</string>
     <string name="meeting_periodicendinvalid">Series end must not be before the meeting end time</string>
     <string name="meeting_periodictag">Recurring</string>
     <string name="meeting_pickerconfirm">Confirm ({{count}})</string>
@@ -643,6 +646,8 @@
     <string name="meeting_weekdaythu">Thu</string>
     <string name="meeting_weekdaytue">Tue</string>
     <string name="meeting_weekdaywed">Wed</string>
+    <string name="notification_channel_meeting_active">Active meetings</string>
+    <string name="notification_channel_meeting_active_desc">Keeps meeting audio active in the background</string>
     <string name="memberprofile_baselocation">Base Location</string>
     <string name="memberprofile_email">Email</string>
     <string name="memberprofile_employeeid">Employee ID</string>
