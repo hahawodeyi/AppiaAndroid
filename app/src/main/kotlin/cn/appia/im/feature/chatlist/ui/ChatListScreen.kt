@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appia.im.RouteDeps
+import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.realtime.RealtimeTransportPhase
 import cn.appia.im.core.theme.LocalAppiaColors
@@ -53,6 +54,7 @@ import cn.appia.im.feature.chatlist.ensureAgentRoom
 import cn.appia.im.feature.chatlist.isAgentChannelRow
 import cn.appia.im.feature.chatlist.isSelfDirectAssistantChat
 import cn.appia.im.feature.chatlist.roomTitleFromChat
+import cn.appia.im.feature.mail.isMailChannelRow
 import cn.appia.im.feature.org.ui.OrgSwitchSheet
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -96,6 +98,10 @@ fun ChatListScreen(
     // MEETING_HOME_URL) 的菜单化迁移：AA 无 "+" 菜单与抽屉（M5-T9 裁定），两 RN 入口同目标
     // MEETING_HOME_URL → 合并单一菜单项 → MeetingHome（原生替代 H5）
     onOpenMeeting: () -> Unit = {},
+    // 邮件入口（M9-T2 / RN useMailChannelListRow 虚拟行点击 → navigate('MailChannel')）：
+    // 门控 Appia_Mail_Channel_Enabled + 行数据（pinned/unread/preview）由装配层求值传入
+    mailRow: ChatEntity? = null,
+    onOpenMail: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -112,8 +118,8 @@ fun ChatListScreen(
     val currentUserId = session?.user?.id?.takeIf { it.isNotEmpty() }
     val currentUsername = session?.user?.username?.takeIf { it.isNotEmpty() }
     // 换服重建实例（T2 裁定）：切组织成功刷新 session → serverUrl 变化 → VM 重绑新库
-    val viewModel = remember(serverUrl) {
-        ChatListViewModel(deps.dbManager, serverUrl, deps.store, deps.scope)
+    val viewModel = remember(serverUrl, mailRow) {
+        ChatListViewModel(deps.dbManager, serverUrl, deps.store, deps.scope, mailRow = mailRow)
     }
     // 列表滑动动作端点（终审 Critical-1 接线）：与 RoomRoute 同款现成实例（绑定 server，换服随 VM 重建）。
     // 动作挂 app 级 deps.scope——行离屏/弹层关闭不取消在途 REST（同 RoomReadMarker 口径），
@@ -368,6 +374,11 @@ fun ChatListScreen(
                                     }
                                 },
                             )
+                        }
+                        // 虚拟邮件行（M9-T2 / RN MailChannelItem）：专用渲染器——蓝底信封头像 +
+                        // mail_channel_title + 预览副题 + 未读 pill；不走滑壳（占位行无服务端动作）
+                        else if (isMailChannelRow(chat)) {
+                            MailChannelRow(chat = chat, onPress = onOpenMail)
                         } else {
                             SwipeableChatRow(
                                 chat = chat,

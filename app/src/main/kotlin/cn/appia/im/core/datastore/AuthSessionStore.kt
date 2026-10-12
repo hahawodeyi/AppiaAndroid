@@ -1,6 +1,7 @@
 package cn.appia.im.core.datastore
 
 import cn.appia.im.core.network.AuthUser
+import cn.appia.im.core.network.AuthUserEmail
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
@@ -94,6 +95,16 @@ class AuthSessionStore @Inject constructor(private val kv: KvStore) {
     fun mergeStatusText(statusText: String) {
         val session = load() ?: return
         save(session.copy(user = session.user.copy(statusText = statusText)))
+    }
+
+    /**
+     * RN mergeUserEmails authStore.ts:150-154：emails 整体替换（邮箱预取 fetchMemberProfile
+     * 成功后回写，下次免拉）。userId 守卫同 [mergeUserRoles]（防串写旧用户邮箱）。未登录静默忽略。
+     */
+    fun mergeUserEmails(userId: String, emails: List<AuthUserEmail>) {
+        val session = load() ?: return
+        if (session.user.id != userId) return
+        save(session.copy(user = session.user.copy(emails = emails.ifEmpty { null })))
     }
 
     /**

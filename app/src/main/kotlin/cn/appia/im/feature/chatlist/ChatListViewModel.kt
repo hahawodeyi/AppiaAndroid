@@ -2,6 +2,8 @@ package cn.appia.im.feature.chatlist
 
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.database.DatabaseManager
+import cn.appia.im.core.database.entity.ChatEntity
+import cn.appia.im.feature.mail.injectMailChannelRow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +28,11 @@ class ChatListViewModel(
     private val serverUrl: String,
     private val auth: AuthSessionStore,
     scope: CoroutineScope,
+    /**
+     * 邮件虚拟行数据源（M9-T2 / RN useMailChannelListRow）：null = 不注入（门控关或未登录）。
+     * enabled + pinned/unreadCount/preview 由装配层求值（T2 默认值，T6 接 MailBadgeStore）。
+     */
+    private val mailRow: ChatEntity? = null,
 ) {
 
     /** 构造期捕获目标库：observeList 与守卫对照都指它，避免 active 切换后 observe 目标漂移。 */
@@ -57,7 +64,12 @@ class ChatListViewModel(
                 if (query.isNotBlank()) {
                     base
                 } else {
-                    injectAgentChannelRow(base, agentChannelRowOrNull(rows, currentUserId()))
+                    // 邮件虚拟行在 agent 行之后注入（RN RoomListScreen :328-332 同序；
+                    // 搜索态同样不注入）
+                    injectMailChannelRow(
+                        injectAgentChannelRow(base, agentChannelRowOrNull(rows, currentUserId())),
+                        mailRow,
+                    )
                 }
             }
         }

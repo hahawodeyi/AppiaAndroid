@@ -1,6 +1,7 @@
 package cn.appia.im.core.datastore
 
 import cn.appia.im.core.network.AuthUser
+import cn.appia.im.core.network.AuthUserEmail
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -142,5 +143,28 @@ class AuthSessionStoreTest {
         // 冷启动：构造时从 KV 恢复
         store.save(session.copy(user = session.user.copy(roles = listOf("leader"))))
         assertEquals(listOf("leader"), AuthSessionStore(kv).roles.value)
+    }
+
+    /** M9-T2：mergeUserEmails 对照 RN authStore.ts:150-154——整体替换；userId 守卫；未登录忽略。 */
+    @Test
+    fun `mergeUserEmails replaces emails array with userId guard`() {
+        store.save(session)
+        assertNull(store.load()?.user?.emails)
+
+        store.mergeUserEmails("u-1", listOf(AuthUserEmail(address = "u@x.com", verified = true)))
+        assertEquals(listOf("u@x.com"), store.load()?.user?.emails?.map { it.address })
+
+        // userId 不匹配（组织切换后在途响应）不串写
+        store.mergeUserEmails("u-other", listOf(AuthUserEmail(address = "evil@x.com")))
+        assertEquals(listOf("u@x.com"), store.load()?.user?.emails?.map { it.address })
+
+        // 空列表 → null（ifEmpty { null }，同 roles 语义）
+        store.mergeUserEmails("u-1", emptyList())
+        assertNull(store.load()?.user?.emails)
+
+        // 未登录忽略
+        store.clear()
+        store.mergeUserEmails("u-1", listOf(AuthUserEmail(address = "u@x.com")))
+        assertNull(store.load())
     }
 }

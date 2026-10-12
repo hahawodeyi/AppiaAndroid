@@ -11,6 +11,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -27,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
@@ -126,6 +129,11 @@ import cn.appia.im.feature.labor.LaborRepository
 import cn.appia.im.feature.labor.ui.LaborScreen
 import cn.appia.im.feature.chat.parseAppiaRoomMembersV2
 import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
+import cn.appia.im.core.mail.MailCredentialKeyCache
+import cn.appia.im.core.theme.LocalAppiaColors
+import cn.appia.im.feature.mail.buildMailChannelChatRow
+import cn.appia.im.feature.mail.ui.MailAccountSetupScreen
+import cn.appia.im.feature.chat.ui.RoomHeader
 import cn.appia.im.feature.chatlist.ChatRowActions
 import cn.appia.im.feature.chatlist.ui.ChatListScreen
 import cn.appia.im.feature.contacts.ui.CreateChannelMembersScreen
@@ -463,6 +471,14 @@ data class RoomTodoRoute(
     val fromAgent: Boolean = false,
 )
 
+/** 邮件收件箱（M9-T3，RN navigate('MailChannel')；T2 先占位路由，T3 落屏）。 */
+@Serializable
+data object MailChannelRoute
+
+/** 邮箱绑定页（M9-T2，RN navigate('MailAccountSetup')）。 */
+@Serializable
+data object MailAccountSetupRoute
+
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
 const val MENTION_SELECTED_KEY = "mention_selected"
 
@@ -510,6 +526,19 @@ class RouteDeps(
 ) {
     /** AI 房间控制态机（M7-T7 / RN aiStore zustand 全局单例同寿：随 app scope，不随路由）。 */
     val aiRooms: AiRoomStateMachine by lazy { AiRoomStateMachine(scope) }
+
+    /**
+     * mail client（M9-T2 / RN createMailClient）：serverUrl/auth 逐请求经 store 现读
+     * （换组织/重登录后取新值，RN getAuth getState 同义）；单例 per RouteDeps——
+     * CookieJar 进程内存活期 = 会话存活期（坑 14）。
+     */
+    fun mailClient(): cn.appia.im.core.mail.MailClient = cn.appia.im.core.mail.MailClient(
+        serverUrl = { store.load()?.serverUrl.orEmpty() },
+        authProvider = {
+            val s = store.load() ?: return@MailClient null
+            cn.appia.im.core.mail.MailClientAuth(authToken = s.token, userId = s.user.id)
+        },
+    )
 }
 
 /** 目的地装配三连（§4.6-6 止损收敛的返回束）：serverUrl + 绑定库 + 会话态。 */
@@ -819,6 +848,12 @@ fun AppiaNavHost(
                 val useRealName = rememberPublicSettingBoolean(
                     deps.dbManager.active.settingDao(), "UI_Use_Real_Name", default = true,
                 )
+                // 邮件虚拟行门控（M9-T2 / RN useMailChannelEnabled）：缺行 = 关（RN valueAsBoolean === true）。
+                // 行数据 T2 用默认值（未置顶/0 未读/空预览），T6 接 MailBadgeStore。
+                val mailEnabled = rememberPublicSettingBoolean(
+                    deps.dbManager.active.settingDao(), "Appia_Mail_Channel_Enabled", default = false,
+                )
+                val mailRow = if (mailEnabled) buildMailChannelChatRow(pinned = false, unreadCount = 0, preview = null) else null
                 // NetworkMonitor 生命周期（RN startNetworkMonitoring 挂载语义）：进列表注册、离屏注销
                 DisposableEffect(Unit) {
                     deps.networkMonitor.start()
@@ -866,6 +901,9 @@ fun AppiaNavHost(
                     onOpenLabor = { nav.navigate(LaborRoute) },
                     // 会议入口（M8-T5 / RN "+" 菜单 + 抽屉「会议」行 → MEETING_HOME_URL 原生替代）
                     onOpenMeeting = { nav.navigate(MeetingHomeRoute) },
+                    // 邮件入口（M9-T2 / RN 虚拟邮件行点击 → MailChannel）
+                    mailRow = mailRow,
+                    onOpenMail = { nav.navigate(MailChannelRoute) },
                 )
             }
         }
@@ -2390,6 +2428,41 @@ fun AppiaNavHost(
                         )
                     },
                 )
+            }
+        }
+        // 邮箱绑定页（M9-T2 / RN MailAccountSetupScreen）：预取邮箱 → 测试连接 → 绑定 →
+        // 成功 replace MailChannel（RN navigation.replace('MailChannel')；T3 落屏前占位文案）。
+        composable<MailAccountSetupRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val client = remember(bound.serverUrl) { deps.mailClient() }
+                val keyCache = remember { MailCredentialKeyCache() }
+                MailAccountSetupScreen(
+                    sdk = deps.sdk,
+                    auth = deps.store,
+                    client = client,
+                    keyCache = keyCache,
+                    onBound = {
+                        nav.navigate(MailChannelRoute) { popUpTo<MailAccountSetupRoute> { inclusive = true } }
+                    },
+                )
+            }
+        }
+        // 邮件收件箱（M9-T3 落屏；T2 占位——绑定成功跳入先给标题与空态文案）
+        composable<MailChannelRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val context = LocalContext.current
+                Column(Modifier.fillMaxSize()) {
+                    RoomHeader(title = context.t("mail_list_title"), onBack = { nav.popBackStack() })
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(context.t("mail_loading"), color = LocalAppiaColors.current.auxiliaryText)
+                    }
+                }
             }
         }
         // 房间内搜索（M5-T7 / RN screens/RoomSearchScreen）：6/4 tab by 房型；
