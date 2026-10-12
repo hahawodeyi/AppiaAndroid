@@ -50,6 +50,7 @@ import cn.appia.im.core.messaging.getSendOrchestrator
 import cn.appia.im.core.network.LoginCredentials
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
+import cn.appia.im.core.permissions.PermissionsStore
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.BuildConfig
 import cn.appia.im.core.push.BatteryOptimizationGuide
@@ -105,6 +106,7 @@ import cn.appia.im.core.network.sse.AiStreamClient
 import cn.appia.im.domain.ai.AiRoomStateMachine
 import cn.appia.im.domain.ai.maybeTriggerAiAfterSend
 import cn.appia.im.feature.chat.ui.AgentLoadingEnv
+import cn.appia.im.core.media.AttachmentUrlFormatter
 import cn.appia.im.core.media.UploadApi
 import cn.appia.im.feature.chat.MessageEditController
 import cn.appia.im.feature.chat.MentionCandidate
@@ -143,6 +145,13 @@ import cn.appia.im.feature.search.ui.GlobalSearchScreen
 import cn.appia.im.feature.search.ui.RoomSearchScreen
 import cn.appia.im.feature.chat.ui.buildDocPreviewParamsFromFileLink
 import cn.appia.im.feature.roominfo.RoomInfoActions
+import cn.appia.im.feature.roominfo.canEditRoomSettings
+import cn.appia.im.feature.roominfo.ui.announcementAttachmentKind
+import cn.appia.im.feature.roominfo.ui.AnnouncementKind
+import cn.appia.im.feature.meeting.MeetingDeleteScope
+import cn.appia.im.feature.meeting.executeMeetingDelete
+import cn.appia.im.feature.meeting.ui.MeetingSummaryDetailScreen
+import cn.appia.im.feature.meeting.ui.RoomMeetingScreen
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
 import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
@@ -295,6 +304,14 @@ data class RoomAnnouncementRoute(val rid: String, val roomType: String = "c")
 // T7 已落地（改名屏）：RN navigate('RoomChannelNameEdit', {rid, t})
 @Serializable
 data class RoomChannelNameEditRoute(val rid: String, val roomType: String = "c")
+
+// M8-T3 会议面板：RN navigate('RoomMeeting', {rid, t}（ChatNavigator.tsx:226-232）
+@Serializable
+data class RoomMeetingRoute(val rid: String, val roomType: String = "c")
+
+// M8-T3 纪要详情：RN navigate('MeetingSummaryDetail', {rid, announcementId}（RoomMeetingScreen:169-172）
+@Serializable
+data class MeetingSummaryDetailRoute(val rid: String, val announcementId: String)
 
 // T8 已落地（选人器）：RN navigate('CreateChannelMembers', {intent, rid?, t?, teamId?,
 // existingMemberUsernames?, preselectedUsernames?})；teamId 来自 RN RoomInfo :200
@@ -1356,6 +1373,9 @@ fun AppiaNavHost(
                     onOpenAnnouncement = {
                         nav.navigate(RoomAnnouncementRoute(rid = route.rid, roomType = route.roomType))
                     },
+                    onOpenMeeting = {
+                        nav.navigate(RoomMeetingRoute(rid = route.rid, roomType = route.roomType))
+                    },
                     onOpenMemberProfile = { username, userId ->
                         nav.navigate(MemberProfileRoute(username = username, userId = userId))
                     },
@@ -1457,6 +1477,126 @@ fun AppiaNavHost(
                                     fileType = target.params.fileType,
                                 ),
                             )
+                        }
+                    },
+                )
+            }
+        }
+        // 会议面板（M8-T3 / RN screens/RoomMeetingScreen）：双 tab（预订 upcoming/past 分组 + 纪要）。
+        // 进页 rooms.info 刷新公告两列（RN useFocusEffect refreshRoomAnnouncementsFromApi 同链路）；
+        // 加入（坑 9）：AntMeeting 形状 → onJoinAntMeeting（T7 原生会议室 seam——会议室 UI 未建前降级 toast），
+        // 腾讯记录外跳在屏内 Intent；+ 编辑/创建（T4 表单 seam，T5 接线）降级 toast。
+        composable<RoomMeetingRoute> { entry ->
+            val route = entry.toRoute<RoomMeetingRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val db = bound.db
+                val auth = bound.auth
+                val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
+                    .collectAsState(initial = null)
+                // RN useCanEditRoomSettings（panel :49）：chat 行 + prid 直通 + edit-room 权限
+                val permissions by PermissionsStore.permissions.collectAsState()
+                val globalRoles by deps.store.roles.collectAsState()
+                val canEdit = remember(chatRow, globalRoles, permissions) {
+                    canEditRoomSettings(chatRow, globalRoles, permissions)
+                }
+                val roomActions = remember(db) { RoomInfoActions(deps.sdk, db) }
+                val context = LocalContext.current
+                RoomMeetingScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    chat = chatRow,
+                    canEdit = canEdit,
+                    serverUrl = bound.serverUrl,
+                    onBack = { nav.popBackStack() },
+                    onRefresh = { roomActions.refreshRoomAnnouncements(route.rid) },
+                    onDeleteBooking = { announcementId, scope ->
+                        executeMeetingDelete(deps.sdk, route.rid, announcementId, scope)
+                    },
+                    onCreateMeeting = {
+                        // TODO(M8-T4/T5): nav.navigate(MeetingFormRoute(rid, roomType))——表单落地后由 T5 接线
+                        Toast.makeText(
+                            context,
+                            context.t("feature_not_implemented"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onEditMeeting = { _ ->
+                        // TODO(M8-T4/T5): nav.navigate(MeetingFormRoute(edit 参数面))——同上
+                        Toast.makeText(
+                            context,
+                            context.t("feature_not_implemented"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onJoinAntMeeting = { _ ->
+                        // TODO(M8-T7): 原生会议室入会（feature/meetingroom）——房间 UI 未建前降级 toast
+                        Toast.makeText(
+                            context,
+                            context.t("feature_not_implemented"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onOpenMinutes = { announcementId ->
+                        nav.navigate(MeetingSummaryDetailRoute(rid = route.rid, announcementId = announcementId))
+                    },
+                )
+            }
+        }
+        // 纪要详情（M8-T3 / RN screens/MeetingSummaryDetailScreen）：公告 meeting 字段纯本地渲染；
+        // 附件行复用 M3/M4 附件链（图片/视频 → 媒体播放，其余 → DocPreview，公告屏 openFile 同构）。
+        composable<MeetingSummaryDetailRoute> { entry ->
+            val route = entry.toRoute<MeetingSummaryDetailRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val db = bound.db
+                val auth = bound.auth
+                val serverUrl = bound.serverUrl
+                val chatRow by remember(db, route.rid) { db.chatDao().observeByRid(route.rid) }
+                    .collectAsState(initial = null)
+                val roomActions = remember(db) { RoomInfoActions(deps.sdk, db) }
+                val currentUserId = auth?.user?.id.orEmpty()
+                val token = auth?.token.orEmpty()
+                MeetingSummaryDetailScreen(
+                    rid = route.rid,
+                    announcementId = route.announcementId,
+                    chat = chatRow,
+                    serverUrl = serverUrl,
+                    userId = currentUserId,
+                    token = token,
+                    onBack = { nav.popBackStack() },
+                    onRefresh = { roomActions.refreshRoomAnnouncements(route.rid) },
+                    onOpenFile = { file ->
+                        when (announcementAttachmentKind(file)) {
+                            AnnouncementKind.IMAGE, AnnouncementKind.VIDEO -> nav.navigate(
+                                MediaPlayerRoute(
+                                    url = AttachmentUrlFormatter.format(file.fileUrl, currentUserId, token, serverUrl),
+                                    title = file.fileName,
+                                    isAudio = false,
+                                ),
+                            )
+                            AnnouncementKind.FILE -> {
+                                val params = buildDocPreviewParamsFromFileLink(
+                                    title = file.fileName,
+                                    fileLink = file.fileUrl,
+                                    fileUrl = null,
+                                    userId = currentUserId,
+                                    token = token,
+                                    server = serverUrl,
+                                )
+                                nav.navigate(
+                                    DocPreviewRoute(
+                                        title = params.title,
+                                        fileId = params.fileId,
+                                        downloadUrl = params.downloadUrl,
+                                        fileType = params.fileType,
+                                    ),
+                                )
+                            }
                         }
                     },
                 )

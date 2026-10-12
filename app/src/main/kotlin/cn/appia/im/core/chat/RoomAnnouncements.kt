@@ -269,7 +269,8 @@ private fun previewTextFromMainItem(item: RoomAnnouncement): String {
     return item.files.firstOrNull()?.fileName?.trim().orEmpty()
 }
 
-private fun previewTextFromMeetingItem(item: RoomAnnouncement): String =
+/** RN previewTextFromMeetingItem：booking → subject；minutes → topic → subject → message（卡片标题）。 */
+fun previewTextFromMeetingItem(item: RoomAnnouncement): String =
     if (isMeetingBooking(item)) {
         item.meetingRoomBookRecord?.str("subject")?.trim().orEmpty()
     } else {

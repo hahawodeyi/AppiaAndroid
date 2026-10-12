@@ -139,6 +139,8 @@ fun RoomInfoScreen(
     onMoreMembers: () -> Unit = {},
     onEditChannelName: () -> Unit = {},
     onOpenAnnouncement: () -> Unit = {},
+    /** M8-T3：会议行 → RoomMeeting 面板（RN renderMeetingRow :356-361 → navigate('RoomMeeting')）。 */
+    onOpenMeeting: () -> Unit = {},
     onOpenMemberProfile: (username: String, userId: String?) -> Unit = { _, _ -> },
     onDirectAddChannel: (peerUsername: String?) -> Unit = {},
 ) {
@@ -253,7 +255,7 @@ fun RoomInfoScreen(
                     onAdd = { onDirectAddChannel(chat?.name) },
                 )
                 Card(Modifier.padding(top = 16.dp)) {
-                    MeetingRow(onOpen = {})
+                    MeetingRow(onOpen = onOpenMeeting)
                 }
             }
             if (!isDirect) {
@@ -276,7 +278,7 @@ fun RoomInfoScreen(
                         tag = "qa-roominfo-announcement",
                     )
                     Sep()
-                    MeetingRow(onOpen = {})
+                    MeetingRow(onOpen = onOpenMeeting)
                 }
             }
             SectionTitle(context.t("roominfo_settings"))
@@ -489,7 +491,7 @@ private fun ToggleRow(title: String, value: Boolean, onValueChange: (Boolean) ->
     }
 }
 
-/** RN renderMeetingRow（SettingsNavRow）：会议行占位（M8 接 RoomMeeting）。 */
+/** RN renderMeetingRow（SettingsNavRow）：会议行 → RoomMeeting 面板（M8-T3 接通）。 */
 @Composable
 private fun MeetingRow(onOpen: () -> Unit) {
     Row(
