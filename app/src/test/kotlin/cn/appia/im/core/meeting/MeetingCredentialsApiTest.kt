@@ -147,4 +147,10 @@ class MeetingCredentialsApiTest {
         server.shutdown()
         runBlocking { assertNull(fetch(base = dead)) }
     }
+
+    @Test
+    fun `numeric uid root does not throw returns null`() {
+        // 评审 I-1：根级非预期形态（数字 uid 直挂根）宽容返回 null 不抛
+        assertEquals(null, parseMeetingCredentials("{\"uid\": 12345}"))
+    }
 }

@@ -95,8 +95,11 @@ suspend fun fetchMeetingCredentials(
 /** 宽容解：未知键丢弃；根级无 appId/token 时尝试 `data` 包裹层；解不动 → null。 */
 fun parseMeetingCredentials(raw: String): MeetingCredentials? {
     val root = runCatching { meetingJson.parseToJsonElement(raw) }.getOrNull() as? JsonObject ?: return null
-    meetingJson.decodeFromJsonElement<MeetingCredentials>(root)?.let { c ->
-        if (c.appId != null || c.token != null) return c
+    // 根级宽容解也须防抛（评审 I-1：服务端回数字 uid 等非预期形态 → SerializationException 冲出全链路）
+    runCatching {
+        meetingJson.decodeFromJsonElement<MeetingCredentials>(root)?.let { c ->
+            if (c.appId != null || c.token != null) return c
+        }
     }
     val data = root["data"] as? JsonObject ?: return null
     return runCatching { meetingJson.decodeFromJsonElement<MeetingCredentials>(data) }.getOrNull()
