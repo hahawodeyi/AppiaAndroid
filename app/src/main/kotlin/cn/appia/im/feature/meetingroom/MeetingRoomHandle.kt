@@ -1,16 +1,59 @@
 package cn.appia.im.feature.meetingroom
 
+import android.content.Context
+import cn.appia.im.core.datastore.AuthSessionStore
+import cn.appia.im.core.meeting.fetchMeetingCredentials
+import cn.appia.im.core.meeting.resolveMeetingApiBase
 import cn.appia.im.core.meeting.rtc.AgoraMeetingEngine
+import cn.appia.im.core.meeting.rtc.AgoraRtcImpl
 import cn.appia.im.domain.meeting.MeetingSessionController
 import cn.appia.im.domain.meeting.MeetingSessionStateMachine
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
 
 /**
- * 会议房间装配束（M8-T7；T6 KDoc "Hilt 接线归 T7" 的落点——**手动构造**：MainActivity 持
- * `by lazy` 单例（app 会话级，随 Activity 寿命；引擎/状态机须跨路由存活故不进 RouteDeps 每次装配），
- * 测试自建 fake [AgoraMeetingEngine] 注入。
+ * 会议房间装配束（M8-T7；T6 KDoc "Hilt 接线归 T7" 的落点）。**@Singleton（app 域）**：
+ * 引擎/状态机须跨 Activity 重建存活——manifest 无 configChanges/方向锁，Activity 域持有会在
+ * 旋转/深色切换时 RtcEngine.destroy 重建并掉频重连（评审 I-2）；测试自建 fake [AgoraMeetingEngine]
+ * 注入（不经 Hilt）。
  */
 class MeetingRoomHandle(
     val engine: AgoraMeetingEngine,
     val machine: MeetingSessionStateMachine,
     val controller: MeetingSessionController,
 )
+
+@Module
+@InstallIn(SingletonComponent::class)
+object MeetingRoomModule {
+
+    /** 生产 credentials lambda：会话 token + serverUrl 同源链（meetingApiOrigin 覆盖源 AA 未落库——
+     *  resolveMeetingApiBase(null, serverUrl)）；uid 策略在屏内（uidForMeeting）。 */
+    @Provides
+    @Singleton
+    fun provideMeetingRoomHandle(
+        @ApplicationContext context: Context,
+        authStore: AuthSessionStore,
+    ): MeetingRoomHandle {
+        val machine = MeetingSessionStateMachine()
+        val engine = AgoraMeetingEngine(AgoraRtcImpl(context))
+        return MeetingRoomHandle(
+            engine = engine,
+            machine = machine,
+            controller = MeetingSessionController(engine, machine) { channelName, uid ->
+                val auth = authStore.load() ?: return@MeetingSessionController null
+                fetchMeetingCredentials(
+                    base = resolveMeetingApiBase(null, auth.serverUrl),
+                    channelName = channelName,
+                    uid = uid,
+                    token = auth.token,
+                    userId = auth.user.id,
+                )
+            },
+        )
+    }
+}

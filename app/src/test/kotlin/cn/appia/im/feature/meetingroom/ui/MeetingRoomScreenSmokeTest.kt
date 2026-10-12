@@ -60,26 +60,40 @@ class MeetingRoomScreenSmokeTest {
     private val rtc = FakeRtc()
     private var backCount = 0
 
-    private fun render(creds: MeetingCredentials? = MeetingCredentials(appId = "app", token = "t")) {
+    private fun newHandle(creds: MeetingCredentials?): MeetingRoomHandle {
         val machine = MeetingSessionStateMachine()
         val engine = AgoraMeetingEngine(rtc)
-        val handle = MeetingRoomHandle(
+        return MeetingRoomHandle(
             engine = engine,
             machine = machine,
             controller = MeetingSessionController(engine, machine) { _, _ -> creds },
         )
+    }
+
+    private val routeKey = androidx.compose.runtime.mutableStateOf(1)
+
+    private fun render(handle: MeetingRoomHandle = newHandle(MeetingCredentials(appId = "app", token = "t"))) {
         rule.setContent {
             AppiaTheme(isDark = false) {
-                MeetingRoomScreen(
-                    channelName = "room-1",
-                    meetingNumber = "123456",
-                    title = "weekly sync",
-                    userId = "user-1",
-                    handle = handle,
-                    onBack = { backCount++ },
-                )
+                // key 换档 = 压入新路由实例（模拟 openLink 移交/深链重开房间页——compose 内
+                // 不能二次 setContent，用 snapshot-state key() 强制全新 screen 实例/remember/effect）
+                androidx.compose.runtime.key(routeKey.value) {
+                    MeetingRoomScreen(
+                        channelName = "room-1",
+                        meetingNumber = "123456",
+                        title = "weekly sync",
+                        userId = "user-1",
+                        handle = handle,
+                        onBack = { backCount++ },
+                    )
+                }
             }
         }
+    }
+
+    /** 重入：换 key 压入同 handle 的新房间实例（评审 I-1 场景）。 */
+    private fun reenter() {
+        rule.runOnUiThread { routeKey.value += 1 }
     }
 
     private fun tagExists(tag: String) =
@@ -131,9 +145,21 @@ class MeetingRoomScreenSmokeTest {
 
     @Test
     fun `credentials failure toasts and pops back`() {
-        render(creds = null)
+        render(newHandle(null))
         idleTwice()
         assertEquals(1, backCount)
         assertFalse(rtc.left.isNotEmpty())
+    }
+
+    @Test
+    fun `re-entry while meeting alive pops via controller rejection`() {
+        // 评审 I-1：同 handle（会议存活）再开房间路由（openLink 移交/深链）——必须走控制器
+        // Failed("meeting_already_active") → toast + 出栈，不得静默渲染错会话
+        render()
+        idleTwice()
+        assertEquals(0, backCount)
+        reenter()
+        idleTwice()
+        assertEquals(1, backCount)
     }
 }

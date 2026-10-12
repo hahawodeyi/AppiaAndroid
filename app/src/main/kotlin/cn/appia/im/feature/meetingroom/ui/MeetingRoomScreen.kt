@@ -98,16 +98,15 @@ fun MeetingRoomScreen(
 
     val joining = session.phase == MeetingPhase.Preheating
 
-    // 入会（冷进/重进同路）：失败 → toast + 出栈（坑 6 重入拒绝在控制器内）
+    // 入会（冷进/重进同路）：重入拒绝（坑 6）在控制器内——会议存活时再开房间路由（openLink 移交/
+    // 深链）必 Failed("meeting_already_active") → toast + 出栈，绝不静默渲染错会话
     LaunchedEffect(handle, channelName) {
-        if (handle.machine.phase == MeetingPhase.Idle) {
-            when (val r = handle.controller.join(channelName, selfUid, title)) {
-                is MeetingSessionController.JoinResult.Joined -> Unit
-                is MeetingSessionController.JoinResult.Failed -> {
-                    val key = if (r.reason == "meeting_already_active") "meeting_already_active" else "meeting_room_joinfailed"
-                    Toast.makeText(context, context.t(key), Toast.LENGTH_SHORT).show()
-                    onBack()
-                }
+        when (val r = handle.controller.join(channelName, selfUid, title)) {
+            is MeetingSessionController.JoinResult.Joined -> Unit
+            is MeetingSessionController.JoinResult.Failed -> {
+                val key = if (r.reason == "meeting_already_active") "meeting_already_active" else "meeting_room_joinfailed"
+                Toast.makeText(context, context.t(key), Toast.LENGTH_SHORT).show()
+                onBack()
             }
         }
     }

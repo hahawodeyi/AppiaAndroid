@@ -163,13 +163,7 @@ import cn.appia.im.feature.meeting.ui.MeetingSummaryDetailScreen
 import cn.appia.im.feature.meeting.ui.RoomMeetingScreen
 import cn.appia.im.feature.meetingroom.MeetingRoomHandle
 import cn.appia.im.feature.meetingroom.ui.MeetingRoomScreen
-import cn.appia.im.core.meeting.fetchMeetingCredentials
 import cn.appia.im.core.meeting.meetingBooking
-import cn.appia.im.core.meeting.resolveMeetingApiBase
-import cn.appia.im.core.meeting.rtc.AgoraMeetingEngine
-import cn.appia.im.core.meeting.rtc.AgoraRtcImpl
-import cn.appia.im.domain.meeting.MeetingSessionController
-import cn.appia.im.domain.meeting.MeetingSessionStateMachine
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
 import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
@@ -2688,29 +2682,10 @@ class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var appUpdatePrompt: AppUpdatePromptController
 
-    /**
-     * M8-T7 会议房间装配（T6 KDoc "Hilt 接线归 T7" 的最简落点——手动构造，app 会话级单例：
-     * 引擎/状态机须跨路由存活，不随路由重建）。生产 credentials lambda：会话 token + serverUrl
-     * 同源链（meetingApiOrigin 覆盖源 AA 未落库——resolveMeetingApiBase(null, serverUrl)）。
-     */
-    val meetingRoom: MeetingRoomHandle by lazy {
-        val machine = MeetingSessionStateMachine()
-        val engine = AgoraMeetingEngine(AgoraRtcImpl(applicationContext))
-        MeetingRoomHandle(
-            engine = engine,
-            machine = machine,
-            controller = MeetingSessionController(engine, machine) { channelName, uid ->
-                val auth = authStore.load() ?: return@MeetingSessionController null
-                fetchMeetingCredentials(
-                    base = resolveMeetingApiBase(null, auth.serverUrl),
-                    channelName = channelName,
-                    uid = uid,
-                    token = auth.token,
-                    userId = auth.user.id,
-                )
-            },
-        )
-    }
+    // M8-T7 会议房间装配（评审 I-2：@Singleton app 域——引擎/状态机跨 Activity 重建存活，
+    // 旋转/深色切换不重建 RtcEngine；provider 在 MeetingRoomModule，注入即用）
+    @Inject
+    lateinit var meetingRoom: MeetingRoomHandle
 
     /** RN MainNavigator.tsx:60 AppState 'active' → syncCurrentUserRoles()（30s 节流内置）。 */
     override fun onResume() {
