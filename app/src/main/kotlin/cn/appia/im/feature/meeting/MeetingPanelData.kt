@@ -93,10 +93,10 @@ private fun JsonObject?.recordText(key: String): String? =
 fun parseBookingStartEpochSec(item: RoomAnnouncement): Long =
     item.meetingRoomBookRecord.recordText("startTime")?.let(::parseBookingEpochSec) ?: Long.MAX_VALUE
 
-/** RN parseBookingEndEpochSec：无 endTime 回退 start（meetingBookingDisplay.ts:39-52）。 */
+/** RN parseBookingEndEpochSec：无 endTime 或不可解析 → 回退 start（meetingBookingDisplay.ts:39-52）。 */
 fun parseBookingEndEpochSec(item: RoomAnnouncement): Long {
-    val end = item.meetingRoomBookRecord.recordText("endTime")
-    return if (end == null) parseBookingStartEpochSec(item) else parseBookingEpochSec(end)
+    val end = item.meetingRoomBookRecord.recordText("endTime")?.let(::parseBookingEpochSec)
+    return if (end == null || end == MAX_EPOCH_SEC) parseBookingStartEpochSec(item) else end
 }
 
 private fun parseBookingEpochSec(raw: String): Long {

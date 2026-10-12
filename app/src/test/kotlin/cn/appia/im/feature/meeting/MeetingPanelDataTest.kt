@@ -4,6 +4,7 @@ import cn.appia.im.core.chat.RoomAnnouncement
 import cn.appia.im.core.chat.parseMeetingPanelAnnouncements
 import cn.appia.im.core.chat.isMeetingBooking
 import cn.appia.im.core.chat.isMeetingMinutes
+import cn.appia.im.core.meeting.toMeetingOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -86,7 +87,7 @@ class MeetingPanelDataTest {
             put("subject", JsonPrimitive("x"))
         })
         assertEquals(Long.MAX_VALUE, parseBookingStartEpochSec(neither))
-        assertEquals(MeetingBookingStatus.UPCOMING, meetingBookingStatus(neither, nowSec = 10_000)) // æ åæ¶é´åé MAX=è¿æªæ¥
+        assertEquals(MeetingBookingStatus.UPCOMING, meetingBookingStatus(neither, nowSec = 10_000))
     }
 
     @Test
@@ -148,10 +149,68 @@ class MeetingPanelDataTest {
     }
 
     @Test
-    fun `minutes sort updateTime descending`() {
+    fun `minutes sort ymd descending`() {
         val a = minutes("a", ymd = "2026-09-01")
         val b = minutes("b", ymd = "2026-10-01")
         assertEquals(listOf("b", "a"), sortMeetingMinutes(listOf(a, b)).map { it.id })
+    }
+
+
+    @Test
+    fun `card content title falls back subject message then create title`() {
+        val resolve: (String, Map<String, String>) -> String = { k, _ -> k }
+        val rec = kotlinx.serialization.json.Json.parseToJsonElement(
+            "{\"subject\":\"Board meeting\",\"startTime\":\"2026-10-11T10:00:00+08:00\",\"endTime\":\"2026-10-11T11:00:00+08:00\",\"meetCode\":\"888\",\"meetUrl\":\"https://appia.cn/AntMeeting/888\"}",
+        ) as JsonObject
+        val withSubject = RoomAnnouncement(id = "1", announcementType = 1, meetingRoomBookRecord = rec)
+        assertEquals("Board meeting", meetingBookingCardContent(withSubject, java.util.Locale.CHINESE, rec.toMeetingOrNull(), resolve).title)
+        val noSubjectRecord = kotlinx.serialization.json.Json.parseToJsonElement(
+            "{\"startTime\":\"2026-10-11T10:00:00+08:00\"}",
+        ) as JsonObject
+        val noSubject = RoomAnnouncement(id = "2", message = "first line\nsecond", announcementType = 1, meetingRoomBookRecord = noSubjectRecord)
+        assertEquals("first line", meetingBookingCardContent(noSubject, java.util.Locale.CHINESE, noSubjectRecord.toMeetingOrNull(), resolve).title)
+    }
+
+    @Test
+    fun `card content time range zh uses dateMdZh key en uses dateMdEn`() {
+        val seen = mutableListOf<Pair<String, Map<String, String>>>()
+        val resolve: (String, Map<String, String>) -> String = { k, m -> seen += k to m; k }
+        val rec = kotlinx.serialization.json.Json.parseToJsonElement(
+            "{\"subject\":\"Board meeting\",\"startTime\":\"2026-10-11T10:00:00+08:00\",\"endTime\":\"2026-10-11T11:00:00+08:00\",\"meetCode\":\"888\",\"meetUrl\":\"https://appia.cn/AntMeeting/888\"}",
+        ) as JsonObject
+        val item = RoomAnnouncement(id = "3", announcementType = 1, meetingRoomBookRecord = rec)
+        meetingBookingCardContent(item, java.util.Locale.CHINESE, rec.toMeetingOrNull(), resolve)
+        assertTrue(seen.any { it.first == "meeting_dateMdZh" && it.second["month"] == "10" && it.second["day"] == "11" })
+        seen.clear()
+        meetingBookingCardContent(item, java.util.Locale.ENGLISH, rec.toMeetingOrNull(), resolve)
+        assertTrue(seen.any { it.first == "meeting_dateMdEn" })
+    }
+
+    @Test
+    fun `card content attendee summary caps at three and private network flag`() {
+        val resolve: (String, Map<String, String>) -> String = { k, _ -> k }
+        val rec = kotlinx.serialization.json.Json.parseToJsonElement(
+            "{\"subject\":\"s\",\"users\":[{\"username\":\"a\"},{\"username\":\"b\"},{\"username\":\"c\"},{\"username\":\"d\"}],\"mediaSetType\":1,\"meetCode\":\"888\"}",
+        ) as JsonObject
+        val c = meetingBookingCardContent(
+            RoomAnnouncement(id = "4", announcementType = 1, meetingRoomBookRecord = rec),
+            java.util.Locale.CHINESE,
+            rec.toMeetingOrNull(),
+            resolve,
+        )
+        assertTrue(c.attendeeLine!!.contains("meeting_attendeesSummary"))
+        assertTrue(c.isPrivateNetwork)
+        assertEquals("888", c.meetCode)
+        assertEquals(null, c.meetUrl)
+    }
+
+    @Test
+    fun `end time unparseable falls back to start not MAX`() {
+        val rec = kotlinx.serialization.json.Json.parseToJsonElement(
+            "{\"subject\":\"s\",\"startTime\":1700000000,\"endTime\":\"not-a-date\"}",
+        ) as JsonObject
+        val item = RoomAnnouncement(id = "5", announcementType = 1, meetingRoomBookRecord = rec)
+        assertEquals(parseBookingStartEpochSec(item), parseBookingEndEpochSec(item))
     }
 
     @Test
