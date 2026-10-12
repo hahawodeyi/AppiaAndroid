@@ -307,7 +307,9 @@ data class RawMessageDetail(
     val attachmentList: List<RawMailAttachment>? = null,
 )
 
-/** normalizeMailMessageDetail.ts:20-21：列表/卡片 id 带 `mail-` 前缀，detail/attachment URL 前先剥掉。 */
+/** normalizeMailMessageDetail.ts:20-21：剥 `mail-` 前缀只发生在 URL 构造点（detail/附件下载 path 参数）——
+ *  RN reply/forward/thread URL 直拼不剥（mailApi.ts:220-243）。归一化输出 id 透传原样（TS `...raw`），
+ *  前缀剥离由 T3/T4/T5 的 URL 构造点调用本函数。 */
 fun normalizeMailMessageId(messageId: String): String =
     if (messageId.startsWith("mail-")) messageId.removePrefix("mail-") else messageId
 
@@ -334,7 +336,7 @@ fun normalizeMailMessageDetail(raw: RawMessageDetail): MessageDetail {
     val source = raw.attachments ?: raw.attachmentList
     val attachments = (source ?: emptyList()).mapNotNull(::normalizeMailAttachment)
     return MessageDetail(
-        id = normalizeMailMessageId(raw.id),
+        id = raw.id, // TS `...raw` 透传——剥前缀时机在 URL 构造点，不在此（评审 Action 1）
         uid = raw.uid,
         from = raw.from,
         fromName = raw.fromName,

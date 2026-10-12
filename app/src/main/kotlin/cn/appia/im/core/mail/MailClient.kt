@@ -91,7 +91,9 @@ class MailClient(
         if (res.code == 401 && !skipRefresh) {
             // 先耗尽原 401 体并关闭（refresh 失败时仍按原响应语义抛错——TS :160-165 落回 !res.ok 分支）
             val originalMessage = res.use { it.body?.string().orEmpty() }
-            val refreshed = execute(url("/auth/refresh"), "POST", null, headers)
+            // RN refresh 是裸 POST（mailClient.ts:160-163 仅 method）——不透传原请求 headers；
+            // X-Auth 头由 execute 内部 authProvider 机制统一附加
+            val refreshed = execute(url("/auth/refresh"), "POST", null, emptyMap())
             val refreshOk = refreshed.isSuccessful
             refreshed.close()
             if (refreshOk) {

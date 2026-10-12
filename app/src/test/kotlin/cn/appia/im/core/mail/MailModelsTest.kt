@@ -160,7 +160,15 @@ class MailModelsTest {
     }
 
     @Test
-    fun `normalize - strips mail- id prefix from detail`() {
+    fun `normalize - id passed through untouched, prefix strip stays at URL-construction sites`() {
+        // RN `...raw` 透传原样 id；剥前缀只发生在 detail/附件 URL 构造点（评审 Action 1）
+        val raw = mailJson.decodeFromString<RawMessageDetail>(
+            """{"id":"mail-m9","from":"a@x.com","to":[],"cc":[],"subject":"s","receivedAt":"r",
+               "read":false,"flagged":false,"folder":"INBOX","accountId":"acc1"}""",
+        )
+        assertEquals("mail-m9", normalizeMailMessageDetail(raw).id)
+
+        // 函数本体保留供 URL 构造点使用
         assertEquals("abc123", normalizeMailMessageId("mail-abc123"))
         assertEquals("plain", normalizeMailMessageId("plain"))
         assertEquals("mailx", normalizeMailMessageId("mailx"))
