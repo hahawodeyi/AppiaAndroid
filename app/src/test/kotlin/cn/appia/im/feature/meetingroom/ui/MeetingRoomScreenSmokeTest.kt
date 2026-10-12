@@ -71,6 +71,7 @@ class MeetingRoomScreenSmokeTest {
     }
 
     private val routeKey = androidx.compose.runtime.mutableStateOf(1)
+    private val resumedFlag = androidx.compose.runtime.mutableStateOf(false)
 
     private fun render(handle: MeetingRoomHandle = newHandle(MeetingCredentials(appId = "app", token = "t"))) {
         rule.setContent {
@@ -85,6 +86,7 @@ class MeetingRoomScreenSmokeTest {
                         userId = "user-1",
                         handle = handle,
                         onBack = { backCount++ },
+                        resumed = resumedFlag.value,
                     )
                 }
             }
@@ -161,5 +163,30 @@ class MeetingRoomScreenSmokeTest {
         reenter()
         idleTwice()
         assertEquals(1, backCount)
+    }
+
+    @Test
+    fun `minimize then bubble restore rejoins session without rejection`() {
+        // 评审 C-1（M8-T8）：气泡恢复 = MeetingRoomRoute(resumed=true) → 屏内免 join——
+        // 会话存活不渲染成拒绝出栈（否则 InMeeting 孤儿化、用户失去全部会议 UI）。
+        val handle = newHandle(MeetingCredentials(appId = "app", token = "t"))
+        render(handle)
+        idleTwice()
+        assertEquals(MeetingPhase.InMeeting, handle.machine.phase)
+        // 最小化（RN MeetingWebHeader onMinimize）→ 路由出栈（回调即 pop）
+        handle.machine.minimize()
+        // 气泡单击 → restore() + 复路由（MeetingRoomRoute(resumed=true)——路由参数进新实例）
+        handle.machine.restore()
+        resumedFlag.value = true
+        reenter()
+        idleTwice()
+        // 不被拒绝（无出栈）+ self tile 回宫格 + 会话仍活
+        assertEquals(0, backCount)
+        assertTrue(tagExists("qa-meeting-room-tile"))
+        assertEquals(MeetingPhase.InMeeting, handle.machine.phase)
+        assertFalse(rtc.left.isNotEmpty())
+        // 复位（composition 存活期写回——供后续用例的重组不拾取恢复标记）
+        resumedFlag.value = false
+        idleTwice()
     }
 }

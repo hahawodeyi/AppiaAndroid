@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 
@@ -69,7 +70,7 @@ class MeetingMinimizeBubbleSmokeTest {
     }
 
     @Test
-    fun `drag release snaps to edge and persists position`() {
+    fun `drag accumulates per frame deltas and snaps on release`() {
         val machine = MeetingSessionStateMachine()
         machine.openPreheat("Weekly Sync", "888888")
         machine.markInMeeting("Weekly Sync", "888888")
@@ -82,20 +83,39 @@ class MeetingMinimizeBubbleSmokeTest {
         }
         rule.waitForIdle()
 
-        val bounds = getMeetingMiniBubbleBounds(1080f, 1920f, 0f, 0f)
-        rule.onNodeWithTag("qa-meeting-mini-bubble").performTouchInput {
-            // 默认位 = 右下角（maxLeft）；拖到左缘后释放 → 过半屏判定贴 minLeft（RN :81-84）
+        val bubble = rule.onNodeWithTag("qa-meeting-mini-bubble")
+        val node = bubble.fetchSemanticsNode()
+        val bubbleH = node.size.height.toFloat()
+        val screenH = rule.onRoot().fetchSemanticsNode().size.height.toFloat()
+        // start.bottom = screenH - node.top - bubbleH（RN 位置锚 = left/bottom）
+        val startPosBottom = screenH - node.boundsInRoot.top - bubbleH
+
+        // C-2：amount 是逐帧增量——三段 -30 上拖必须累计为 +90 bottom（RN bottom = start - g.dy，
+        // g.dy 为绝对位移；bug 版只认末帧 = +30）。上拖无下界钳制/贴边干扰，断言定分辨。
+        bubble.performTouchInput {
             down(center)
-            moveBy(Offset(-width / 3f, 0f), delayMillis = 50)
-            moveBy(Offset(-width / 3f, 0f), delayMillis = 50)
-            moveBy(Offset(-width / 3f, 0f), delayMillis = 50)
+            moveBy(Offset(0f, -30f), delayMillis = 50)
+            moveBy(Offset(0f, -30f), delayMillis = 50)
+            moveBy(Offset(0f, -30f), delayMillis = 50)
             up()
         }
         rule.waitForIdle()
 
+        // 断言累积而非精确像素：首段被 touch slop 吃掉 ~16px，固定累积 >> 只认末帧（+30）
+        val savedBottom = loadMeetingBubblePosition(kv, getMeetingMiniBubbleBounds(1080f, 1920f, 0f, 0f)).bottom
+        assertTrue("bottom must accumulate past two frames: $savedBottom", savedBottom > startPosBottom + 60f)
+
+        // 横拖过半屏左移 → 释放贴 minLeft（RN :81-84）+ 持久化 round-trip
+        bubble.performTouchInput {
+            down(center)
+            moveBy(Offset(-width.toFloat(), 0f), delayMillis = 50)
+            moveBy(Offset(-width.toFloat(), 0f), delayMillis = 50)
+            up()
+        }
+        rule.waitForIdle()
+        val bounds = getMeetingMiniBubbleBounds(1080f, 1920f, 0f, 0f)
         val saved = loadMeetingBubblePosition(kv, bounds)
         assertEquals(bounds.minLeft, saved.left, 1f)
-        // 持久化键可回读（RoundTrip）
         assertTrue(kv.contains("meeting_bubble_left"))
         assertEquals(saved.left.roundToInt().toLong(), kv.getLong("meeting_bubble_left", -1))
         assertEquals(saved.bottom.roundToInt().toLong(), kv.getLong("meeting_bubble_bottom", -1))

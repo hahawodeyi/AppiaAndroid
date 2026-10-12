@@ -2616,8 +2616,13 @@ fun AppiaNavHost(
                 nav.navigate(
                     MeetingRoomRoute(
                         channelName = s.meetingNumber.orEmpty(),
+                        // M-2 核对：全会话 meetingNumber 语义 = 频道号（openMeetingRoom 同值传入，
+                        // machine 只存频道号）——展示号回填频道号与既有行为一致，无失真
                         meetingNumber = s.meetingNumber.orEmpty(),
                         title = s.title.orEmpty(),
+                        // C-1：恢复重入必须带标记——否则屏内走 controller.join →
+                        // meeting_already_active 拒绝出栈，InMeeting 会话孤儿化
+                        resumed = true,
                     ),
                 )
             },

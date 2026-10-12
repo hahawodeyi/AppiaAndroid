@@ -130,6 +130,9 @@ private fun BubbleContent(kv: KvStore, onRestore: () -> Unit) {
             position = clampMeetingMiniBubblePosition(position.left, position.bottom, bounds)
         }
         var dragStart by remember { mutableStateOf(position) }
+        // C-2：detectDragGestures 的 amount 是逐帧增量非绝对位移——必须累计（RN g.dx/g.dy
+        // 为自手势起的绝对位移，语义对齐）
+        var dragOffset by remember { mutableStateOf(Offset.Zero) }
 
         Box(
             Modifier
@@ -145,12 +148,16 @@ private fun BubbleContent(kv: KvStore, onRestore: () -> Unit) {
                 .border(0.5.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
                 .pointerInput(bounds) {
                     detectDragGestures(
-                        onDragStart = { dragStart = position },
+                        onDragStart = {
+                            dragStart = position
+                            dragOffset = Offset.Zero
+                        },
                         onDrag = { change, amount ->
                             change.consume()
+                            dragOffset += amount
                             position = clampMeetingMiniBubblePosition(
-                                dragStart.left + amount.x,
-                                dragStart.bottom - amount.y,
+                                dragStart.left + dragOffset.x,
+                                dragStart.bottom - dragOffset.y,
                                 bounds,
                             )
                         },
