@@ -92,6 +92,8 @@ fun SettingsScreen(
     onOpenQuickReply: () -> Unit = {},
     // T10：浏览器 pref inApp 时法律/检查更新链接走应用内 WebView（RN openLink → navigate InAppWeb）
     onOpenInAppWeb: (url: String) -> Unit = {},
+    // M8-T5：openLink inApp 分支 AntMeeting 链接移交原生会议（RN openLink.ts:54-55）
+    onAntMeeting: (url: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -144,7 +146,7 @@ fun SettingsScreen(
     // T10：openLink 等价消费（RN SettingsScreen :138-142 onPressOpenUrl → lib/openLink/openLink.ts
     // ——浏览器 pref inApp → 应用内 WebView；systemDefault → ACTION_VIEW；needVPN 白名单域强制应用内）
     fun openUrl(url: String): Boolean =
-        cn.appia.im.feature.web.openLink(context, kv, url, onOpenInAppWeb)
+        cn.appia.im.feature.web.openLink(context, kv, url, onOpenInAppWeb, onAntMeeting)
 
     fun shareText(text: String) {
         runCatching {

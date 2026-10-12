@@ -240,4 +240,29 @@ class MeetingPanelDataTest {
         }
         return obj.toString()
     }
+
+    // ── M8-T5 会议首页（meetingHomeBookings：跨会议室平铺 upcoming 升序）──
+
+    private fun room(vararg records: cn.appia.im.core.meeting.Meeting) =
+        cn.appia.im.core.meeting.MeetingRoom(id = "room", bookRecords = records.toList())
+
+    @Test
+    fun `home bookings flatten rooms keep upcoming only sorted asc`() {
+        val now = 400_000L
+        val past = cn.appia.im.core.meeting.Meeting(subject = "past", startTime = "100", endTime = "200")
+        val later = cn.appia.im.core.meeting.Meeting(subject = "later", startTime = "900000", endTime = "1000000")
+        val sooner = cn.appia.im.core.meeting.Meeting(subject = "sooner", startTime = "500000", endTime = "600000")
+        val out = meetingHomeBookings(listOf(room(past, later), room(sooner)), now)
+        assertEquals(listOf("sooner", "later"), out.mapNotNull { it.subject })
+    }
+
+    @Test
+    fun `home bookings missing end falls back to start missing start sinks`() {
+        val now = 1_000_000L
+        // 无 endTime → 回退 start（start>now 保留）；start/endTime 全缺 → MAX 沉尾仍 upcoming（RN 同义）
+        val noEnd = cn.appia.im.core.meeting.Meeting(subject = "noEnd", startTime = "1000500")
+        val bare = cn.appia.im.core.meeting.Meeting(subject = "bare")
+        val out = meetingHomeBookings(listOf(room(noEnd, bare)), now)
+        assertEquals(listOf("noEnd", "bare"), out.mapNotNull { it.subject })
+    }
 }

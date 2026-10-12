@@ -255,6 +255,7 @@
     <string name="drawer_createuser">创建人</string>
     <string name="drawer_defaulttodo">待办</string>
     <string name="drawer_hightodo">重要待办</string>
+    <string name="drawer_meeting">AntMeeting</string>
     <string name="drawer_myenterprise">我的企业</string>
     <string name="drawer_notsetremindertime">未设置提醒时间</string>
     <string name="drawer_remindertime">提醒时间</string>

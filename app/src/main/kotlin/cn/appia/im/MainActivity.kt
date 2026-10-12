@@ -155,6 +155,7 @@ import cn.appia.im.feature.meeting.canShowMeetingAttachment
 import cn.appia.im.feature.meeting.executeMeetingDelete
 import cn.appia.im.feature.meeting.parseRoomUsernames
 import cn.appia.im.feature.meeting.ui.MeetingFormScreen
+import cn.appia.im.feature.meeting.ui.MeetingHomeScreen
 import cn.appia.im.feature.meeting.ui.MeetingSummaryDetailScreen
 import cn.appia.im.feature.meeting.ui.RoomMeetingScreen
 import cn.appia.im.core.meeting.meetingBooking
@@ -318,6 +319,14 @@ data class RoomMeetingRoute(val rid: String, val roomType: String = "c")
 // M8-T3 纪要详情：RN navigate('MeetingSummaryDetail', {rid, announcementId}（RoomMeetingScreen:169-172）
 @Serializable
 data class MeetingSummaryDetailRoute(val rid: String, val announcementId: String)
+
+/**
+ * M8-T5 会议首页：RN 消息列表「+」菜单/我的抽屉「会议」行 → openAntMeetingWeb(MEETING_HOME_URL)
+ * 的原生替代（AA 合并单一入口 ChatList ⋮ 菜单，drawer_meeting）。列表 meetingRoomList 未来窗口，
+ * 创建 → MeetingFormRoute（rid 空 = 无房间会议，RN buildMeetingPayload 校验不含 rid）。
+ */
+@Serializable
+data object MeetingHomeRoute
 
 /**
  * M8-T4 会议预订表单：RN navigate('MeetingForm', {rid, roomType, editMeeting?, editMode?}）。
@@ -809,6 +818,8 @@ fun AppiaNavHost(
                     onOpenTodoList = { nav.navigate(TodoListRoute) },
                     // 工作台入口（M7-T4 / RN MineMenu :308-319 工作台行菜单化迁移）
                     onOpenLabor = { nav.navigate(LaborRoute) },
+                    // 会议入口（M8-T5 / RN "+" 菜单 + 抽屉「会议」行 → MEETING_HOME_URL 原生替代）
+                    onOpenMeeting = { nav.navigate(MeetingHomeRoute) },
                 )
             }
         }
@@ -1518,6 +1529,27 @@ fun AppiaNavHost(
                 )
             }
         }
+        // 会议首页（M8-T5 / RN MEETING_HOME_URL 原生替代）：meetingRoomList 未来窗口预订列表
+        // + 右上 + → MeetingFormRoute（rid 空）；加入坑 9 三分同面板（AntMeeting → seam toast，
+        // 腾讯外跳屏内 Intent）。
+        composable<MeetingHomeRoute> {
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val context = LocalContext.current
+                MeetingHomeScreen(
+                    sdk = deps.sdk,
+                    serverUrl = bound.serverUrl,
+                    onBack = { nav.popBackStack() },
+                    onCreateMeeting = { nav.navigate(MeetingFormRoute(rid = "", roomType = "c")) },
+                    onJoinAntMeeting = { _ ->
+                        // TODO(M8-T7): 原生会议室入会——会议室 UI 未建前降级 toast（同面板 seam）
+                        Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
+        }
         // 会议面板（M8-T3 / RN screens/RoomMeetingScreen）：双 tab（预订 upcoming/past 分组 + 纪要）。
         // 进页 rooms.info 刷新公告两列（RN useFocusEffect refreshRoomAnnouncementsFromApi 同链路）；
         // 加入（坑 9）：AntMeeting 形状 → onJoinAntMeeting（T7 原生会议室 seam——会议室 UI 未建前降级 toast），
@@ -1831,6 +1863,7 @@ fun AppiaNavHost(
         // M5 壳：白名单换码+同源 Cookie+返回栈）
         composable<InAppWebRoute> { entry ->
             val route = entry.toRoute<InAppWebRoute>()
+            val context = LocalContext.current
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
@@ -1866,6 +1899,11 @@ fun AppiaNavHost(
                     onLogout = {
                         nav.popBackStack()
                         if (gateway != null && gateway.logout()) goAuth()
+                    },
+                    // M8-T5：AntMeeting URL 移交（初始/页内/openLink）——出栈由 InAppWebScreen 内聚
+                    //（RN openAntMeetingWeb 成功后 goBack 同义）；join seam T7 前降级 toast
+                    onAntMeetingHandoff = { _ ->
+                        Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
                     },
                 )
             }
@@ -1947,6 +1985,10 @@ fun AppiaNavHost(
                     onOpenQuickReply = { },
                     // T10：浏览器 pref inApp → 法律链接等走应用内 WebView（RN openLink）
                     onOpenInAppWeb = { url -> nav.navigate(InAppWebRoute(url = url)) },
+                    // M8-T5：openLink inApp 分支 AntMeeting 链接移交（join seam T7 前降级 toast）
+                    onAntMeeting = { _ ->
+                        Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
+                    },
                 )
             }
         }

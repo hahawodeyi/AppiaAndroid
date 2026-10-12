@@ -92,6 +92,10 @@ fun ChatListScreen(
     onOpenTodoList: () -> Unit = {},
     // 工作台入口（M7-T4 / RN MineMenu :308-319 工作台行的菜单化迁移），点击 → Labor
     onOpenLabor: () -> Unit = {},
+    // 会议入口（M8-T5 / RN RoomListScreen "+" 菜单 + MineMenu 抽屉「会议」行 → openAntMeetingWeb(
+    // MEETING_HOME_URL) 的菜单化迁移：AA 无 "+" 菜单与抽屉（M5-T9 裁定），两 RN 入口同目标
+    // MEETING_HOME_URL → 合并单一菜单项 → MeetingHome（原生替代 H5）
+    onOpenMeeting: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -254,6 +258,15 @@ fun ChatListScreen(
                             onOpenContacts()
                         },
                         modifier = Modifier.testTag("qa-room-list-menu-contacts"),
+                    )
+                    // 会议入口（M8-T5 / RN MineMenu :341-355「会议」行，drawer_meeting；RN 同位在通讯录行后）
+                    DropdownMenuItem(
+                        text = { Text(context.t("drawer_meeting")) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenMeeting()
+                        },
+                        modifier = Modifier.testTag("qa-room-list-menu-meeting"),
                     )
                     // 个人资料（M5-T9：RN MineMenu 底部个人信息行 → Profile 的菜单化迁移；
                     // MyCard 顶栏临时入口同任务移除——正入口在 ProfileScreen 二维码行）

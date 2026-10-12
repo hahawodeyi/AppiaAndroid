@@ -254,6 +254,7 @@ object I18nKeys {
     "drawer_createuser",
     "drawer_defaulttodo",
     "drawer_hightodo",
+    "drawer_meeting",
     "drawer_myenterprise",
     "drawer_notsetremindertime",
     "drawer_remindertime",

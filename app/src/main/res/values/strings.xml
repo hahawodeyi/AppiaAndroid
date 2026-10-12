@@ -255,6 +255,7 @@
     <string name="drawer_createuser">Created By</string>
     <string name="drawer_defaulttodo">Todo</string>
     <string name="drawer_hightodo">High Priority Todo</string>
+    <string name="drawer_meeting">AntMeeting</string>
     <string name="drawer_myenterprise">My Enterprise</string>
     <string name="drawer_notsetremindertime">No reminder time set</string>
     <string name="drawer_remindertime">Reminder</string>

@@ -4,6 +4,7 @@ import cn.appia.im.core.chat.RoomAnnouncement
 import cn.appia.im.core.chat.isMeetingBooking
 import cn.appia.im.core.chat.isMeetingMinutes
 import cn.appia.im.core.meeting.Meeting
+import cn.appia.im.core.meeting.MeetingRoom
 import cn.appia.im.core.meeting.MeetingUser
 import cn.appia.im.core.meeting.meetingSummary
 import kotlinx.serialization.json.JsonNull
@@ -132,6 +133,30 @@ fun groupMeetingBookingsByStatus(items: List<RoomAnnouncement>, nowSec: Long): M
     past.sortByDescending(::parseBookingStartEpochSec)
     return MeetingBookingGroups(upcoming, past)
 }
+
+// ── 会议首页（M8-T5：RN MEETING_HOME_URL H5 首页的原生最小替代）──
+
+/** Meeting 时间读数（bookRecords 与公告同 IMeeting 字符串档，复用 parseBookingEpochSec）。 */
+private fun meetingStartSec(m: Meeting): Long =
+    m.startTime?.let(::parseBookingEpochSec) ?: Long.MAX_VALUE
+
+/** RN parseBookingEndEpochSec 语义：end 缺失/不可解析 → 回退 start。 */
+private fun meetingEndSec(m: Meeting): Long {
+    val end = m.endTime?.let(::parseBookingEpochSec)
+    return if (end == null || end == MAX_EPOCH_SEC) meetingStartSec(m) else end
+}
+
+/**
+ * 首页预订列表：meetingRoomList 窗口内 bookRecords 跨会议室平铺，仅保留 upcoming
+ * （endSec > now）升序。RN 首页 H5 全量预订列表 + 创建——AA M8 最小等价取未来窗口
+ * （past 归各房间 RoomMeeting 面板，不在此重复）。
+ */
+fun meetingHomeBookings(rooms: List<MeetingRoom>, nowSec: Long): List<Meeting> =
+    rooms.asSequence()
+        .flatMap { it.bookRecords.asSequence() }
+        .filter { meetingEndSec(it) > nowSec }
+        .sortedBy(::meetingStartSec)
+        .toList()
 
 // ── 纪要排序（meetingAnnouncementSort.ts:4-39）──
 

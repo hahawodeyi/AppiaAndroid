@@ -45,6 +45,8 @@ import cn.appia.im.core.network.api.ExternalTokenResult
 import cn.appia.im.core.network.api.fetchExternalToken
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.chat.ui.RoomHeader
+import cn.appia.im.feature.meeting.isAntMeetingHttpUrl
+import cn.appia.im.feature.meeting.resolveAntMeetingUrl
 import cn.appia.im.feature.settings.SettingsConstants
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -145,6 +147,32 @@ fun urlsSameOrigin(loadUrl: String, serverUrl: String): Boolean {
     val a = loadUrl.toHttpUrlOrNull() ?: return false
     val b = serverUrl.toHttpUrlOrNull() ?: return false
     return a.scheme == b.scheme && a.host == b.host && a.port == b.port
+}
+
+/**
+ * AntMeeting 移交判定（M8-T5 / RN InAppWebScreen:135-141：resolveAntMeetingUrl ?? isAntMeetingHttpUrl
+ * 直通）：初始 URL 或页内跳转命中 AntMeeting 形状 → 移交原生会议（M8 前降级 toast seam），
+ * 不再进 WebView 加载路径（H5 预热随 M8 原生会议作废，M6 注记对账）。
+ */
+fun resolveAntMeetingHandoff(raw: String?, serverUrl: String): String? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty()) return null
+    return resolveAntMeetingUrl(trimmed, serverUrl) ?: if (isAntMeetingHttpUrl(trimmed)) trimmed else null
+}
+
+/** openLink 应用内分支去向（M8-T5 / RN openLink.ts:54-60 判序：AntMeeting 移交 → 应用内 → 系统）。 */
+enum class OpenLinkTarget { ANT_MEETING_HANDOFF, IN_APP_WEB, SYSTEM }
+
+/**
+ * openLink 决策（RN openLink.ts:47-81 顺序）：browser==='inApp' 且 AntMeeting → 移交（仅 inApp，
+ * RN 系统浏览器 pref 不移交）；inApp → 应用内 WebView；needVPN 白名单域无视 pref 强制应用内；
+ * 其余系统外跳。
+ */
+fun openLinkRoute(browser: String, url: String): OpenLinkTarget = when {
+    browser == "inApp" && isAntMeetingHttpUrl(url) -> OpenLinkTarget.ANT_MEETING_HANDOFF
+    browser == "inApp" -> OpenLinkTarget.IN_APP_WEB
+    matchNeedAuthHost(url)?.needVPN == true -> OpenLinkTarget.IN_APP_WEB
+    else -> OpenLinkTarget.SYSTEM
 }
 
 /**
@@ -294,8 +322,8 @@ private class InAppWebNavState {
  * 去重 reload/XHR-fetch 劫持）、跨页 transition 注入、postMessage 桥（SetTitle 标题 /
  * onResetPasswordSuccess 登出）、腾讯会议外链拦截、全分支返回决策链、RECRUITMENT 隐藏顶栏。
  * RN 三类错误埋点（onError/onHttpError/onRenderProcessGone）AA 无 analytics 总线，未移植
- * （renderProcessGone 不 override = 不重载，RN `return false` 同默认）；AntMeeting 预热
- * 随 M8 原生会议整体作废（WebView 预热不再实现），AntMeeting URL 移交逻辑归 M8 T5。
+ * （renderProcessGone 不 override = 不重载，RN `return false` 同默认）；AntMeeting 预热随 M8 原生
+ * 会议整体作废，AntMeeting URL（初始/页内）移交原生会议（[resolveAntMeetingHandoff]，M8-T5 已接）。
  */
 @Composable
 fun InAppWebScreen(
@@ -313,6 +341,9 @@ fun InAppWebScreen(
     fanweiMobileUrl: String,
     onBack: () -> Unit,
     onLogout: () -> Unit,
+    // M8-T5：AntMeeting URL 移交原生会议（RN :135-141 openAntMeetingWeb→goBack 同语义——移交后
+    // 本屏出栈；T7 原生会议室未接前装配侧降级 toast）
+    onAntMeetingHandoff: (url: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -334,6 +365,13 @@ fun InAppWebScreen(
 
     LaunchedEffect(url, effectiveNeedAuth, effectiveSource, effectiveNeedVPN) {
         val trimmed = url.trim()
+        // AntMeeting 初始 URL → 移交原生会议并出栈（RN :135-141 openAntMeetingWeb 成功后 goBack 同义）
+        val handoff = resolveAntMeetingHandoff(trimmed, serverUrl)
+        if (handoff != null) {
+            onAntMeetingHandoff(handoff)
+            onBack()
+            return@LaunchedEffect
+        }
         val http = trimmed.toHttpUrlOrNull()
         if (http == null) {
             errorKind = InAppWebErrorKind.INVALID
@@ -446,6 +484,7 @@ fun InAppWebScreen(
                         nav = nav,
                         onSetTitle = { headerTitle = it },
                         onResetPassword = onLogout,
+                        onAntMeetingHandoff = onAntMeetingHandoff,
                         onWebviewReady = { web = it },
                     )
                 }
@@ -495,6 +534,7 @@ private fun AppWebView(
     nav: InAppWebNavState,
     onSetTitle: (String) -> Unit,
     onResetPassword: () -> Unit,
+    onAntMeetingHandoff: (String) -> Unit,
     onWebviewReady: (WebView) -> Unit,
 ) {
     androidx.compose.runtime.key(url) {
@@ -567,6 +607,11 @@ private fun AppWebView(
                                 }
                                 return true
                             }
+                            // AntMeeting http(s) → 移交原生会议（M8-T5：H5 会议随原生替代作废，页内链接同移交）
+                            if (isAntMeetingHttpUrl(u.toString())) {
+                                onAntMeetingHandoff(u.toString())
+                                return true
+                            }
                             // wemeet:// 拒载不拉起（RN :382-385）；其余非 http(s)（RN originWhitelist
                             // ['http://*','https://*']）同拒
                             return u.scheme != "http" && u.scheme != "https"
@@ -619,6 +664,7 @@ private fun AppWebView(
 
 /**
  * openLink 等价工具（RN src/lib/openLink/openLink.ts:47-81 逐义）：
+ * AntMeeting http 链接且浏览器 pref inApp → 移交原生会议（M8-T5，[openLinkRoute]）；
  * 浏览器 pref（T9 持久化 DEFAULT_BROWSER_KEY）inApp → 应用内 WebView；needVPN 白名单域
  * （lexiang）无视 pref 强制应用内；systemDefault → ACTION_VIEW，失败返回 false（RN 双跳降级
  * Android 无外部浏览器 scheme 仅系统默认一段）。
@@ -628,19 +674,26 @@ fun openLink(
     kv: KvStore,
     url: String,
     openInAppWeb: (url: String) -> Unit,
+    onAntMeeting: (url: String) -> Unit = {},
 ): Boolean {
     val trimmed = url.trim().removeSuffix(",").removeSuffix("，") // RN normalizeMessageLink
     if (trimmed.isEmpty()) return false
     val browser = kv.getString(SettingsConstants.DEFAULT_BROWSER_KEY, SettingsConstants.DEFAULT_BROWSER)
-    val requiresInAppWeb = matchNeedAuthHost(trimmed)?.needVPN == true
-    if (browser == "inApp" || requiresInAppWeb) {
-        openInAppWeb(trimmed)
-        return true
-    }
-    return try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trimmed)))
-        true
-    } catch (_: ActivityNotFoundException) {
-        false
+    return when (openLinkRoute(browser, trimmed)) {
+        OpenLinkTarget.ANT_MEETING_HANDOFF -> {
+            onAntMeeting(trimmed)
+            true
+        }
+        OpenLinkTarget.IN_APP_WEB -> {
+            openInAppWeb(trimmed)
+            true
+        }
+        OpenLinkTarget.SYSTEM ->
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trimmed)))
+                true
+            } catch (_: ActivityNotFoundException) {
+                false
+            }
     }
 }

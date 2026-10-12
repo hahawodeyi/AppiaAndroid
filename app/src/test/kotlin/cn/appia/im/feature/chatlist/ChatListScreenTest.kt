@@ -82,7 +82,7 @@ class ChatListScreenTest {
     private fun tagExists(tag: String) =
         rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
 
-    private fun setContent(phase: RealtimeTransportPhase, online: Boolean?) {
+    private fun setContent(phase: RealtimeTransportPhase, online: Boolean?, onOpenMeeting: () -> Unit = {}) {
         rule.setContent {
             ChatListScreen(
                 gateway = fixture.orchestrator,
@@ -93,6 +93,7 @@ class ChatListScreenTest {
                     fixture.opened.add(RoomTap(rid, title, roomType, fromAgent))
                 },
                 onLogout = { fixture.logoutCalls.incrementAndGet() },
+                onOpenMeeting = onOpenMeeting,
             )
         }
     }
@@ -165,6 +166,23 @@ class ChatListScreenTest {
         rule.waitForIdle()
 
         assertEquals(1, fixture.logoutCalls.get())
+        assertEquals(0, fixture.opened.size)
+    }
+
+    @Test
+    fun `menu hosts meeting entry and tap fires callback`() {
+        // M8-T5 入口接线冒烟：RN "+" 菜单/抽屉「会议」行合并的 ⋮ 菜单项（drawer_meeting）
+        var meetings = 0
+        fixture.seedChats()
+        setContent(RealtimeTransportPhase.CONNECTED, online = true, onOpenMeeting = { meetings++ })
+        rule.waitUntil(5_000) { tagExists("qa-room-list-header") }
+
+        rule.onNodeWithTag("qa-room-list-menu").performClick()
+        rule.onNodeWithText(context.t("drawer_meeting")).assertExists()
+        rule.onNodeWithTag("qa-room-list-menu-meeting").performClick()
+        rule.waitForIdle()
+
+        assertEquals(1, meetings)
         assertEquals(0, fixture.opened.size)
     }
 
