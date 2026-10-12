@@ -1,6 +1,6 @@
-# Appia 原生重写用户自测协议（M1 登录链路 + M2 会话列表/聊天 + M3 富文本消息 + M4 群组/通讯录 + M5 搜索/设置 + M6 推送/自更新 + M7 待办/工作台/AI，版本 0.8.0）
+# Appia 原生重写用户自测协议（M1 登录链路 + M2 会话列表/聊天 + M3 富文本消息 + M4 群组/通讯录 + M5 搜索/设置 + M6 推送/自更新 + M7 待办/工作台/AI + M8 会议，版本 0.9.0）
 
-> 本文是面向自测人的操作手册。原生版（`cn.appia.im.debug`，versionName **0.8.0**）已实现 M1 全部链路（企业码验证 → 服务器列表 → SMS 登录 → 会话持久化 → 组织切换 → 登出/会话失效）、M2 全部链路（会话列表 + 房间聊天）、M3 全部链路（富文本编辑/渲染、附件收发查看、转发、表情回应、已读回执、编辑/撤回、@提及、长按菜单）与 M4 全部链路（房间信息页/成员管理/公告/改名/选人器/通讯录/名片/房间访问丢失）。
+> 本文是面向自测人的操作手册。原生版（`cn.appia.im.debug`，versionName **0.9.0**）已实现 M1 全部链路（企业码验证 → 服务器列表 → SMS 登录 → 会话持久化 → 组织切换 → 登出/会话失效）、M2 全部链路（会话列表 + 房间聊天）、M3 全部链路（富文本编辑/渲染、附件收发查看、转发、表情回应、已读回执、编辑/撤回、@提及、长按菜单）与 M4 全部链路（房间信息页/成员管理/公告/改名/选人器/通讯录/名片/房间访问丢失）。
 > 自测方法：**与 RN 版（appiaMobile）side-by-side 对照**——同一操作在两个版本各做一遍，比较表现差异。M1 链路见第二~五节，M2 见第六~七节，M3 见第八~九节，M4 见第十~十一节，M5 见第十二~十三节，M6 见第十四~十五节，M7 见第十六~十七节。
 
 ## 一、安装步骤
@@ -12,7 +12,7 @@ APK 由开发侧交付（也可自建：仓库根目录执行 `./gradlew :app:as
 adb install -r app-debug.apk
 ```
 
-启动：桌面点开 **Appia** 图标（debug 版）。确认版本号 0.8.0：企业码页底部页脚常驻版本行，应显示 `0.8.0`。
+启动：桌面点开 **Appia** 图标（debug 版）。确认版本号 0.9.0：企业码页底部页脚常驻版本行，应显示 `0.9.0`。
 
 **与生产版共存**：debug 包名为 `cn.appia.im.debug`（生产版为 `cn.appia.im`），二者可同时安装在同一台设备，数据完全隔离，互不影响。注意 debug 版**不会**覆盖 RN/生产版的数据，需用真实账号重新登录一次。
 
@@ -119,7 +119,7 @@ sqlite3 /tmp/appia.db "SELECT _id, substr(custom_fields,1,80) FROM rooms LIMIT 5
 2. **RN 表现**：（同操作在 RN 版的行为/文案/时序；「RN 也这样」也要写明）
 3. **原生表现**：实际看到的行为/文案/时序
 4. **截图/录屏**：两侧各一张（`adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png`）
-5. 环境：设备型号、Android 版本、App 版本号（0.8.0）
+5. 环境：设备型号、Android 版本、App 版本号（0.9.0）
 
 示例：
 
@@ -127,7 +127,7 @@ sqlite3 /tmp/appia.db "SELECT _id, substr(custom_fields,1,80) FROM rooms LIMIT 5
 > - RN 表现：弹层内点击后约 1s 主屏切换完成
 > - 原生表现：点击后主屏立即切换，但连接状态文本 3s 内显示「离线」再变「在线」
 > - 截图：attach
-> - 环境：Pixel 7 / Android 14 / 0.8.0
+> - 环境：Pixel 7 / Android 14 / 0.9.0
 
 ## 四、已知差异（对照 RN 版，非缺陷，请勿按缺陷反馈）
 
@@ -651,3 +651,78 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 10. **泛微 token 快路竞态**：并发首调可能多一次冗余 HTTP（creator 持锁 await——仅冗余无错误）。
 11. **Android 泛微注入时序**：onPageStarted/Finished+doUpdateVisitedHistory 重现 RN injectedJavaScriptBeforeContentLoaded（M6 已证与 RN-on-Android 逐位同）。
 12. **AgentEditor edit+success 冒烟等待裁撤**：Robolectric 下 onSaved 到达慢——wire 断言保留，真机走查如复现再查。
+
+## 十八、M8 自测清单（会议，双端对照）
+
+> **外部依赖前置（用户域）**：
+> 1. **Agora AppId**：AA 原生 RTC 需 Agora 控制台 AppId（App Certificate 模式待服务端 credentials 接口确认后切 token 模式）。
+> 2. **RTC 凭据抓包**（一次性）：登录 → 创建会议 → 抓 `/api/v2/video/meeting/credentials` 响应体字段名回填（spike 文档 §4 六步流程）。
+> 3. **二设备**：RTC 真会议至少两方入会。
+> 4. **工作台配置**：服务端 worktable_config 有会议入口数据。
+
+### 1. 会议预订 CRUD
+
+- [ ] 聊天附件「会议」（群聊非单聊 + Appia_Meeting_Enable≠false 才显示）→ 表单
+- [ ] 表单全字段：主题/起止时间（分钟步进 15）/会议室（服务端列表）/与会人（默认全房间联邦成员+选择器）/周期预设 0-6/描述/材料/通知开关/私有网络
+- [ ] **腾讯代建**：createTxMeeting 默认开 → 服务端代建腾讯会议 → 记录回填 tencentMeetingId
+- [ ] **手动会议号**：createTxMeeting 关 → meetCode+meetUrl 都必填（只填一个打回）
+- [ ] 创建成功 → 公告流出现会议卡片 + 面板预订 tab 可见
+- [ ] 编辑（普通/周期整串/周期单次三分支）→ 更新生效
+- [ ] 删除（普通/周期整串 → type:delete；周期单次 → cancelPeriodicSingleMeeting）→ 卡片消失
+
+### 2. 会议面板
+
+- [ ] RoomInfo「会议」行 → 面板（M4 占位收口）
+- [ ] 双 tab：预订（upcoming 升序在前/past 降序在后）/纪要
+- [ ] 仅 upcoming 且有 joinUrl 显示「加入」
+
+### 3. 入会（RTC 真连接）
+
+- [ ] AntMeeting 记录「加入」→ 原生会议房间（视频宫格/控制条/成员）
+- [ ] 静音/摄像头开关生效（对端可见）
+- [ ] 对端加入/退出 → 宫格 tile 增减
+- [ ] 会中返回 → 离开确认弹层（非直接退出）
+- [ ] 被踢/会议结束 → toast + 自动退出房间
+- [ ] 无视频帧说明：当前 tile 呈现参与者态（帧渲染需扩接口——已知差异 3）
+
+### 4. 浮窗/最小化
+
+- [ ] 会中最小化 → 应用内可拖拽气泡（位置持久化，杀进程保留）
+- [ ] 气泡点击 → 恢复会议房间（不重新入会不掉线）
+- [ ] 最小化后 App 退后台 → 系统悬浮横条（标题+时长）+ 前台服务通知
+- [ ] 无悬浮窗权限 → 降级为仅通知+toast（不 crash）
+- [ ] 悬浮条点击 → 回前台
+- [ ] 会议结束/离开 → 悬浮窗/通知清除
+
+### 5. 横屏/互斥
+
+- [ ] 会中控制条转屏钮 → 横屏（视频区不重建不掉线）
+- [ ] 再点 → 回竖屏
+- [ ] 最小化 → 强制竖屏
+- [ ] 会中屏幕常亮；退出/最小化恢复系统行为
+- [ ] 互斥说明：会议进行中语音发起将被拒（M10 语音落地后对侧生效）
+
+### 6. 腾讯会议记录
+
+- [ ] tencentMeetingId 记录「加入」→ 外跳腾讯会议 App（wemeet://）或 https 外开
+- [ ] meeting.tencent.com 链接 → 系统浏览器（非应用内）
+
+### 7. 回归抽查
+
+- [ ] 启动无崩溃（Agora 引擎未初始化不影响 App 可用）；M1-M7 抽查各 1-2 项
+
+## 十九、M8 已知差异（对照 RN 版，非缺陷，请勿按缺陷反馈）
+
+1. **原生 RTC 替换 H5**：RN 会议本体是 WebView H5 SPA（Agora Web SDK 在 H5 内）——AA 用 Agora 原生 SDK 替换；与老 H5 会议**不互通**除非同 AppId+token 体系（裁定：不要求互通）。
+2. **RTC 凭据接口字段待回填**：`/api/v2/video/meeting/credentials` 响应字段为 H5 bundle 反解推定（appId/token/uid）——宽容建模+cert-less 兜底，抓包后收紧。
+3. **无 token 生产模式待服务端**：App Certificate 无 token 模式仅测试期；生产需服务端 token 签发。
+4. **视频帧未上屏**：tile 呈现参与者态（静音/出帧高亮）——帧渲染需扩 AgoraRtcApi（setupRemoteVideo/LocalVideo），M8 范围外后续补。
+5. **被踢信号近似**：原生无显式 kicked 回调——以 inMeeting 中 SDK onError 近似。
+6. **成员表无名字映射**：显示 uid/Me（RN H5 内部有映射）。
+7. **会议室时间轴占用简化**：名称单选可空（计划明文授权）；extraMeetingRoom 创建无输入 UI（编辑保留）。
+8. **15 分钟步进=确认时向下取整**（Compose TimePicker 无间隔轮盘）；min-date 约束在提交校验。
+9. **与会人选择为表单内 dialog**：AA 未建 VoiceMemberPicker（M4 选择器组织树数据源不匹配）；RN meetingFormDraftStore 往返未移植。
+10. **浮窗降级链**：无悬浮窗权限 → 仅前台服务通知+toast。
+11. **prefersLandscape 跨会残留**：会议结束后记忆不重置（下次会议恢复为横屏一次）——边缘影响。
+12. **遥测 skip**：会议错误埋点 AA 无 analytics 总线。
+13. **消息内链接未走 openLink**：InlineEnv.onLinkPress 未接线（pre-existing，T13 组装收口——接线后 AntMeeting 链接自动走会议移交）。
