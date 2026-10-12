@@ -77,3 +77,25 @@ fun meetingRoomSignalFor(state: MeetingSessionState, event: MeetingRtcEvent): Me
     event is MeetingRtcEvent.Left && state.phase != MeetingPhase.Idle -> MeetingRoomSignal.ENDED
     else -> MeetingRoomSignal.NONE
 }
+
+/**
+ * 进程级兜底终会判定（终审 I-2；RN meeting:kicked 全局 store 对位）：房间屏的引擎事件收集随
+ * 出栈终止（SharedFlow 无 replay）——**Minimized** 期间到达的 Error/Left 无人消费会留下死会话
+ * （气泡+FGS+blocksVoiceStart 卡死）。此判定为真的相位/事件组合须由进程级收集器兜底
+ * controller.leave()；InMeeting（屏幕在场自会处理）与 Idle（无会话）一律 false。
+ */
+fun processLevelRoomEndNeeded(phase: MeetingPhase, event: MeetingRtcEvent): Boolean =
+    phase == MeetingPhase.Minimized && (event is MeetingRtcEvent.Error || event is MeetingRtcEvent.Left)
+
+/**
+ * 进程级引擎事件兜底收集循环（终审 I-2；挂载于 MeetingFloatAppStateWatcher 同层，进程单例寿）。
+ * 判定见 [processLevelRoomEndNeeded]；leave 幂等，engine.leave + 状态机 end → 相位翻转链
+ * 自动 STOP FGS/收气泡/解 blocksVoiceStart。
+ */
+suspend fun collectRoomEndFallback(handle: MeetingRoomHandle) {
+    handle.engine.events.collect { e ->
+        if (processLevelRoomEndNeeded(handle.machine.state.value.phase, e)) {
+            handle.controller.leave()
+        }
+    }
+}

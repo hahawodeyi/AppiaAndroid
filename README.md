@@ -16,4 +16,6 @@ maestro test maestro/launch_android.yaml           # 启动冒烟（需模拟器
 maestro test maestro/login_reach_login.yaml        # 企业码失败链路冒烟
 ```
 
-M8 已知差异（原生 RTC 替换 H5 不互通/凭据字段反推待抓包/无 token 生产模式待服务端/视频帧未上屏/被踢 onError 近似/成员表无名字映射/时间轴占用简化等 13 项）见自测协议第十九节；M1-M7 遗留差异见第四/七/九/十一/十三/十五/十七节。杂项 backlog：`docs/backlog-m6.md`。
+**安装说明（M8 起）**：APK 含 Agora 原生 SDK，`abiFilters` 已裁定 **arm64-v8a 单 ABI**（终审 I-1）——实测 93.1MB（universal 4-ABI 为 257.6MB）。真机与 Apple Silicon 模拟器直接安装；x86_64/Intel 模拟器报 `INSTALL_FAILED_NO_MATCHING_ABIS` 时，移除 `app/build.gradle.kts` defaultConfig 内 `ndk { abiFilters }` 行重建（splits 归 M11）。详见自测协议 §19-14。
+
+M8 已知差异（原生 RTC 替换 H5 不互通/凭据字段反推待抓包/无 token 生产模式待服务端/视频帧未上屏/被踢 onError 近似/成员表无名字映射/时间轴占用简化/arm64 单 ABI 包体 93.1MB 等 14 项）见自测协议第十九节；M1-M7 遗留差异见第四/七/九/十一/十三/十五/十七节。杂项 backlog：`docs/backlog-m6.md`。

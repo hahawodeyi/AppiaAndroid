@@ -726,3 +726,4 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 11. **prefersLandscape 跨会残留**：会议结束后记忆不重置（下次会议恢复为横屏一次）——边缘影响。
 12. **遥测 skip**：会议错误埋点 AA 无 analytics 总线。
 13. **消息内链接未走 openLink**：InlineEnv.onLinkPress 未接线（pre-existing，T13 组装收口——接线后 AntMeeting 链接自动走会议移交）。
+14. **APK 包体（abiFilters 裁定）**：Agora 原生 SDK 使包体 24.3MB → **93.1MB**（universal 4-ABI 原为 257.6MB；M8 终审裁定 `abiFilters += "arm64-v8a"` 单 ABI，增量 +68.8MB）。真机（RTC 双设备验收）与 Apple Silicon 模拟器均 arm64 可直接安装；**x86_64/Intel 模拟器**安装会报 `INSTALL_FAILED_NO_MATCHING_ABIS`——临时移除 `app/build.gradle.kts` defaultConfig 内 `ndk { abiFilters }` 行重建即可。splits/per-ABI versionCode 归 M11。

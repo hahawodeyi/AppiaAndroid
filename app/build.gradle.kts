@@ -50,6 +50,12 @@ android {
         targetSdk = 36
         versionCode = versionCodeOverride ?: DEFAULT_VERSION_CODE
         versionName = "0.9.0"
+        // M8 终审 I-1 abiFilters 裁定（T1 spike §6 移交决策点）：**arm64-v8a 单 ABI**——
+        // Agora full-sdk 4-ABI universal 使 APK 24.3→257.6MB；交付物 .debug 装真机（RTC 双设备
+        // 验收）全为 arm64，Apple Silicon 模拟器镜像同为 arm64——单 ABI 实测 257.6→93.1MB
+        // （增量 +68.8MB，记录于协议 §19-14/task-7-report）。x86_64/Intel 模拟器如需安装，
+        // 临时移除本行重建（README 安装节有说明）；splits/per-ABI versionCode 归 M11。
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildFeatures {

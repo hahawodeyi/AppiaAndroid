@@ -2048,10 +2048,9 @@ fun AppiaNavHost(
                     onOpenQuickReply = { },
                     // T10：浏览器 pref inApp → 法律链接等走应用内 WebView（RN openLink）
                     onOpenInAppWeb = { url -> nav.navigate(InAppWebRoute(url = url)) },
-                    // M8-T5：openLink inApp 分支 AntMeeting 链接移交（join seam T7 前降级 toast）
-                    onAntMeeting = { _ ->
-                        Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
-                    },
+                    // M8-T5：openLink inApp 分支 AntMeeting 链接移交（终审 Minor 收口：T7 原生
+                    // 会议室已建，接 openMeetingRoom——InlineEnv.onLinkPress T13 接线后即生效）
+                    onAntMeeting = { url -> openMeetingRoom(url, null) },
                 )
             }
         }
@@ -2765,7 +2764,8 @@ class MainActivity : AppCompatActivity() {
         // M6-T7：登录态变化驱动检查的收集起点（幂等；RN enabled 流首次收集 = 挂载即查一次）
         // M8-T8：浮窗 AppState 绑定（meetingFloat.ts:41-68）——会话机为单例，进程级监听只挂一次
         //（Activity 重建经 ensureRegistered 幂等）；退后台且相位非 idle 起系统浮窗，回前台 hide。
-        MeetingFloatAppStateWatcher.ensureRegistered(application, meetingRoom?.machine)
+        // 终审 I-2：同层挂进程级引擎事件兜底（Minimized 下 kicked/ended → leave，死会话不滞留）。
+        MeetingFloatAppStateWatcher.ensureRegistered(application, meetingRoom)
         appReleaseCheck.start()
         setContent {
             AppiaTheme(isDark = isSystemInDarkTheme()) {

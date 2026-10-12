@@ -17,8 +17,8 @@ import javax.inject.Singleton
 
 /**
  * 会议房间装配束（M8-T7；T6 KDoc "Hilt 接线归 T7" 的落点）。**@Singleton（app 域）**：
- * 引擎/状态机须跨 Activity 重建存活——manifest 无 configChanges/方向锁，Activity 域持有会在
- * 旋转/深色切换时 RtcEngine.destroy 重建并掉频重连（评审 I-2）；测试自建 fake [AgoraMeetingEngine]
+ * 引擎/状态机须跨 Activity 重建存活（manifest configChanges 已覆盖旋转/深色切换，T9；单例域
+ * 为 FGS/进程域第二重保险——评审 I-2 定级依据）；测试自建 fake [AgoraMeetingEngine]
  * 注入（不经 Hilt）。
  */
 class MeetingRoomHandle(
@@ -32,7 +32,6 @@ class MeetingRoomHandle(
 @Module
 @InstallIn(SingletonComponent::class)
 object MeetingRoomModule {
-
     /** 生产 credentials lambda：会话 token + serverUrl 同源链（meetingApiOrigin 覆盖源 AA 未落库——
      *  resolveMeetingApiBase(null, serverUrl)）；uid 策略在屏内（uidForMeeting）。 */
     @Provides

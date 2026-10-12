@@ -11,7 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-
 /**
  * 会议浮窗绑定（RN meetingFloat.ts:41-68 bindMeetingFloatToAppState 原生等价）：
  * - 退后台 && 相位非 idle（preheating 也算）→ START(title, duration)
@@ -78,9 +77,10 @@ object MeetingFloatAppStateWatcher {
     private val bound =
         java.util.Collections.synchronizedMap(java.util.WeakHashMap<MeetingSessionStateMachine, MeetingFloatBinding>())
 
-    /** 幂等（Activity 重建不重复挂 callbacks/相位收集）。 */
-    fun ensureRegistered(app: Application, machine: MeetingSessionStateMachine?) {
-        if (machine == null || bound.containsKey(machine)) return
+    /** 幂等（Activity 重建不重复挂 callbacks/相位收集/引擎事件兜底）。 */
+    fun ensureRegistered(app: Application, handle: MeetingRoomHandle?) {
+        val machine = handle?.machine ?: return
+        if (bound.containsKey(machine)) return
         var startedActivities = 0
         val binding = MeetingFloatBinding(machine, { action ->
             val state = machine.state.value
@@ -114,5 +114,11 @@ object MeetingFloatAppStateWatcher {
             override fun onActivityDestroyed(activity: Activity) = Unit
         })
         bound[machine] = binding
+        // 终审 I-2：进程级引擎事件兜底（RN meeting:kicked 全局 store 对位）。房间屏的事件收集随
+        // 出栈终止、SharedFlow 无 replay——**Minimized** 期间到达的 kicked(Error)/ended(Left)
+        // 在此消费（判定与循环见 [collectRoomEndFallback]）。
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
+            collectRoomEndFallback(handle)
+        }
     }
 }

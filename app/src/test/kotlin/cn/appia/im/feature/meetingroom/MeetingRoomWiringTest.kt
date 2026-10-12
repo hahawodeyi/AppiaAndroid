@@ -9,7 +9,10 @@ import cn.appia.im.core.meeting.rtc.MeetingRtcEvent
 import cn.appia.im.domain.meeting.MeetingPhase
 import cn.appia.im.domain.meeting.MeetingSessionController
 import cn.appia.im.domain.meeting.MeetingSessionStateMachine
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -101,5 +104,64 @@ class MeetingRoomWiringTest {
         assertEquals(DEFAULT_MEETING_API_BASE, resolveMeetingApiBase(null, null))
         // 覆盖源优先于同源
         assertEquals("https://meeting.appia.vip", resolveMeetingApiBase("https://meeting.appia.vip", "https://s1.appia.cn"))
+    }
+
+    // ---- 进程级事件兜底（终审 I-2：Minimized 下 kicked/ended → leave）----
+
+    @Test
+    fun `minimized error falls back to leave and clears mutex`() = runBlocking {
+        coroutineScope {
+        val h = handle(MeetingCredentials(appId = "app", token = "t"))
+        h.controller.join("room", 1, "a")
+        h.machine.minimize()
+        assertEquals(MeetingPhase.Minimized, h.machine.phase)
+        assertTrue(h.machine.blocksVoiceStart())
+        val collector = launch { collectRoomEndFallback(h) }
+        yield()
+        // 服务端踢出/SDK onError（房间屏不在栈上收集）——兜底回 idle
+        rtc.onEvent?.invoke(MeetingRtcEvent.Error(-5))
+        yield()
+        assertEquals(MeetingPhase.Idle, h.machine.phase)
+        assertFalse(h.machine.blocksVoiceStart())
+        assertFalse(h.engine.inChannel)
+        collector.cancel()
+        }
+    }
+
+    @Test
+    fun `minimized left event falls back to leave`() = runBlocking {
+        coroutineScope {
+        val h = handle(MeetingCredentials(appId = "app", token = "t"))
+        h.controller.join("room", 1, "a")
+        h.machine.minimize()
+        val collector = launch { collectRoomEndFallback(h) }
+        yield()
+        rtc.onEvent?.invoke(MeetingRtcEvent.Left)
+        yield()
+        assertEquals(MeetingPhase.Idle, h.machine.phase)
+        collector.cancel()
+        }
+    }
+
+    @Test
+    fun `inMeeting and idle events are not intercepted by fallback`() = runBlocking {
+        coroutineScope {
+        // InMeeting：房间屏在场自会处理（toast+pop）——兜底不重复动作
+        val h = handle(MeetingCredentials(appId = "app", token = "t"))
+        h.controller.join("room", 1, "a")
+        val collector = launch { collectRoomEndFallback(h) }
+        yield()
+        rtc.onEvent?.invoke(MeetingRtcEvent.Error(-5))
+        yield()
+        assertEquals(MeetingPhase.InMeeting, h.machine.phase)
+        assertTrue(h.engine.inChannel)
+        collector.cancel()
+        // 判定表：Minimized 只认 Error/Left；Idle 一律不兜底
+        assertTrue(processLevelRoomEndNeeded(MeetingPhase.Minimized, MeetingRtcEvent.Error(-5)))
+        assertTrue(processLevelRoomEndNeeded(MeetingPhase.Minimized, MeetingRtcEvent.Left))
+        assertFalse(processLevelRoomEndNeeded(MeetingPhase.Minimized, MeetingRtcEvent.Stats(1, 1)))
+        assertFalse(processLevelRoomEndNeeded(MeetingPhase.InMeeting, MeetingRtcEvent.Error(-5)))
+        assertFalse(processLevelRoomEndNeeded(MeetingPhase.Idle, MeetingRtcEvent.Left))
+        }
     }
 }
