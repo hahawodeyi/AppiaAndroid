@@ -28,7 +28,7 @@ class MeetingHomeScreenSmokeTest {
 
     private val context = ApplicationProvider.getApplicationContext<Application>()
 
-    private fun render(onCreate: () -> Unit = {}, onJoinAnt: (String) -> Unit = {}) {
+    private fun render(onCreate: () -> Unit = {}, onJoinAnt: (String, String?) -> Unit = { _, _ -> }) {
         rule.setContent {
             AppiaTheme(isDark = false) {
                 MeetingHomeScreen(

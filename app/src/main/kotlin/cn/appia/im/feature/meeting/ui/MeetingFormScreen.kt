@@ -127,6 +127,8 @@ fun MeetingFormScreen(
     currentUserName: String?,
     currentUsername: String?,
     onBack: () -> Unit,
+    /** M8-T7 创建成功即入会（brief"创建成功即入会 or 加入既有"）：携带成功载荷（含 meetCode/meetUrl），装配处解析入会。 */
+    onJoinCreated: (Meeting) -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -264,6 +266,7 @@ fun MeetingFormScreen(
                     context.t("meeting_saveSuccess")
                 }
                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                if (action is MeetingSubmitAction.Create) onJoinCreated(payload)
                 onBack()
             } catch (e: CancellationException) {
                 throw e

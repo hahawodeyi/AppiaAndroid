@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -242,6 +243,16 @@ fun buildAntMeetingUrlFromCode(meetingCode: String, serverUrl: String): String? 
     if (code.isEmpty() || serverUrl.isBlank()) return null
     val base = serverUrl.trimEnd('/')
     return base + "/AntMeeting/" + URLEncoder.encode(code, "UTF-8")
+}
+
+/** RN extractMeetingNumberFromUrl（antMeetingUrl.ts:64-74）：`/AntMeeting/{segment}` 的 segment（decode 后）；
+ * 首页（无 segment）→ null。T7 原生会议室 route 入参（channelName=会议号）。
+ */
+fun extractMeetingNumberFromUrl(url: String): String? {
+    val trimmed = url.trim()
+    val source = runCatching { URI(trimmed).path }.getOrNull()?.takeIf { it.isNotEmpty() } ?: trimmed
+    return Regex("/AntMeeting/([^/?#]+)", RegexOption.IGNORE_CASE).find(source)?.groupValues?.get(1)
+        ?.let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull() }
 }
 
 /**

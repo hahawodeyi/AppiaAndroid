@@ -151,14 +151,25 @@ import cn.appia.im.feature.roominfo.ui.announcementAttachmentKind
 import cn.appia.im.feature.roominfo.ui.AnnouncementKind
 import cn.appia.im.feature.meeting.MeetingDeleteScope
 import cn.appia.im.feature.meeting.MeetingEditMode
+import cn.appia.im.feature.meeting.MeetingJoinResolution
 import cn.appia.im.feature.meeting.canShowMeetingAttachment
 import cn.appia.im.feature.meeting.executeMeetingDelete
+import cn.appia.im.feature.meeting.extractMeetingNumberFromUrl
 import cn.appia.im.feature.meeting.parseRoomUsernames
+import cn.appia.im.feature.meeting.resolveMeetingJoin
 import cn.appia.im.feature.meeting.ui.MeetingFormScreen
 import cn.appia.im.feature.meeting.ui.MeetingHomeScreen
 import cn.appia.im.feature.meeting.ui.MeetingSummaryDetailScreen
 import cn.appia.im.feature.meeting.ui.RoomMeetingScreen
+import cn.appia.im.feature.meetingroom.MeetingRoomHandle
+import cn.appia.im.feature.meetingroom.ui.MeetingRoomScreen
+import cn.appia.im.core.meeting.fetchMeetingCredentials
 import cn.appia.im.core.meeting.meetingBooking
+import cn.appia.im.core.meeting.resolveMeetingApiBase
+import cn.appia.im.core.meeting.rtc.AgoraMeetingEngine
+import cn.appia.im.core.meeting.rtc.AgoraRtcImpl
+import cn.appia.im.domain.meeting.MeetingSessionController
+import cn.appia.im.domain.meeting.MeetingSessionStateMachine
 import cn.appia.im.feature.roominfo.ui.RoomAnnouncementScreen
 import cn.appia.im.feature.roominfo.ui.RoomChannelNameEditScreen
 import cn.appia.im.feature.roominfo.ui.RoomInfoScreen
@@ -341,6 +352,17 @@ data class MeetingFormRoute(
     val editMode: String = "edit-normal",
 )
 
+/**
+ * M8-T7 原生会议室（greenfield）：channelName = Agora 频道（= 会议号），meetingNumber = 展示号，
+ * title = 会议主题。三 join 站点统一落此（首页/面板 AntMeeting seam + 表单创建成功即入会）。
+ */
+@Serializable
+data class MeetingRoomRoute(
+    val channelName: String,
+    val meetingNumber: String = "",
+    val title: String = "",
+)
+
 // T8 已落地（选人器）：RN navigate('CreateChannelMembers', {intent, rid?, t?, teamId?,
 // existingMemberUsernames?, preselectedUsernames?})；teamId 来自 RN RoomInfo :200
 // `chat?.teamMain ? chat.teamId : undefined`（T4 minor 补——agent 移除 team 主房双调用 M5+ 用）
@@ -483,6 +505,8 @@ class RouteDeps(
     val appReleaseCheck: AppReleaseCheckController? = null,
     /** M6-T7 自更新弹窗状态机（会话内静默/手动检查 bypass 接缝在控制器）。 */
     val appUpdatePrompt: AppUpdatePromptController? = null,
+    /** M8-T7 会议房间装配束（引擎/状态机/加入流——MainActivity lazy 单例传入；UI 测试 null）。 */
+    val meetingRoom: MeetingRoomHandle? = null,
 ) {
     /** AI 房间控制态机（M7-T7 / RN aiStore zustand 全局单例同寿：随 app scope，不随路由）。 */
     val aiRooms: AiRoomStateMachine by lazy { AiRoomStateMachine(scope) }
@@ -604,6 +628,21 @@ fun AppiaNavHost(
 
     fun goMain() = nav.navigate(MainRoute) { popUpTo(0) { inclusive = true } }
     fun goAuth() = nav.navigate(EnterpriseCodeRoute) { popUpTo(0) { inclusive = true } }
+
+    /**
+     * M8-T7 原生会议室入会（三 join 站点统一：RN openAntMeetingWeb 的原生替代落点）：
+     * AntMeeting URL → 会议号（extractMeetingNumberFromUrl）→ MeetingRoomRoute。
+     * 解析不出会议号（首页形状）→ toast（无号即无频道，无可加入对象）。
+     * 语音互斥（坑 6 语音侧）归 T9 收口——M10 语音相位尚未落地，此处无源可查。
+     */
+    fun openMeetingRoom(url: String, subject: String?) {
+        val number = extractMeetingNumberFromUrl(url)
+        if (number.isNullOrEmpty()) {
+            Toast.makeText(context, context.t("meeting_room_joinfailed"), Toast.LENGTH_SHORT).show()
+            return
+        }
+        nav.navigate(MeetingRoomRoute(channelName = number, meetingNumber = number, title = subject.orEmpty()))
+    }
 
     /** 登录成功统一路径（账密/SMS onLoginSuccess 与 CAS runSsoLogin 汇入）：持久化 → Main。 */
     fun onLoginSuccess(result: LoginResult, server: String) {
@@ -1529,6 +1568,24 @@ fun AppiaNavHost(
                 )
             }
         }
+        // 会议房间（M8-T7 greenfield / RN openAntMeetingWeb 原生替代）：入会流 = 控制器
+        // credentials → engine.join → inMeeting（房间屏内自驱）；坑 4 会中返回=离开确认在屏内。
+        composable<MeetingRoomRoute> { entry ->
+            val route = entry.toRoute<MeetingRoomRoute>()
+            if (deps == null || deps.meetingRoom == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                MeetingRoomScreen(
+                    channelName = route.channelName,
+                    meetingNumber = route.meetingNumber,
+                    title = route.title,
+                    userId = bound.auth?.user?.id.orEmpty(),
+                    handle = deps.meetingRoom,
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
         // 会议首页（M8-T5 / RN MEETING_HOME_URL 原生替代）：meetingRoomList 未来窗口预订列表
         // + 右上 + → MeetingFormRoute（rid 空）；加入坑 9 三分同面板（AntMeeting → seam toast，
         // 腾讯外跳屏内 Intent）。
@@ -1543,10 +1600,7 @@ fun AppiaNavHost(
                     serverUrl = bound.serverUrl,
                     onBack = { nav.popBackStack() },
                     onCreateMeeting = { nav.navigate(MeetingFormRoute(rid = "", roomType = "c")) },
-                    onJoinAntMeeting = { _ ->
-                        // TODO(M8-T7): 原生会议室入会——会议室 UI 未建前降级 toast（同面板 seam）
-                        Toast.makeText(context, context.t("feature_not_implemented"), Toast.LENGTH_SHORT).show()
-                    },
+                    onJoinAntMeeting = { url, subject -> openMeetingRoom(url, subject) },
                 )
             }
         }
@@ -1610,14 +1664,7 @@ fun AppiaNavHost(
                             pushEditForm(merged, MeetingEditMode.NORMAL)
                         }
                     },
-                    onJoinAntMeeting = { _ ->
-                        // TODO(M8-T7): 原生会议室入会（feature/meetingroom）——房间 UI 未建前降级 toast
-                        Toast.makeText(
-                            context,
-                            context.t("feature_not_implemented"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    },
+                    onJoinAntMeeting = { url, subject -> openMeetingRoom(url, subject) },
                     onOpenMinutes = { announcementId ->
                         nav.navigate(MeetingSummaryDetailRoute(rid = route.rid, announcementId = announcementId))
                     },
@@ -1666,6 +1713,16 @@ fun AppiaNavHost(
                     currentUserName = auth?.user?.name,
                     currentUsername = auth?.user?.username,
                     onBack = { nav.popBackStack() },
+                    onJoinCreated = { record ->
+                        // M8-T7 创建成功即入会（brief）：解析出 AntMeeting 频道才入会
+                        // （腾讯代建/无号记录照旧回面板）；navigate 先于表单 onBack 弹栈即落房间页。
+                        val join = resolveMeetingJoin(
+                            record.meetUrl, record.meetCode, record.tencentMeetingId, bound.serverUrl,
+                        )
+                        if (join is MeetingJoinResolution.AntMeeting) {
+                            openMeetingRoom(join.url, record.subject)
+                        }
+                    },
                 )
             }
         }
@@ -2633,6 +2690,30 @@ class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var appUpdatePrompt: AppUpdatePromptController
 
+    /**
+     * M8-T7 会议房间装配（T6 KDoc "Hilt 接线归 T7" 的最简落点——手动构造，app 会话级单例：
+     * 引擎/状态机须跨路由存活，不随路由重建）。生产 credentials lambda：会话 token + serverUrl
+     * 同源链（meetingApiOrigin 覆盖源 AA 未落库——resolveMeetingApiBase(null, serverUrl)）。
+     */
+    val meetingRoom: MeetingRoomHandle by lazy {
+        val machine = MeetingSessionStateMachine()
+        val engine = AgoraMeetingEngine(AgoraRtcImpl(applicationContext))
+        MeetingRoomHandle(
+            engine = engine,
+            machine = machine,
+            controller = MeetingSessionController(engine, machine) { channelName, uid ->
+                val auth = authStore.load() ?: return@MeetingSessionController null
+                fetchMeetingCredentials(
+                    base = resolveMeetingApiBase(null, auth.serverUrl),
+                    channelName = channelName,
+                    uid = uid,
+                    token = auth.token,
+                    userId = auth.user.id,
+                )
+            },
+        )
+    }
+
     /** RN MainNavigator.tsx:60 AppState 'active' → syncCurrentUserRoles()（30s 节流内置）。 */
     override fun onResume() {
         super.onResume()
@@ -2688,6 +2769,7 @@ class MainActivity : AppCompatActivity() {
                             realtimeSessionManager,
                             appReleaseCheck,
                             appUpdatePrompt,
+                            meetingRoom,
                         ),
                     )
                 }

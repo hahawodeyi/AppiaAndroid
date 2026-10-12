@@ -53,8 +53,8 @@ import kotlinx.coroutines.CancellationException
  * meetingRoomList 未来窗口（now → +30d）bookRecords 平铺为 upcoming 预订列表（[meetingHomeBookings]），
  * 右上 + → [onCreateMeeting]（MeetingFormRoute，rid 空 = 无房间会议——RN buildMeetingPayload 校验
  * 不含 rid，表单成员拉取失败静默为空，行为同 RN 会话外预订）。
- * 加入（坑 9 同面板）：resolveMeetingJoin 三分——AntMeeting → [onJoinAntMeeting] seam（T7 原生会议室，
- * 未接前降级 toast）、腾讯 → 系统外跳、None → toast。
+ * 加入（坑 9 同面板）：resolveMeetingJoin 三分——AntMeeting → [onJoinAntMeeting] seam（M8-T7 原生
+ * 会议室已接）、腾讯 → 系统外跳、None → toast。
  */
 @Composable
 fun MeetingHomeScreen(
@@ -62,7 +62,7 @@ fun MeetingHomeScreen(
     serverUrl: String,
     onBack: () -> Unit,
     onCreateMeeting: () -> Unit = {},
-    onJoinAntMeeting: (url: String) -> Unit = {},
+    onJoinAntMeeting: (url: String, subject: String?) -> Unit = { _, _ -> },
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -88,7 +88,7 @@ fun MeetingHomeScreen(
 
     fun onJoin(record: Meeting) {
         when (val join = resolveMeetingJoin(record.meetUrl, record.meetCode, record.tencentMeetingId, serverUrl)) {
-            is MeetingJoinResolution.AntMeeting -> onJoinAntMeeting(join.url)
+            is MeetingJoinResolution.AntMeeting -> onJoinAntMeeting(join.url, record.subject)
             is MeetingJoinResolution.External -> {
                 try {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(join.uri)))

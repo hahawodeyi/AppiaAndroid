@@ -55,7 +55,7 @@ import kotlinx.coroutines.launch
  * 房间会议面板（RN screens/RoomMeetingScreen/index.tsx 双 tab 全结构）：
  * - 预订 tab：endSec>now 分组（upcoming 升序节在前 / past 降序节在后，meetingBookingDisplay.ts:19,60,151），
  *   卡片 join/edit/delete。join 仅 upcoming 且解析非空（坑 9：meetUrl 优先，否则 meetCode??:tencentMeetingId；
- *   AntMeeting 形状 → [onJoinAntMeeting] seam（T7 原生会议室，未接前降级 toast）；腾讯记录 → 系统外跳
+ *   AntMeeting 形状 → [onJoinAntMeeting] seam（M8-T7 原生会议室已接）；腾讯记录 → 系统外跳
  *   wemeet:// 或 https）。delete 走 postSaveRoomSettings roomAnnouncementData type:delete（周期单次走
  *   cancelPeriodicSingleMeeting，[MeetingDeleteScope]）；周期记录弹单次/整串三钮确认（promptMeetingDelete.ts）。
  * - 纪要 tab：ymd/updateTime 倒序卡片 → [onOpenMinutes]（详情纯本地渲染）。
@@ -77,7 +77,7 @@ fun RoomMeetingScreen(
     onDeleteBooking: suspend (announcementId: String, scope: MeetingDeleteScope) -> Unit = { _, _ -> },
     onCreateMeeting: () -> Unit = {},
     onEditMeeting: (RoomAnnouncement) -> Unit = {},
-    onJoinAntMeeting: (url: String) -> Unit = {},
+    onJoinAntMeeting: (url: String, subject: String?) -> Unit = { _, _ -> },
     onOpenMinutes: (announcementId: String) -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
@@ -100,7 +100,7 @@ fun RoomMeetingScreen(
     fun onJoin(item: RoomAnnouncement) {
         val record = item.meetingBooking()
         when (val join = resolveMeetingJoin(record?.meetUrl, record?.meetCode, record?.tencentMeetingId, serverUrl)) {
-            is MeetingJoinResolution.AntMeeting -> onJoinAntMeeting(join.url)
+            is MeetingJoinResolution.AntMeeting -> onJoinAntMeeting(join.url, record?.subject)
             is MeetingJoinResolution.External -> {
                 try {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(join.uri)))
