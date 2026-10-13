@@ -31,6 +31,18 @@ const val MAIL_DRAFTS_FOLDER = "__drafts__"
 const val MAIL_PAGE_SIZE = 30
 
 /**
+ * RN lib/mail/constants.ts MAIL_LIST_ESTIMATED_ITEM_SIZE = 140：升序列表底部锚定
+ * 的溢出判定（坑 9）——itemCount × 140 ≤ 视口高时无需滚动锚底。
+ */
+const val MAIL_LIST_ESTIMATED_ITEM_SIZE = 140
+
+/** MailChannelScreen/index.tsx:60 STICK_TO_BOTTOM_THRESHOLD = 48。 */
+const val MAIL_STICK_TO_BOTTOM_THRESHOLD = 48
+
+/** MailChannelScreen/index.tsx:59 DEFAULT_FOLDER = 'INBOX'。 */
+const val MAIL_DEFAULT_FOLDER = "INBOX"
+
+/**
  * buildMailChannelChatRow.ts:12-21 formatMailChannelPreviewText：
  * fromName?.trim() || from.trim()；两者皆空 → ''；无主题 → 发件人；否则 `{fromName}：{subject}`（全角冒号）。
  */

@@ -34,6 +34,10 @@ data class MailFolder(
     val flags: List<String> = emptyList(),
 )
 
+/** mailApi.ts:132-135 内联响应壳 { folders: MailFolder[] }。 */
+@Serializable
+data class MailFoldersResponse(val folders: List<MailFolder> = emptyList())
+
 /** types/mail.ts MailMessage。 */
 @Serializable
 data class MailMessage(

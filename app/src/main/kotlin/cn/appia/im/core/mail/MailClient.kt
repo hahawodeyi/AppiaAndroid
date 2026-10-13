@@ -54,7 +54,8 @@ class MailCookieJar : CookieJar {
  */
 class MailClient(
     private val serverUrl: () -> String,
-    private val authProvider: () -> MailClientAuth?,
+    /** 公开只读：bootstrapMailSession 需要 authProvider 判空（M9-T3 mailChannelApi 装配用）。 */
+    val authProvider: () -> MailClientAuth?,
     baseHttpClient: OkHttpClient = OkHttpClient(),
 ) {
     val cookieJar = MailCookieJar()

@@ -52,6 +52,7 @@ import cn.appia.im.core.i18n.LocaleController
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.messaging.RoomHistoryRepository
 import cn.appia.im.core.messaging.getSendOrchestrator
+import cn.appia.im.core.network.AuthUserEmail
 import cn.appia.im.core.network.LoginCredentials
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
@@ -2450,19 +2451,74 @@ fun AppiaNavHost(
                 )
             }
         }
-        // 邮件收件箱（M9-T3 落屏；T2 占位——绑定成功跳入先给标题与空态文案）
+        // 邮件收件箱（M9-T3 / RN MailChannelScreen）：升序锚定底部列表 + 文件夹 + 同步；
+        // 会话引导无账户 → 跳绑定页（RN navigation.replace('MailAccountSetup')）。
         composable<MailChannelRoute> {
             if (deps == null) {
                 Text(LocalContext.current.t("feature_not_implemented"))
             } else {
                 val bound = rememberServerBoundDb(deps)
-                val context = LocalContext.current
-                Column(Modifier.fillMaxSize()) {
-                    RoomHeader(title = context.t("mail_list_title"), onBack = { nav.popBackStack() })
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text(context.t("mail_loading"), color = LocalAppiaColors.current.auxiliaryText)
-                    }
-                }
+                val client = remember(bound.serverUrl) { deps.mailClient() }
+                val viewModel: cn.appia.im.feature.mail.MailChannelViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            cn.appia.im.feature.mail.MailChannelViewModel(
+                                client = client,
+                                user = cn.appia.im.feature.mail.MailExchangeUser(
+                                    email = "", // 引导链内经 loadUserEmail 现值覆写
+                                    name = bound.auth?.user?.name,
+                                    username = bound.auth?.user?.username,
+                                ),
+                                authProvider = { client.authProvider() },
+                                // RN useMailUserEmail：stored emails[0] → fetchMemberProfile 兜底 → null
+                                loadUserEmail = {
+                                    val stored = bound.auth?.user?.emails?.firstOrNull()
+                                        ?.address?.trim().orEmpty()
+                                    if (stored.isNotEmpty()) {
+                                        stored
+                                    } else {
+                                        val userId = bound.auth?.user?.id.orEmpty()
+                                        if (userId.isEmpty()) {
+                                            null
+                                        } else {
+                                            val profile = runCatching {
+                                                cn.appia.im.core.network.api.fetchMemberProfile(deps.sdk, userId)
+                                            }.getOrNull()
+                                            val emails = profile?.emails?.filter { it.isNotBlank() }.orEmpty()
+                                            if (emails.isEmpty()) {
+                                                null
+                                            } else {
+                                                // RN mergeUserEmails：非空地址列表回写会话
+                                                deps.store.mergeUserEmails(
+                                                    userId,
+                                                    emails.map { AuthUserEmail(address = it) },
+                                                )
+                                                emails.first()
+                                            }
+                                        }
+                                    }
+                                },
+                                scope = deps.scope,
+                            )
+                        }
+                    },
+                )
+                cn.appia.im.feature.mail.ui.MailChannelScreen(
+                    viewModel = viewModel,
+                    onBack = { nav.popBackStack() },
+                    onSetupRequired = {
+                        nav.navigate(MailAccountSetupRoute) { popUpTo<MailChannelRoute> { inclusive = true } }
+                    },
+                    // T4 详情/线程、T5 撰写/回复路由——当前空实现占位（坑 3：id 透传原样）
+                    onOpenDetail = {},
+                    onReply = {},
+                    onReplyAll = {},
+                    onViewThread = {},
+                    onCompose = {},
+                    onEditDraft = {},
+                    // T6 MailBadgeStore.markChannelVisited 接线点
+                    onChannelVisited = {},
+                )
             }
         }
         // 房间内搜索（M5-T7 / RN screens/RoomSearchScreen）：6/4 tab by 房型；
