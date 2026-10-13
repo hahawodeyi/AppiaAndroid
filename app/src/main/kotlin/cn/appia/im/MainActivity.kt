@@ -488,6 +488,15 @@ data class MailDetailRoute(val messageId: String)
 @Serializable
 data class MailThreadRoute(val accountId: String, val messageId: String, val subject: String = "")
 
+/** 撰写（M9-T5，RN navigate('MailCompose', {mode, messageId?, accountId, draftId?})）。 */
+@Serializable
+data class MailComposeRoute(
+    val mode: String = "new",
+    val messageId: String = "",
+    val accountId: String = "",
+    val draftId: String = "",
+)
+
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
 const val MENTION_SELECTED_KEY = "mention_selected"
 
@@ -2517,15 +2526,23 @@ fun AppiaNavHost(
                     onSetupRequired = {
                         nav.navigate(MailAccountSetupRoute) { popUpTo<MailChannelRoute> { inclusive = true } }
                     },
-                    // T4 详情/线程路由；T5 撰写/回复——onReply/onReplyAll 当前空实现占位
+                    // T4 详情/线程路由；T5 撰写/回复
                     // （坑 3：id 透传原样，剥前缀在 URL 构造点）
                     onOpenDetail = { messageId -> nav.navigate(MailDetailRoute(messageId = messageId)) },
-                    onReply = {},
-                    onReplyAll = {},
+                    onReply = { messageId ->
+                        nav.navigate(MailComposeRoute(mode = "reply", messageId = messageId, accountId = viewModel.state.value.account?.id.orEmpty()))
+                    },
+                    onReplyAll = { messageId ->
+                        nav.navigate(MailComposeRoute(mode = "replyAll", messageId = messageId, accountId = viewModel.state.value.account?.id.orEmpty()))
+                    },
                     // 线程路由参数（accountId/subject）由详情屏补全——列表行只有 messageId
                     onViewThread = { messageId -> nav.navigate(MailDetailRoute(messageId = messageId)) },
-                    onCompose = {},
-                    onEditDraft = {},
+                    onCompose = {
+                        nav.navigate(MailComposeRoute(mode = "new", accountId = viewModel.state.value.account?.id.orEmpty()))
+                    },
+                    onEditDraft = { draftId ->
+                        nav.navigate(MailComposeRoute(mode = "draft", accountId = viewModel.state.value.account?.id.orEmpty(), draftId = draftId))
+                    },
                     // T6 MailBadgeStore.markChannelVisited 接线点
                     onChannelVisited = {},
                 )
@@ -2547,10 +2564,16 @@ fun AppiaNavHost(
                     messageId = route.messageId,
                     folders = emptyList(),
                     onBack = { nav.popBackStack() },
-                    // T5 撰写路由接线占位
-                    onReply = { _, _ -> },
-                    onReplyAll = { _, _ -> },
-                    onForward = { _, _ -> },
+                    // 撰写路由（T5）：reply/replyAll/forward——坑 3 id 原样透传
+                    onReply = { messageId, accountId ->
+                        nav.navigate(MailComposeRoute(mode = "reply", messageId = messageId, accountId = accountId))
+                    },
+                    onReplyAll = { messageId, accountId ->
+                        nav.navigate(MailComposeRoute(mode = "replyAll", messageId = messageId, accountId = accountId))
+                    },
+                    onForward = { messageId, accountId ->
+                        nav.navigate(MailComposeRoute(mode = "forward", messageId = messageId, accountId = accountId))
+                    },
                     onViewThread = { accountId, messageId, subject ->
                         nav.navigate(MailThreadRoute(accountId = accountId, messageId = messageId, subject = subject))
                     },
@@ -2607,8 +2630,40 @@ fun AppiaNavHost(
                     routeSubject = route.subject.takeIf { it.isNotBlank() },
                     onBack = { nav.popBackStack() },
                     onOpenDetail = { messageId -> nav.navigate(MailDetailRoute(messageId = messageId)) },
-                    // T5 撰写路由接线占位
-                    onReply = { _, _ -> },
+                    onReply = { messageId, accountId ->
+                        nav.navigate(MailComposeRoute(mode = "reply", messageId = messageId, accountId = accountId))
+                    },
+                )
+            }
+        }
+        // 撰写页（M9-T5 / RN MailComposeScreen）：5 模式；replyAll 无 cc（坑 13）；
+        // 附件 SAF 多选 → 流式 base64 内联 10 个/25MB（坑 12）；联想 300ms debounce；
+        // dirty 丢弃确认（BackHandler + 取消键双口）。
+        composable<MailComposeRoute> { entry ->
+            val route = entry.toRoute<MailComposeRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val client = remember(bound.serverUrl) { deps.mailClient() }
+                // RN resolveUserPrimaryEmail：user.emails[0]（accountEmail——replyAll 去自己）
+                val accountEmail = remember(bound.auth) {
+                    bound.auth?.user?.emails?.firstOrNull()?.address?.trim().orEmpty()
+                }
+                cn.appia.im.feature.mail.ui.MailComposeScreen(
+                    client = client,
+                    mode = when (route.mode) {
+                        "reply" -> cn.appia.im.core.mail.MailComposeMode.REPLY
+                        "replyAll" -> cn.appia.im.core.mail.MailComposeMode.REPLY_ALL
+                        "forward" -> cn.appia.im.core.mail.MailComposeMode.FORWARD
+                        "draft" -> cn.appia.im.core.mail.MailComposeMode.DRAFT
+                        else -> cn.appia.im.core.mail.MailComposeMode.NEW
+                    },
+                    accountId = route.accountId,
+                    messageId = route.messageId.takeIf { it.isNotBlank() },
+                    routeDraftId = route.draftId.takeIf { it.isNotBlank() },
+                    accountEmail = accountEmail,
+                    onBack = { nav.popBackStack() },
                 )
             }
         }

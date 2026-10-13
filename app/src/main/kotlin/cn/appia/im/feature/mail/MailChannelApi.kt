@@ -11,6 +11,8 @@ import cn.appia.im.core.mail.SearchMessagesResponse
 import cn.appia.im.core.mail.SyncResponse
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
+import cn.appia.im.core.mail.mailJson
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -95,3 +97,88 @@ fun listMailThreadMessages(
 /** mailApi.ts:188-193 deleteMailMessage：DELETE /messages/:id（Trash→permanent 标记响应体）。 */
 fun deleteMailMessage(client: MailClient, messageId: String): cn.appia.im.core.mail.DeleteMailMessageResponse =
     client.request("/messages/$messageId", cn.appia.im.core.mail.DeleteMailMessageResponse.serializer(), method = "DELETE")
+
+// ---- 撰写域（mailApi.ts:199-276 / T5）----
+
+/** mailApi.ts:199-208 replyMail：POST /accounts/:id/messages/:msgId/reply。 */
+fun replyMail(
+    client: MailClient,
+    accountId: String,
+    messageId: String,
+    data: cn.appia.im.core.mail.SendMailRequest,
+): cn.appia.im.core.mail.SendMailResponse =
+    client.request(
+        "/accounts/$accountId/messages/$messageId/reply",
+        cn.appia.im.core.mail.SendMailResponse.serializer(),
+        method = "POST",
+        body = mailJson.encodeToJsonElement(cn.appia.im.core.mail.SendMailRequest.serializer(), data),
+    )
+
+/** mailApi.ts:210-214 sendMail：POST /accounts/:id/send。 */
+fun sendMail(
+    client: MailClient,
+    accountId: String,
+    data: cn.appia.im.core.mail.SendMailRequest,
+): cn.appia.im.core.mail.SendMailResponse =
+    client.request(
+        "/accounts/$accountId/send",
+        cn.appia.im.core.mail.SendMailResponse.serializer(),
+        method = "POST",
+        body = mailJson.encodeToJsonElement(cn.appia.im.core.mail.SendMailRequest.serializer(), data),
+    )
+
+/** mailApi.ts:216-225 forwardMail：POST /accounts/:id/messages/:msgId/forward。 */
+fun forwardMail(
+    client: MailClient,
+    accountId: String,
+    messageId: String,
+    data: cn.appia.im.core.mail.SendMailRequest,
+): cn.appia.im.core.mail.SendMailResponse =
+    client.request(
+        "/accounts/$accountId/messages/$messageId/forward",
+        cn.appia.im.core.mail.SendMailResponse.serializer(),
+        method = "POST",
+        body = mailJson.encodeToJsonElement(cn.appia.im.core.mail.SendMailRequest.serializer(), data),
+    )
+
+/** mailApi.ts:236-243 createForwardMailDraft：POST /accounts/:id/messages/:msgId/forward-draft。 */
+fun createForwardMailDraft(
+    client: MailClient,
+    accountId: String,
+    messageId: String,
+): MailDraft =
+    client.request("/accounts/$accountId/messages/$messageId/forward-draft", MailDraft.serializer(), method = "POST")
+
+/** mailApi.ts:249-251 getMailDraft：GET /drafts/:id。 */
+fun getMailDraft(client: MailClient, draftId: String): MailDraft =
+    client.request("/drafts/$draftId", MailDraft.serializer())
+
+/** mailApi.ts:252-257 createMailDraft：POST /drafts。 */
+fun createMailDraft(client: MailClient, data: cn.appia.im.core.mail.UpsertDraftRequest): MailDraft =
+    client.request(
+        "/drafts",
+        MailDraft.serializer(),
+        method = "POST",
+        body = mailJson.encodeToJsonElement(cn.appia.im.core.mail.UpsertDraftRequest.serializer(), data),
+    )
+
+/** mailApi.ts:258-266 updateMailDraft：PUT /drafts/:id。 */
+fun updateMailDraft(client: MailClient, draftId: String, data: cn.appia.im.core.mail.UpsertDraftRequest): MailDraft =
+    client.request(
+        "/drafts/$draftId",
+        MailDraft.serializer(),
+        method = "PUT",
+        body = mailJson.encodeToJsonElement(cn.appia.im.core.mail.UpsertDraftRequest.serializer(), data),
+    )
+
+/** mailApi.ts:270-271 sendMailDraft：POST /drafts/:id/send。 */
+fun sendMailDraft(client: MailClient, draftId: String): cn.appia.im.core.mail.SendMailResponse =
+    client.request("/drafts/$draftId/send", cn.appia.im.core.mail.SendMailResponse.serializer(), method = "POST")
+
+/** mailApi.ts:273-276 searchMailContacts：GET /contacts/search?q=。 */
+fun searchMailContacts(client: MailClient, q: String): List<cn.appia.im.core.mail.ContactSuggestion> =
+    client.request(
+        "/contacts/search",
+        ListSerializer(cn.appia.im.core.mail.ContactSuggestion.serializer()),
+        params = mapOf("q" to q),
+    )
