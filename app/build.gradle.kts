@@ -49,7 +49,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = versionCodeOverride ?: DEFAULT_VERSION_CODE
-        versionName = "0.9.0"
+        versionName = "1.0.0"
         // M8 终审 I-1 abiFilters 裁定（T1 spike §6 移交决策点）：**arm64-v8a 单 ABI**——
         // Agora full-sdk 4-ABI universal 使 APK 24.3→257.6MB；交付物 .debug 装真机（RTC 双设备
         // 验收）全为 arm64，Apple Silicon 模拟器镜像同为 arm64——单 ABI 实测 257.6→93.1MB
