@@ -480,6 +480,14 @@ data object MailChannelRoute
 @Serializable
 data object MailAccountSetupRoute
 
+/** 邮件详情（M9-T4，RN navigate('MailDetail', {messageId})；坑 3：id 透传原样）。 */
+@Serializable
+data class MailDetailRoute(val messageId: String)
+
+/** 邮件线程（M9-T4，RN navigate('MailThread', {accountId, messageId, subject})）。 */
+@Serializable
+data class MailThreadRoute(val accountId: String, val messageId: String, val subject: String = "")
+
 /** 选人结果回投键：选人页写 previousBackStackEntry.savedStateHandle，RoomRoute 观察回插（评审 Critical-1）。 */
 const val MENTION_SELECTED_KEY = "mention_selected"
 
@@ -2509,15 +2517,98 @@ fun AppiaNavHost(
                     onSetupRequired = {
                         nav.navigate(MailAccountSetupRoute) { popUpTo<MailChannelRoute> { inclusive = true } }
                     },
-                    // T4 详情/线程、T5 撰写/回复路由——当前空实现占位（坑 3：id 透传原样）
-                    onOpenDetail = {},
+                    // T4 详情/线程路由；T5 撰写/回复——onReply/onReplyAll 当前空实现占位
+                    // （坑 3：id 透传原样，剥前缀在 URL 构造点）
+                    onOpenDetail = { messageId -> nav.navigate(MailDetailRoute(messageId = messageId)) },
                     onReply = {},
                     onReplyAll = {},
-                    onViewThread = {},
+                    // 线程路由参数（accountId/subject）由详情屏补全——列表行只有 messageId
+                    onViewThread = { messageId -> nav.navigate(MailDetailRoute(messageId = messageId)) },
                     onCompose = {},
                     onEditDraft = {},
                     // T6 MailBadgeStore.markChannelVisited 接线点
                     onChannelVisited = {},
+                )
+            }
+        }
+        // 邮件详情（M9-T4 / RN MailDetailScreen）：WebView JS 禁用渲染 HTML（坑 10）；
+        // Trash 永久删除二次确认；附件分级预览（image → 图片查看器 / video → 播放器 /
+        // pdf → 本地文档预览 / 其余 → 系统 ACTION_VIEW）。
+        composable<MailDetailRoute> { entry ->
+            val route = entry.toRoute<MailDetailRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val client = remember(bound.serverUrl) { deps.mailClient() }
+                val context = LocalContext.current
+                cn.appia.im.feature.mail.ui.MailDetailScreen(
+                    client = client,
+                    messageId = route.messageId,
+                    folders = emptyList(),
+                    onBack = { nav.popBackStack() },
+                    // T5 撰写路由接线占位
+                    onReply = { _, _ -> },
+                    onReplyAll = { _, _ -> },
+                    onForward = { _, _ -> },
+                    onViewThread = { accountId, messageId, subject ->
+                        nav.navigate(MailThreadRoute(accountId = accountId, messageId = messageId, subject = subject))
+                    },
+                    onOpenAttachment = { file, attachment ->
+                        when (cn.appia.im.feature.mail.getMailAttachmentKind(attachment)) {
+                            cn.appia.im.feature.mail.MailAttachmentKind.IMAGE -> nav.navigate(
+                                MediaViewerRoute(
+                                    imagesJson = loginRouteJson.encodeToString(
+                                        listOf(
+                                            ViewerImage(
+                                                url = androidx.core.content.FileProvider.getUriForFile(
+                                                    context, "${context.packageName}.provider", file,
+                                                ).toString(),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            )
+                            cn.appia.im.feature.mail.MailAttachmentKind.VIDEO -> nav.navigate(
+                                MediaPlayerRoute(
+                                    url = androidx.core.content.FileProvider.getUriForFile(
+                                        context, "${context.packageName}.provider", file,
+                                    ).toString(),
+                                    title = attachment.filename,
+                                ),
+                            )
+                            cn.appia.im.feature.mail.MailAttachmentKind.FILE -> nav.navigate(
+                                DocPreviewRoute(
+                                    title = attachment.filename,
+                                    fileId = "",
+                                    // 本地 pdf 已落缓存——downloadUrl 直指 file://，DocPreview
+                                    // MediaCache.fetch 命中本地形态（RN localFile 态不移植的例外补口）
+                                    downloadUrl = file.toURI().toString(),
+                                    fileType = "pdf",
+                                ),
+                            )
+                        }
+                    },
+                )
+            }
+        }
+        // 邮件线程（M9-T4 / RN MailThreadScreen）：三级降级（thread 端点 → 列表查询 → 仅锚点）。
+        composable<MailThreadRoute> { entry ->
+            val route = entry.toRoute<MailThreadRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                val client = remember(bound.serverUrl) { deps.mailClient() }
+                cn.appia.im.feature.mail.ui.MailThreadScreen(
+                    client = client,
+                    accountId = route.accountId,
+                    messageId = route.messageId,
+                    routeSubject = route.subject.takeIf { it.isNotBlank() },
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { messageId -> nav.navigate(MailDetailRoute(messageId = messageId)) },
+                    // T5 撰写路由接线占位
+                    onReply = { _, _ -> },
                 )
             }
         }

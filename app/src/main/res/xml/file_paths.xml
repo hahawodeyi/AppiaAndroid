@@ -8,4 +8,9 @@
     <files-path
         name="release_apks_fallback"
         path="Download/" />
+    <!-- 邮件附件预览（M9-T4 / RN FileViewer.open）：cacheDir/mail_attachments/* 经
+         FileProvider 以 content:// Uri 共享给系统查看器。 -->
+    <cache-path
+        name="mail_attachments"
+        path="mail_attachments/" />
 </paths>

@@ -393,6 +393,7 @@
     <string name="mail_attachment_limit">Maximum {{count}} attachments allowed</string>
     <string name="mail_attachment_preparing">Preparing preview…</string>
     <string name="mail_attachment_preview">Preview</string>
+    <string name="mail_attachment_open_failed">No app found to open this file</string>
     <string name="mail_attachment_too_large_message">This file is {{size}} and exceeds the in-app preview limit. Please download it instead.</string>
     <string name="mail_attachment_too_large_title">File too large to preview</string>
     <string name="mail_attachments">Attachments</string>

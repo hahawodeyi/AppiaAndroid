@@ -240,8 +240,9 @@ class MailChannelViewModelTest {
         paths.clear()
 
         vm.onRefresh()
-        awaitState(vm) { it.refreshing } // 先见抬起（防初值 false 直穿的竞态）
-        awaitState(vm) { !it.refreshing && !it.syncing && paths.isNotEmpty() }
+        // anchorRequest 自增（reloadList 完成）为完成信号——refreshing 瞬态可能整体落在轮询间隙
+        val anchorBefore = vm.state.value.anchorRequest
+        awaitState(vm) { it.anchorRequest > anchorBefore && !it.refreshing && !it.syncing && paths.isNotEmpty() }
 
         // sync 先于第二次列表请求
         val syncIndex = paths.indexOfFirst { it.endsWith("/sync") }
@@ -264,9 +265,10 @@ class MailChannelViewModelTest {
         paths.clear()
 
         vm.onRefresh()
-        // 等 refreshing 抬起后的完成（防初值 false 竞态：先见 refreshing=true 再等回落）
-        awaitState(vm) { it.refreshing }
-        awaitState(vm) { !it.refreshing }
+        // 草稿夹刷新链极快（单次 /drafts），refreshing 瞬态可能整体落进两次轮询之间——
+        // 以 anchorRequest 自增（reloadList 完成）为完成信号，而非 refreshing 瞬态
+        val anchorBefore = vm.state.value.anchorRequest
+        awaitState(vm) { it.anchorRequest > anchorBefore && !it.refreshing }
 
         assertTrue(paths.any { it == "/mail/api/drafts" })
         assertFalse(paths.any { it.endsWith("/sync") }) // 草稿夹不触发同步
@@ -289,7 +291,6 @@ class MailChannelViewModelTest {
         }
 
         vm.onRefresh()
-        awaitState(vm) { it.refreshing }
         awaitState(vm) { it.loadError && !it.refreshing }
         vm.dispose()
     }

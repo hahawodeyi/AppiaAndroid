@@ -393,6 +393,7 @@
     <string name="mail_attachment_limit">最多添加 {{count}} 个附件</string>
     <string name="mail_attachment_preparing">正在准备预览…</string>
     <string name="mail_attachment_preview">预览</string>
+    <string name="mail_attachment_open_failed">没有可打开此文件的应用</string>
     <string name="mail_attachment_too_large_message">该文件大小为 {{size}}，已超过应用内预览上限，请下载后查看。</string>
     <string name="mail_attachment_too_large_title">文件过大，无法预览</string>
     <string name="mail_attachments">附件</string>

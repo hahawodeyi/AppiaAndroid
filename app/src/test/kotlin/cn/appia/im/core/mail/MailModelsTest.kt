@@ -175,6 +175,18 @@ class MailModelsTest {
     }
 
     @Test
+    fun `normalize - mail prefix strip matrix for URL-construction sites`() {
+        // T4 钉死（坑 4）：detail/附件 URL 构造点的剥前缀语义全矩阵
+        assertEquals("abc123", normalizeMailMessageId("mail-abc123")) // 标准前缀剥
+        assertEquals("abc123", normalizeMailMessageId("abc123")) // 无前缀原样
+        assertEquals("mailx", normalizeMailMessageId("mailx")) // mail 但非 mail- 不剥
+        assertEquals("", normalizeMailMessageId("mail-")) // 前缀 + 空 → 空串
+        assertEquals("mail-1", normalizeMailMessageId("mail-mail-1")) // 只剥一层（removePrefix 单趟）
+        assertEquals("", normalizeMailMessageId("")) // 空串原样
+        assertEquals("abc 123", normalizeMailMessageId("mail-abc 123")) // 剥后内容原样（含空格）
+    }
+
+    @Test
     fun `list response and sync response parse`() {
         val list = mailJson.decodeFromString<MessageListResponse>(
             """{"messages":[{"id":"m1","uid":1,"from":"a@x.com","to":[],"cc":[],"subject":"s",

@@ -392,6 +392,7 @@ object I18nKeys {
     "mail_attachment_limit",
     "mail_attachment_preparing",
     "mail_attachment_preview",
+    "mail_attachment_open_failed",
     "mail_attachment_too_large_message",
     "mail_attachment_too_large_title",
     "mail_attachments",

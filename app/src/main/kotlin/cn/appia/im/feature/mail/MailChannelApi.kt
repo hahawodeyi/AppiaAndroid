@@ -74,3 +74,24 @@ fun listMailDrafts(client: MailClient): List<MailDraft> =
 fun deleteMailDraft(client: MailClient, draftId: String) {
     client.request<Unit>("/drafts/$draftId", Unit.serializer(), method = "DELETE")
 }
+
+// ---- 详情域（mailApi.ts:171-199 / T4）----
+
+/** mailApi.ts:171-176 getMailMessageDetail：GET /messages/{id}（剥前缀 + 五组别名归一化）。 */
+fun getMailMessageDetail(client: MailClient, messageId: String): cn.appia.im.core.mail.MessageDetail {
+    val normalizedId = cn.appia.im.core.mail.normalizeMailMessageId(messageId)
+    val raw = client.request("/messages/$normalizedId", cn.appia.im.core.mail.RawMessageDetail.serializer())
+    return cn.appia.im.core.mail.normalizeMailMessageDetail(raw)
+}
+
+/** mailApi.ts:178-186 listMailThreadMessages：GET /accounts/:id/messages/:msgId/thread（id 原样不剥——RN 直拼）。 */
+fun listMailThreadMessages(
+    client: MailClient,
+    accountId: String,
+    messageId: String,
+): cn.appia.im.core.mail.MailThreadResponse =
+    client.request("/accounts/$accountId/messages/$messageId/thread", cn.appia.im.core.mail.MailThreadResponse.serializer())
+
+/** mailApi.ts:188-193 deleteMailMessage：DELETE /messages/:id（Trash→permanent 标记响应体）。 */
+fun deleteMailMessage(client: MailClient, messageId: String): cn.appia.im.core.mail.DeleteMailMessageResponse =
+    client.request("/messages/$messageId", cn.appia.im.core.mail.DeleteMailMessageResponse.serializer(), method = "DELETE")
