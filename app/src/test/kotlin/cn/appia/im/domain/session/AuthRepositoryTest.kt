@@ -70,6 +70,7 @@ class AuthRepositoryTest {
             orgCache = orgCache,
             dbManager = dbManager,
             appUpdatePrompt = appUpdatePrompt,
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
             backgroundScope = CoroutineScope(Dispatchers.Unconfined),
         )
 

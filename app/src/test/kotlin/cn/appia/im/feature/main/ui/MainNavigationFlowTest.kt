@@ -371,6 +371,7 @@ private class Fixture(context: Context) {
             dbManager = dbManager,
             // 生产同款 IO：logout 的删库/回落异步于 UI——Unconfined 会在重组中同步关池，observeList 竞态
             appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
             backgroundScope = newScope(Dispatchers.IO),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
@@ -383,6 +384,8 @@ private class Fixture(context: Context) {
             manager = manager,
             coordinator = coordinator,
             orgList = orgList,
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
+            mailClient = cn.appia.im.core.mail.MailClient(serverUrl = { "" }, authProvider = { null }),
             scope = newScope(),
         )
     }.apply {

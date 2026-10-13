@@ -77,6 +77,7 @@ class SessionBootstrapOrchestratorTest {
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
             appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
             backgroundScope = CoroutineScope(Dispatchers.Unconfined),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
@@ -89,6 +90,8 @@ class SessionBootstrapOrchestratorTest {
             manager = manager,
             coordinator = coordinator,
             orgList = orgList,
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
+            mailClient = cn.appia.im.core.mail.MailClient(serverUrl = { "" }, authProvider = { null }),
             scope = CoroutineScope(Dispatchers.Unconfined), // launch 同步跑完，断言确定化
         ).apply {
             bootstrapRealtime = { s, t, u -> bootstraps.add(Triple(s, t, u)) }

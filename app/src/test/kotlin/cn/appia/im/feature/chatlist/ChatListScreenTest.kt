@@ -295,6 +295,7 @@ private class Fixture(context: Context, sdkOverride: RocketSdk = RocketSdk()) {
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
             appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
             backgroundScope = newScope(),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
@@ -305,6 +306,8 @@ private class Fixture(context: Context, sdkOverride: RocketSdk = RocketSdk()) {
             manager = manager,
             coordinator = coordinator,
             orgList = OrgListRepository(RocketSdk(), kv),
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
+            mailClient = cn.appia.im.core.mail.MailClient(serverUrl = { "" }, authProvider = { null }),
             scope = newScope(),
         )
     }.apply {

@@ -51,11 +51,21 @@ class AuthSessionStore @Inject constructor(private val kv: KvStore) {
     /** 角色流：save/clear/mergeUserRoles 三条写路径均汇入，UI collect 自动刷新。 */
     val roles: StateFlow<List<String>> get() = rolesState
 
+    /**
+     * 会话响应式读（M9-T6 / RN useMailInit 依赖 isAuthenticated 响应式重跑）：
+     * save/clear 汇入（rolesState 同先例）；组织切换 applySession → auth.login → save 同链触发。
+     */
+    private val sessionState = MutableStateFlow(load())
+
+    /** 会话流：null = 未登录（登出/未持久化）。 */
+    val session: StateFlow<AuthSession?> get() = sessionState
+
     /** RN login authStore.ts:98-99：三字段整体覆盖写入（无增量合并）。 */
     fun save(session: AuthSession) {
         kv.putString(KEY, sessionJson.encodeToString(AuthSession.serializer(), session))
         cachedUsername = session.user.username
         rolesState.value = session.user.roles.orEmpty()
+        sessionState.value = session
     }
 
     /**
@@ -127,6 +137,7 @@ class AuthSessionStore @Inject constructor(private val kv: KvStore) {
         kv.remove(KEY)
         cachedUsername = null
         rolesState.value = emptyList()
+        sessionState.value = null
     }
 
     /** RN `Boolean(token && user && serverUrl)`（authStore.ts:187）：空串视为缺失。 */

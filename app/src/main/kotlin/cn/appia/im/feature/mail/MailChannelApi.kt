@@ -182,3 +182,67 @@ fun searchMailContacts(client: MailClient, q: String): List<cn.appia.im.core.mai
         ListSerializer(cn.appia.im.core.mail.ContactSuggestion.serializer()),
         params = mapOf("q" to q),
     )
+
+// ---- 角标/预览域（mailApi.ts:278-339 / T6）----
+
+/** mailApi.ts:278-289 buildLatestMailPreview：fromName 花名解析优先，回退 message.fromName。 */
+fun buildLatestMailPreview(
+    message: cn.appia.im.core.mail.MailMessage,
+    resolveFromName: ((email: String) -> String?)? = null,
+): cn.appia.im.core.mail.LatestMailPreview {
+    val internalName = resolveFromName?.invoke(message.from)?.trim()
+    return cn.appia.im.core.mail.LatestMailPreview(
+        subject = message.subject,
+        fromName = internalName?.takeIf { it.isNotEmpty() } ?: message.fromName,
+        from = message.from,
+        receivedAt = message.receivedAt,
+        unread = !message.read,
+    )
+}
+
+/**
+ * mailApi.ts:291-312 fetchLatestMailPreview：首账户 INBOX pageSize=1 → 最新一条 →
+ * receivedAt 降序取首（RN [...messages].sort 同义）。全程容错 → null（角标链静默）。
+ */
+suspend fun fetchLatestMailPreview(
+    client: MailClient,
+    resolveFromName: ((email: String) -> String?)? = null,
+): cn.appia.im.core.mail.LatestMailPreview? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    runCatching {
+        val account = listMailAccounts(client).firstOrNull() ?: return@runCatching null
+        val result = listMailMessages(
+            client,
+            account.id,
+            cn.appia.im.core.mail.ListMessagesParams(folder = MAIL_DEFAULT_FOLDER, page = 1, pageSize = 1),
+        )
+        val newest = result.messages.sortedByDescending { cn.appia.im.feature.mail.MailChannelViewModel.mailIsoMillis(it.receivedAt) }
+            .firstOrNull() ?: return@runCatching null
+        buildLatestMailPreview(newest, resolveFromName)
+    }.getOrNull()
+}
+
+/**
+ * mailApi.ts:314-339 fetchMailUnreadCount（坑 8 天花板照抄）：只扫 INBOX 首页 100 条，
+ * receivedAt > since 计数——积压 >100 少算（RN 同构如实移植）。since<=0 → 0；全程容错 → 0。
+ */
+suspend fun fetchMailUnreadCount(
+    client: MailClient,
+    since: Long,
+    accountId: String? = null,
+): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    if (since <= 0) return@withContext 0
+    runCatching {
+        val id = accountId ?: listMailAccounts(client).firstOrNull()?.id ?: return@runCatching 0
+        val result = listMailMessages(
+            client,
+            id,
+            cn.appia.im.core.mail.ListMessagesParams(folder = MAIL_DEFAULT_FOLDER, page = 1, pageSize = 100),
+        )
+        var count = 0
+        for (message in result.messages) {
+            val receivedAt = cn.appia.im.feature.mail.MailChannelViewModel.mailIsoMillis(message.receivedAt)
+            if (receivedAt > since) count += 1
+        }
+        count
+    }.getOrDefault(0)
+}

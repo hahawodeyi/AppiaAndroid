@@ -133,6 +133,9 @@ import cn.appia.im.feature.chat.parseClawAgentVisibilityMap
 import cn.appia.im.core.mail.MailCredentialKeyCache
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.mail.buildMailChannelChatRow
+import cn.appia.im.feature.mail.normalizeMailOrgKey
+import cn.appia.im.feature.mail.selectCountForOrg
+import cn.appia.im.feature.mail.selectPreviewForOrg
 import cn.appia.im.feature.mail.ui.MailAccountSetupScreen
 import cn.appia.im.feature.chat.ui.RoomHeader
 import cn.appia.im.feature.chatlist.ChatRowActions
@@ -202,6 +205,10 @@ import cn.appia.im.feature.login.verifyEnterprise
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -541,6 +548,8 @@ class RouteDeps(
     val appUpdatePrompt: AppUpdatePromptController? = null,
     /** M8-T7 会议房间装配束（引擎/状态机/加入流——MainActivity lazy 单例传入；UI 测试 null）。 */
     val meetingRoom: MeetingRoomHandle? = null,
+    /** M9-T6 邮件角标单例（DDP 推送增量与列表行消费同一实例；UI 测试可 null）。 */
+    val mailBadge: cn.appia.im.feature.mail.MailBadgeStore? = null,
 ) {
     /** AI 房间控制态机（M7-T7 / RN aiStore zustand 全局单例同寿：随 app scope，不随路由）。 */
     val aiRooms: AiRoomStateMachine by lazy { AiRoomStateMachine(scope) }
@@ -867,11 +876,31 @@ fun AppiaNavHost(
                     deps.dbManager.active.settingDao(), "UI_Use_Real_Name", default = true,
                 )
                 // 邮件虚拟行门控（M9-T2 / RN useMailChannelEnabled）：缺行 = 关（RN valueAsBoolean === true）。
-                // 行数据 T2 用默认值（未置顶/0 未读/空预览），T6 接 MailBadgeStore。
                 val mailEnabled = rememberPublicSettingBoolean(
                     deps.dbManager.active.settingDao(), "Appia_Mail_Channel_Enabled", default = false,
                 )
-                val mailRow = if (mailEnabled) buildMailChannelChatRow(pinned = false, unreadCount = 0, preview = null) else null
+                // M9-T6：行数据自 badge store 快照 map 派生（未读/预览推送实时刷新）；
+                // 会话变化（登录/组织切换）即拉预览+未读（RN useMailInit effect 汇入点）。
+                // orgKey 取响应式会话流（store.session——save/clear 汇入；组织切换 applySession
+                // → login → save 同链），MMKV 现读在 Main 内不重组（ChatListScreen 内部 session
+                // 刷新不冒泡到本层）。
+                val mailBadge = gateway.mailBadge
+                val mailSession by gateway.sessionFlow.collectAsState(initial = deps.store.load())
+                val mailOrgKey = normalizeMailOrgKey(mailSession?.serverUrl)
+                LaunchedEffect(mailSession, mailEnabled) { gateway.refreshMailBadge(mailEnabled) }
+                val mailRow = remember(mailEnabled, mailOrgKey) {
+                    if (!mailEnabled) {
+                        MutableStateFlow(null)
+                    } else {
+                        mailBadge.snapshot.map { s ->
+                            buildMailChannelChatRow(
+                                pinned = s.pinned,
+                                unreadCount = selectCountForOrg(s.unreadCountByOrg, mailOrgKey),
+                                preview = selectPreviewForOrg(s.previewByOrg, mailOrgKey),
+                            )
+                        }.stateIn(scope, SharingStarted.Eagerly, null)
+                    }
+                }
                 // NetworkMonitor 生命周期（RN startNetworkMonitoring 挂载语义）：进列表注册、离屏注销
                 DisposableEffect(Unit) {
                     deps.networkMonitor.start()
@@ -2543,8 +2572,11 @@ fun AppiaNavHost(
                     onEditDraft = { draftId ->
                         nav.navigate(MailComposeRoute(mode = "draft", accountId = viewModel.state.value.account?.id.orEmpty(), draftId = draftId))
                     },
-                    // T6 MailBadgeStore.markChannelVisited 接线点
-                    onChannelVisited = {},
+                    // T6 MailBadgeStore.markChannelVisited 接线点：进收件箱即 lastVisitAt=now + 未读清零
+                    onChannelVisited = {
+                        val orgKey = normalizeMailOrgKey(deps.store.load()?.serverUrl)
+                        deps.mailBadge?.markChannelVisited(orgKey)
+                    },
                 )
             }
         }
@@ -2997,6 +3029,10 @@ class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var realtimeSessionManager: cn.appia.im.domain.session.RealtimeSessionManager
 
+    // M9-T6 邮件角标单例（SessionModule @Provides；与 DDP 推送/登出 reset 同实例）
+    @Inject
+    lateinit var mailBadge: cn.appia.im.feature.mail.MailBadgeStore
+
     // M6-T7 自更新：检查控制器（release 流 + 前台重查）与弹窗状态机（app 级单例，T6 handoff 接线）
     @Inject
     lateinit var appReleaseCheck: AppReleaseCheckController
@@ -3069,6 +3105,7 @@ class MainActivity : AppCompatActivity() {
                             appReleaseCheck,
                             appUpdatePrompt,
                             meetingRoom,
+                            mailBadge,
                         ),
                     )
                 }

@@ -57,6 +57,8 @@ import cn.appia.im.feature.chatlist.roomTitleFromChat
 import cn.appia.im.feature.mail.isMailChannelRow
 import cn.appia.im.feature.org.ui.OrgSwitchSheet
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -98,9 +100,10 @@ fun ChatListScreen(
     // MEETING_HOME_URL) 的菜单化迁移：AA 无 "+" 菜单与抽屉（M5-T9 裁定），两 RN 入口同目标
     // MEETING_HOME_URL → 合并单一菜单项 → MeetingHome（原生替代 H5）
     onOpenMeeting: () -> Unit = {},
-    // 邮件入口（M9-T2 / RN useMailChannelListRow 虚拟行点击 → navigate('MailChannel')）：
-    // 门控 Appia_Mail_Channel_Enabled + 行数据（pinned/unread/preview）由装配层求值传入
-    mailRow: ChatEntity? = null,
+    // 邮件入口（M9-T2/T6 / RN useMailChannelListRow 虚拟行点击 → navigate('MailChannel')）：
+    // 门控 Appia_Mail_Channel_Enabled 由装配层求值；行数据流自 badge store 快照 map 派生
+    // （未读/预览推送实时刷新，VM 不重建）
+    mailRow: StateFlow<ChatEntity?> = MutableStateFlow(null),
     onOpenMail: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -118,7 +121,8 @@ fun ChatListScreen(
     val currentUserId = session?.user?.id?.takeIf { it.isNotEmpty() }
     val currentUsername = session?.user?.username?.takeIf { it.isNotEmpty() }
     // 换服重建实例（T2 裁定）：切组织成功刷新 session → serverUrl 变化 → VM 重绑新库
-    val viewModel = remember(serverUrl, mailRow) {
+    // （mailRow 是流——badge 推送不触发重建，仅 server 变化才重建）
+    val viewModel = remember(serverUrl) {
         ChatListViewModel(deps.dbManager, serverUrl, deps.store, deps.scope, mailRow = mailRow)
     }
     // 列表滑动动作端点（终审 Critical-1 接线）：与 RoomRoute 同款现成实例（绑定 server，换服随 VM 重建）。

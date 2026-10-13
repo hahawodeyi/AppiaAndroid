@@ -63,6 +63,8 @@ class AuthRepository @Inject constructor(
     private val dbManager: DatabaseManager,
     /** 自更新弹窗会话态（评审 F-1）：logout 复位静默/弹窗（RN Host 卸载销毁 ref 的等价接线点）。 */
     private val appUpdatePrompt: AppUpdatePromptController,
+    /** M9-T6 邮件角标单例：logout resetForLogout（RN mailChannelStore 重置）。 */
+    private val mailBadge: cn.appia.im.feature.mail.MailBadgeStore,
     @BackgroundScope private val backgroundScope: CoroutineScope,
 ) {
 
@@ -126,6 +128,7 @@ class AuthRepository @Inject constructor(
         prevServer?.let { RoomsSyncCursor(kv).clear(it) } // RN :148-150 clearRoomsUpdatedAt
         cn.appia.im.core.permissions.PermissionsStore.reset() // RN :147 usePermissionsStore.reset()
         cn.appia.im.feature.contacts.ContactsStore.reset() // RN contactStore 重置（登出清缓存）
+        mailBadge.reset() // M9-T6：mailChannelStore resetForLogout
         RoomAccessLoss.clearHints() // 良性补充（非 RN 语义）：RN 生产零调用 hint 残留至进程终；清掉防跨账号串判
         teardownRealtime() // RN :152
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）
@@ -199,6 +202,30 @@ object SessionModule {
         )
 
     /**
+     * 邮件角标 store 单例（M9-T6）：DDP 推送增量（provideRealtimeSessionManager）与登出
+     * reset（AuthRepository.logout）共用（RN zustand 模块单例等价）。
+     */
+    @Provides
+    @Singleton
+    fun provideMailBadgeStore(kv: KvStore): cn.appia.im.feature.mail.MailBadgeStore =
+        cn.appia.im.feature.mail.MailBadgeStore(kv)
+
+    /**
+     * mail client 单例（M9-T6）：serverUrl/auth 逐请求现读 store（RN createMailClient getAuth
+     * 同义）；CookieJar 会话期跨推送/装配两消费点共享（坑 14）。
+     */
+    @Provides
+    @Singleton
+    fun provideMailClient(store: AuthSessionStore): cn.appia.im.core.mail.MailClient =
+        cn.appia.im.core.mail.MailClient(
+            serverUrl = { store.load()?.serverUrl.orEmpty() },
+            authProvider = {
+                val s = store.load() ?: return@MailClient null
+                cn.appia.im.core.mail.MailClientAuth(authToken = s.token, userId = s.user.id)
+            },
+        )
+
+    /**
      * T8↔T9 预检裁定：syncInitial 构造注入 RoomsSyncRepository.sync（bootstrap 内部调用）。
      * repo 绑定的 server 在**调用时**现读会话（组织切换 applySession 已更新 store，
      * 随后的 bootstrap 同步新主体；repo 持有 sdk/db 引用，构建廉价）。
@@ -215,6 +242,8 @@ object SessionModule {
         kv: KvStore,
         roomStreams: RoomStreamManager,
         roles: RoleRefresher,
+        mailBadge: cn.appia.im.feature.mail.MailBadgeStore,
+        mailClient: cn.appia.im.core.mail.MailClient,
     ): RealtimeSessionManager {
         val syncInitial: suspend () -> Unit = {
             val serverUrl = store.load()?.serverUrl.orEmpty()
@@ -229,7 +258,27 @@ object SessionModule {
             scope = notifyScope,
             unsubscribeRoom = { rid -> roomStreams.unsubscribeRoom(rid) },
         )
-        manager.setStreamHandler(StreamNames.NOTIFY_USER, notifyUser::handleStreamNotifyUser)
+        // M9-T6：mail.updated 推送消费（RN session.ts:255-258 单 listener 同喂持久化与 mail
+        // 两 handler——AA 的 NOTIFY_USER 单槽分发同构并列）。badge store/mail client Hilt 单例
+        // （orchestrator 同实例）；预览刷新 fire-and-forget 挂 notifyScope（RN void fn() 不等待）。
+        manager.setStreamHandler(StreamNames.NOTIFY_USER) { frame ->
+            notifyUser.handleStreamNotifyUser(frame)
+            val payload = cn.appia.im.core.mail.parseMailUpdatedPayload(frame) ?: return@setStreamHandler
+            cn.appia.im.core.mail.handleMailUpdatedEvent(
+                payload,
+                incrementUnread = { n ->
+                    mailBadge.incrementUnread(n, cn.appia.im.feature.mail.normalizeMailOrgKey(store.load()?.serverUrl))
+                },
+                fetchLatestMailPreview = {
+                    notifyScope.launch {
+                        val orgKey = cn.appia.im.feature.mail.normalizeMailOrgKey(store.load()?.serverUrl)
+                        cn.appia.im.feature.mail.fetchLatestMailPreview(mailClient)?.let {
+                            mailBadge.setPreview(it, orgKey)
+                        }
+                    }
+                },
+            )
+        }
         // M4-T2：permissions-changed 流消费（RN session.ts:107-126 handleStreamNotifyLogged）——
         // M1 分发注册表第一个权限级 handler，接口零改动（NotifyUserPersistence 先例）
         manager.setStreamHandler(

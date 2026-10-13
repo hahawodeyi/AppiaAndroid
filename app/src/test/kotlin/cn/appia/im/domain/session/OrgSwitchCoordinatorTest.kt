@@ -120,6 +120,7 @@ class OrgSwitchCoordinatorTest {
             orgCache = orgCache,
             dbManager = dbManager,
             appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
             backgroundScope = CoroutineScope(Dispatchers.Unconfined),
         )
         coordinator = newCoordinator()

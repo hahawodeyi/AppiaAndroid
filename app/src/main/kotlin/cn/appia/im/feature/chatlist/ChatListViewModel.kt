@@ -29,10 +29,10 @@ class ChatListViewModel(
     private val auth: AuthSessionStore,
     scope: CoroutineScope,
     /**
-     * 邮件虚拟行数据源（M9-T2 / RN useMailChannelListRow）：null = 不注入（门控关或未登录）。
-     * enabled + pinned/unreadCount/preview 由装配层求值（T2 默认值，T6 接 MailBadgeStore）。
+     * 邮件虚拟行数据流（M9-T6 / RN useMailChannelListRow）：null = 不注入（门控关或未登录）。
+     * badge store 快照 map 派生（未读/预览推送实时刷新）——流参数防 VM 重建（Room 重订阅+列表闪动）。
      */
-    private val mailRow: ChatEntity? = null,
+    private val mailRow: StateFlow<ChatEntity?> = MutableStateFlow(null),
 ) {
 
     /** 构造期捕获目标库：observeList 与守卫对照都指它，避免 active 切换后 observe 目标漂移。 */
@@ -54,7 +54,7 @@ class ChatListViewModel(
     internal fun currentUserId(): String? = auth.load()?.user?.id?.takeIf { it.isNotEmpty() }
 
     val sections: StateFlow<List<ChatListSection>> =
-        combine(db.chatDao().observeList(), searchText) { rows, query ->
+        combine(db.chatDao().observeList(), searchText, mailRow) { rows, query, mailRow ->
             if (!activeDbMatchesAuth()) {
                 emptyList()
             } else {

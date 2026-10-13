@@ -212,6 +212,7 @@ private class AccessLossFixture(context: Context) {
             orgCache = OrgSessionCache(InMemoryKvStore()),
             dbManager = dbManager,
             appUpdatePrompt = AppUpdatePromptController { "1.2.3" },
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
             backgroundScope = newScope(),
         )
         val manager = RealtimeSessionManager(RocketSdk(), dbManager, syncInitial = {})
@@ -225,6 +226,8 @@ private class AccessLossFixture(context: Context) {
             manager = manager,
             coordinator = coordinator,
             orgList = orgList,
+            mailBadge = cn.appia.im.feature.mail.MailBadgeStore(InMemoryKvStore()),
+            mailClient = cn.appia.im.core.mail.MailClient(serverUrl = { "" }, authProvider = { null }),
             scope = newScope(),
         )
     }

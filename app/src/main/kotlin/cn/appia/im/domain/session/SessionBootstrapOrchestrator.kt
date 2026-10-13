@@ -31,6 +31,10 @@ class SessionBootstrapOrchestrator @Inject constructor(
     private val manager: RealtimeSessionManager,
     private val coordinator: OrgSwitchCoordinator,
     private val orgList: OrgListRepository,
+    /** M9-T6：登录/组织切换即拉邮件预览+未读（RN useMailInit 汇入点）。 */
+    val mailBadge: cn.appia.im.feature.mail.MailBadgeStore,
+    /** M9-T6：mail client（预览/未读拉取共用——与 RouteDeps.mailClient 同一 authProvider 语义）。 */
+    val mailClient: cn.appia.im.core.mail.MailClient,
     @BackgroundScope private val scope: CoroutineScope,
 ) {
 
@@ -49,6 +53,13 @@ class SessionBootstrapOrchestrator @Inject constructor(
     fun restorableSession(): AuthSession? = store.load()
         ?.takeIf { it.token.isNotEmpty() && it.serverUrl.isNotEmpty() }
 
+    /**
+     * 响应式会话流（M9-T6 / RN useMailInit 依赖 isAuthenticated 响应重跑）：save/clear 汇入
+     * （AuthSessionStore.session）；组织切换 applySession → auth.login → save 同链触发。
+     */
+    val sessionFlow: kotlinx.coroutines.flow.StateFlow<AuthSession?>
+        get() = store.session
+
     /** 首帧判定：同步读 MMKV（进程内同步操作），MainActivity.setContent 前调用（RN RootNavigator:66-95 无闪屏）。 */
     fun hasRestorableSession(): Boolean = restorableSession() != null
 
@@ -65,6 +76,38 @@ class SessionBootstrapOrchestrator @Inject constructor(
 
     /** 登录成功持久化（T5 账密/SMS 与 T6 CAS 的 onLoginSuccess 汇入点，RN authStore.login :98-107）。 */
     fun persistLogin(result: LoginResult, serverUrl: String) = auth.login(result, serverUrl)
+
+    /**
+     * 邮件角标初始化/刷新（M9-T6 / RN useMailInit:21-75 移植）：
+     * - 会话流驱动（save/clear/组织切换 applySession 都触发；登录后 Main 挂载调用）
+     * - ensureLastVisitAtInitialized（首装基线）→ 刷预览（INBOX 最新一条）→ 刷未读（启发式，坑 8）
+     * - Appia_Mail_Channel_Enabled 门控关/未登录时只做 reset 对应的本地清理跳过（RN effect 早退同义）
+     * - 全程静默容错（RN fetchLatestMailPreview catch → null 同构）——角标链不弹错
+     *
+     * 调用方挂 [scope]（进程级，Activity 重建不重复拉——RN effect 依赖数组 isAuthenticated/
+     * enabled/token/serverUrl/userId 等价收敛为会话变化）。
+     */
+    fun refreshMailBadge(enabled: Boolean) {
+        val session = restorableSession()
+        if (session == null) {
+            mailBadge.reset()
+            return
+        }
+        if (!enabled) return
+        val orgKey = cn.appia.im.feature.mail.normalizeMailOrgKey(session.serverUrl)
+        if (orgKey.isEmpty()) return
+        mailBadge.ensureLastVisitAtInitialized(orgKey)
+        scope.launch {
+            cn.appia.im.feature.mail.fetchLatestMailPreview(mailClient)?.let {
+                mailBadge.setPreview(it, orgKey)
+            }
+        }
+        scope.launch {
+            val since = mailBadge.lastVisitAtForOrg(orgKey)
+            val count = if (since <= 0) 0 else cn.appia.im.feature.mail.fetchMailUnreadCount(mailClient, since)
+            mailBadge.setUnreadCount(count, orgKey)
+        }
+    }
 
     /**
      * 登出（登出按钮与 SessionExpired 同路径）；teardown 注入缝传 manager::teardown（T10 指针）。
