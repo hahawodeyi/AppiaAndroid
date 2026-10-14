@@ -8,11 +8,19 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 语音 oncall 意图（RN pushTypes.ts:32-39 PushVoiceOncallParams；callMsg/callMsgRaw 解析归 M10 语音分流）。 */
+/**
+ * 语音 oncall 意图（RN pushTypes.ts:32-39 PushVoiceOncallParams）。
+ * callMsg/callMsgRaw 为 ejson `callMsg` 双态透传（RN buildVoiceOncallParams:88-110：
+ * 对象形态 → callMsg,字符串形态 → callMsgRaw）,解析归 VoicePushIngress（M10）。
+ */
 data class PushVoiceOncallParams(
     val recordId: String? = null,
     val org: String? = null,
     val isCallEnd: Boolean = false,
+    /** ejson.callMsg 对象形态（原样 JsonElement,消费方 parseCallMsg）。 */
+    val callMsg: JsonElement? = null,
+    /** ejson.callMsg 字符串形态（原文,消费方 parseCallMsg）。 */
+    val callMsgRaw: String? = null,
 )
 
 /** 推送点击导航参数（RN pushTypes.ts:45-53 PushNavigationParams；t 为 c/d/p/l 小写字母，AA 路由原样使用）。 */
@@ -43,6 +51,8 @@ data class PushPayload(
     val channelId: String? = null,
     val org: String? = null,
     val isCallEnd: Boolean = false,
+    /** ejson `callMsg` 原样（对象或字符串双态,RN pushTypes.ts:35）。 */
+    val callMsg: JsonElement? = null,
 )
 
 /**
@@ -135,6 +145,7 @@ object PushPayloadParser {
             channelId = asString(parsed["channelId"]) ?: asString(bag["channelId"]),
             org = asString(parsed["org"]) ?: asString(bag["org"]),
             isCallEnd = isBooleanTrue(parsed["isCallEnd"]),
+            callMsg = parsed["callMsg"] ?: bag["callMsg"]?.takeIf { it !is JsonNull },
         )
     }
 
@@ -226,17 +237,38 @@ object PushPayloadParser {
         else -> payload.name
     }
 
-    /** RN buildVoiceOncallParams :88-110（callMsg 解析归 M10，仅识别+透传标志）。 */
+    /**
+     * RN buildVoiceOncallParams :88-110 + buildCallMsgFromPushPayload :49-74。
+     * callMsg 双态透传：对象 → [PushVoiceOncallParams.callMsg]，字符串 → callMsgRaw；
+     * recordId 兜底链 payload.recordId ?? callMsg.recordId ?? callMsg.recordData.recordId
+     * （此处仅解 recordId，完整 callMsg 解析归 VoicePushIngress——core.push 保持零 voice 依赖）。
+     */
     private fun buildVoiceOncallParams(payload: PushPayload): PushVoiceOncallParams? {
         val isOncall = payload.msgType == "oncall" ||
             payload.messageType == "oncall" ||
             payload.oncallFlag
         if (!isOncall) return null
+
+        val embedded = payload.callMsg?.let { parseEmbeddedCallMsgId(it) }
         return PushVoiceOncallParams(
-            recordId = payload.recordId,
+            recordId = payload.recordId ?: embedded,
             org = payload.org,
             isCallEnd = payload.isCallEnd,
+            callMsg = payload.callMsg as? JsonObject,
+            callMsgRaw = (payload.callMsg as? JsonPrimitive)
+                ?.takeIf { it.isString && it.content.isNotEmpty() }?.content,
         )
+    }
+
+    /** ejson.callMsg 双态解 recordId（RN 兜底链后两段；解析失败 → null）。 */
+    private fun parseEmbeddedCallMsgId(callMsg: JsonElement): String? {
+        val obj = when {
+            callMsg is JsonObject -> callMsg
+            callMsg is JsonPrimitive && callMsg.isString ->
+                runCatching { Json.parseToJsonElement(callMsg.content) }.getOrNull() as? JsonObject
+            else -> null
+        } ?: return null
+        return asString(obj["recordId"]) ?: asRecord(obj["recordData"])?.let { asString(it["recordId"]) }
     }
 
     /**

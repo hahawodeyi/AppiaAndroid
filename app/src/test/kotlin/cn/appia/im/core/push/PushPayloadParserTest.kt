@@ -263,4 +263,43 @@ class PushPayloadParserTest {
         val p = PushPayloadParser.parsePushPayload(rawStr("ejson", ejson))
         assertEquals(true, p?.voiceOncall?.isCallEnd)
     }
+
+    // ---- callMsg 透传（RN buildVoiceOncallParams:88-110 + buildCallMsgFromPushPayload:49-74） ----
+
+    /** 完整嵌入 callMsg（含 recordData.channelId）——直通。 */
+    @Test
+    fun `embedded callMsg object passes through to voice params`() {
+        val ejson = """{"rid":"rv","type":"c","name":"n","sender":{"username":"u","name":"n"},"host":"","msgType":"oncall","callMsg":{"status":"calling","roomId":"rv","roomType":"d","recordData":{"exist":"true","recordId":"rec-cm","channelId":"ch-cm","initiator":"alice"}}}"""
+        val voice = PushPayloadParser.parsePushPayload(rawStr("ejson", ejson))?.voiceOncall
+        assertTrue(voice != null)
+        assertEquals("rec-cm", voice?.recordId) // callMsg.recordData.recordId 兜底
+        assertTrue(voice?.callMsgRaw == null)   // 对象形态非字符串 → callMsgRaw 缺省
+        assertTrue(voice?.callMsg != null)      // 对象透传
+    }
+
+    @Test
+    fun `embedded callMsg string form becomes callMsgRaw`() {
+        val cm = """{"status":"calling","roomId":"rv","roomType":"d","recordData":{"exist":"true","recordId":"rec-s","channelId":"ch-s","initiator":"alice"}}"""
+        // ejson.callMsg 为 JSON 字符串形态——程序化构造防手写转义错
+        val ejson = buildJsonObject {
+            put("rid", JsonPrimitive("rv"))
+            put("type", JsonPrimitive("c"))
+            put("name", JsonPrimitive("n"))
+            put("sender", buildJsonObject { put("username", JsonPrimitive("u")); put("name", JsonPrimitive("n")) })
+            put("host", JsonPrimitive(""))
+            put("msgType", JsonPrimitive("oncall"))
+            put("callMsg", JsonPrimitive(cm))
+        }.toString()
+        val voice = PushPayloadParser.parsePushPayload(rawStr("ejson", ejson))?.voiceOncall
+        assertEquals("rec-s", voice?.recordId)
+        assertEquals(cm, voice?.callMsgRaw)
+    }
+
+    @Test
+    fun `recordId falls back through callMsg when top-level missing`() {
+        // 顶层无 recordId,callMsg 对象内 recordData.recordId 兜底（RN payload.recordId ?? callMsg?.recordId ?? callMsg?.recordData?.recordId）
+        val ejson = """{"rid":"rv","type":"c","name":"n","sender":{"username":"u","name":"n"},"host":"","msgType":"oncall","callMsg":{"recordId":"rec-x","recordData":{"exist":"true","recordId":"rec-x","channelId":"ch-x"}}}"""
+        val voice = PushPayloadParser.parsePushPayload(rawStr("ejson", ejson))?.voiceOncall
+        assertEquals("rec-x", voice?.recordId)
+    }
 }

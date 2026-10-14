@@ -4,6 +4,10 @@ import android.util.Log
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.datastore.MmkvKvStore
 import com.tencent.mmkv.MMKV
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -42,7 +46,7 @@ fun isPushHostMatchingCurrentServer(host: String?, currentServer: String?): Bool
  * 推送点击路由（RN pushNavigation.ts handleNotificationOpen :241-277 移植）。
  *
  * 流程：raw payload → PushPayloadParser → host 校验（不匹配静默跳过）→
- * oncall 语音意图桩（识别即拦截，语音分流 M10 接管；isCallEnd 落到房间）→
+ * oncall 语音意图分流（RN :262-265 routeToVoiceSession；isCallEnd 落到房间）→
  * 入 PendingPushNavigation（导航就绪与否由 T5 drain 门控，本路由不导航）。
  */
 class PushClickRouter(
@@ -55,7 +59,21 @@ class PushClickRouter(
      * auth）使 drain 安全 no-op，意图留队列待接线点冲刷。
      */
     private val afterEnqueue: () -> Unit = { PushNavigationDrainer.shared.onNavReady() },
+    /**
+     * oncall 语音意图出口（RN :262-265 `void routeToVoiceSession(params)` →
+     * voicePushIngress）。构造纯净：默认 no-op（语音分流静默丢失可接受——CallSyncWatcher
+     * 与轮询是主被叫同步主路径）；MainActivity 装配接线 VoicePushIngress.handle（Task 12）。
+     */
+    private val onVoiceOncall: suspend (rid: String, voice: PushVoiceOncallParams, host: String?) -> Unit = { _, _, _ -> },
 ) {
+
+    /**
+     * 语音分流的 fire-and-forget 载体（RN :263 `void routeToVoiceSession(params)`）：
+     * onNotificationOpened 非 suspend,ingress 链含网络拉取,丢协程不阻塞点击回调。
+     * ponytail: 进程级 scope（无生命周期宿主——receiver 反射实例化）;挂起回调自身有
+     * 队列重试兜底,泄漏上限 = 单次 ingress 链。
+     */
+    private val voiceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * Android 点击事件入口。`extra` 为阿里云 extraMap JSON 字符串（即 RN 事件的 `extra` 字段，
@@ -80,10 +98,14 @@ class PushClickRouter(
             return
         }
 
-        // oncall 桩：通话中语音意图不进房（RN :262-265 走 routeToVoiceSession），isCallEnd 落到房间
+        // oncall 分流（RN :262-265）：通话中语音意图不进房，交语音分流；isCallEnd 落到房间
         val voice = params.voiceOncall
         if (voice != null && !voice.isCallEnd) {
-            Log.i(TAG, "oncall intent deferred to M10 voice routing rid=${params.rid} recordId=${voice.recordId}")
+            Log.i(TAG, "oncall intent → voice ingress rid=${params.rid} recordId=${voice.recordId}")
+            voiceScope.launch {
+                runCatching { onVoiceOncall(params.rid, voice, params.host) }
+                    .onFailure { Log.w(TAG, "voice ingress failed rid=${params.rid}: $it") }
+            }
             return
         }
 
