@@ -35,6 +35,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- M10-T9 语音平台（对齐 RN manifest:29,45-52）：麦克风 FGS + Telecom 自管来电 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Telecom 自管 ConnectionService（RN manifest:29 tools:node remove——AA 原生启用） -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+
     <application
         android:name=".AppiaApplication"
         android:allowBackup="false"
@@ -95,6 +102,25 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="meeting-overlay" />
+        </service>
+
+        <!-- 语音前台服务（M10-T9 / RN manifest:146-150 verbatim）：API 30+ 必须声明 microphone
+             类型（RECORD_AUDIO 运行时权限归 Task 12 UI 前置申请） -->
+        <service
+            android:name=".core.voice.platform.VoiceForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Telecom 自管 ConnectionService（M10-T9 GREENFIELD）：官方模板 = action
+             android.telecom.ConnectionService + BIND_TELECOM_CONNECTION_SERVICE 权限 +
+             exported=true（系统 Telecom 进程 bind） -->
+        <service
+            android:name=".core.voice.platform.VoiceConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
         </service>
 
         <!-- 阿里云推送消息接收器（3 action，对齐 RN manifest:151-162） -->

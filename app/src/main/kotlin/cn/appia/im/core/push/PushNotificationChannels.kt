@@ -18,9 +18,19 @@ object PushNotificationChannels {
 
     /**
      * 会议前台服务通道（M8-T8 / 坑 7 渠道单一定义：RN MeetingForegroundService CHANNEL_ID 同名，
-     * IMPORTANCE_LOW 无声无振动；服务只引用本常量，不再自建）。voice_incoming 归 M10。
+     * IMPORTANCE_LOW 无声无振动；服务只引用本常量，不再自建）。
      */
     const val MEETING_ACTIVE_ID = "meeting_active"
+
+    /**
+     * 语音来电通道（M10-T9 / RN VoiceNotificationChannels.VOICE_INCOMING_ID 同名：
+     * IMPORTANCE_HIGH 带铃声振动）。AA 无打包 calling_sound 资源——铃声改用系统默认
+     * 通知音（RN vibrationPattern 20s 长震一并省略，系统默认震动代位）。
+     */
+    const val VOICE_INCOMING_ID = "voice_incoming"
+
+    /** 语音前台服务通道（M10-T9 / RN VoiceForegroundService CHANNEL_ID 同名，IMPORTANCE_LOW 无声）。 */
+    const val VOICE_ACTIVE_ID = "voice_active"
 
     fun ensureCreated(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -49,6 +59,30 @@ object PushNotificationChannels {
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = context.getString(R.string.notification_channel_meeting_active_desc)
+                setSound(null, null)
+                enableVibration(false)
+            },
+        )
+        // 语音来电通道（RN VoiceNotificationChannels.ensureCreated :40-60 语义：IMPORTANCE_HIGH
+        // 铃声+振动；AA 无打包 calling_sound，setSound 缺省 = 系统默认通知音）
+        manager.createNotificationChannel(
+            NotificationChannel(
+                VOICE_INCOMING_ID,
+                context.getString(R.string.notification_channel_voice_incoming),
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = context.getString(R.string.notification_channel_voice_incoming_desc)
+                enableVibration(true)
+            },
+        )
+        // 语音进行中通道（RN VoiceForegroundService.ensureChannel :48-61 verbatim 语义）
+        manager.createNotificationChannel(
+            NotificationChannel(
+                VOICE_ACTIVE_ID,
+                context.getString(R.string.notification_channel_voice_active),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = context.getString(R.string.notification_channel_voice_active_desc)
                 setSound(null, null)
                 enableVibration(false)
             },

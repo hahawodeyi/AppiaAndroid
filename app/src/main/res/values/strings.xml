@@ -650,6 +650,10 @@
     <string name="meeting_weekdaywed">Wed</string>
     <string name="notification_channel_meeting_active">Active meetings</string>
     <string name="notification_channel_meeting_active_desc">Keeps meeting audio active in the background</string>
+    <string name="notification_channel_voice_active">Active voice calls</string>
+    <string name="notification_channel_voice_active_desc">Keeps voice audio active in the background</string>
+    <string name="notification_channel_voice_incoming">Voice calls</string>
+    <string name="notification_channel_voice_incoming_desc">Incoming voice call alerts with ringtone and vibration</string>
     <string name="memberprofile_baselocation">Base Location</string>
     <string name="memberprofile_email">Email</string>
     <string name="memberprofile_employeeid">Employee ID</string>
@@ -1108,6 +1112,7 @@
     <string name="voice_memberpicker_selectall">Select all</string>
     <string name="voice_memberpicker_start">Call ({{count}})</string>
     <string name="voice_memberpicker_title">Select call members</string>
+    <string name="voice_notification_active">Voice call in progress</string>
     <string name="voice_ok">OK</string>
     <string name="voice_org_antalpha">ANTALPHA</string>
     <string name="voice_org_antpool">ANTPOOL</string>

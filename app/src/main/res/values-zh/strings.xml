@@ -650,6 +650,10 @@
     <string name="meeting_weekdaywed">三</string>
     <string name="notification_channel_meeting_active">进行中的会议</string>
     <string name="notification_channel_meeting_active_desc">在后台保持会议进行</string>
+    <string name="notification_channel_voice_active">进行中的语音通话</string>
+    <string name="notification_channel_voice_active_desc">在后台保持语音通话进行</string>
+    <string name="notification_channel_voice_incoming">语音来电</string>
+    <string name="notification_channel_voice_incoming_desc">语音来电铃声与振动提醒</string>
     <string name="memberprofile_baselocation">Base 地</string>
     <string name="memberprofile_email">邮箱</string>
     <string name="memberprofile_employeeid">工号</string>
@@ -1108,6 +1112,7 @@
     <string name="voice_memberpicker_selectall">选择全员</string>
     <string name="voice_memberpicker_start">发起({{count}})</string>
     <string name="voice_memberpicker_title">选择通话成员</string>
+    <string name="voice_notification_active">语音通话进行中</string>
     <string name="voice_ok">好的</string>
     <string name="voice_org_antalpha">ANTALPHA</string>
     <string name="voice_org_antpool">ANTPOOL</string>
