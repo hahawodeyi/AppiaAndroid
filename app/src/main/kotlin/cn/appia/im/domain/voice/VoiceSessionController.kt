@@ -446,8 +446,7 @@ class VoiceSessionController(
     // ─────────────────────────────────────────────────────────────────────
 
     /**
-     * RN :446-452 startCallStatusPolling:立即一次 + 间隔轮询（RN CALL_STATUS_POLL_MS=1000;
-     * **AA 裁定 10s**——RN 1s 轮询在真机耗电异常,计划 Task 8 段锁定 10s,事件面不变）。
+     * RN :446-452 startCallStatusPolling:立即一次 + 间隔轮询。
      * 单次轮询（RN :408-444）:ACTIVE_CALL_POLL_PHASES 守卫 → getRecordStatusV2 →
      * [onPollResult] 缝（Task 8 接入完整 syncCallMsgFromRoom 链）。
      * Task 8 将开放为 public;T7 起点为内联启动（主叫链 + onEnteredInCall）。
@@ -717,8 +716,8 @@ class VoiceSessionController(
         /** RN agoraVoiceConstants.ts:1-2(= VoiceEnv.VOICE_HOSTER_AGORA_UID)。 */
         private const val HOSTER_AGORA_UID = 8888L
 
-        /** RN :254 CALL_STATUS_POLL_MS=1000 → AA 裁定 10s(见 startCallStatusPolling KDoc)。 */
-        private const val CALL_STATUS_POLL_MS = 10_000L
+        /** RN :254 CALL_STATUS_POLL_MS = 1000（1:1 移植;plan 文本 10s 为笔误,审查裁定以 RN 为准）。 */
+        private const val CALL_STATUS_POLL_MS = 1_000L
 
         /** RN :256-261 ACTIVE_CALL_POLL_PHASES。 */
         private val ACTIVE_CALL_POLL_PHASES = setOf(

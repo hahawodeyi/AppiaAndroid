@@ -118,7 +118,7 @@ class VoiceSessionControllerOutgoingTest {
         assertEquals(listOf(10), fakeRtc.adjustVolumeCalls)
         assertEquals(VoicePhase.OutgoingRinging, state().phase)
 
-        // 计时/轮询已启动：30s 未到仍 dialing；10s 后已轮询一次
+        // 计时/轮询已启动：轮询已跑（RN :254 1s 间隔）；t=29s 提示未到仍 dialing
         testScheduler.advanceTimeBy(10_000)
         testScope.runCurrent()
         assertTrue(deps.calls.any { it.startsWith("getRecordStatusV2:rec-1") })
