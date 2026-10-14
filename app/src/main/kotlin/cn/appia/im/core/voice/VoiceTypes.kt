@@ -20,7 +20,7 @@ val voiceJson: Json = Json { ignoreUnknownKeys = true }
 data class VoiceChatReceiver(
     val receiver: String,
     val receiverAppiaId: String? = null,
-    val name: String,
+    val name: String = "",
     val receiverUid: Long? = null,
     val status: String? = null,
 )
