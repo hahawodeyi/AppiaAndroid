@@ -1,5 +1,7 @@
 package cn.appia.im.core.voice
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -133,7 +135,9 @@ class OncallApi(
         } else {
             builder.method(method, null)
         }
-        val res = http.newCall(builder.build()).execute()
+        // OkHttp execute() 为阻塞调用——Dispatchers.IO 承接（T4 遗留修复：Main 调用方
+        // NetworkOnMainThreadException 防线收在本层，调用方无需各自切线程；测试见 OncallApiTest 不受影响）。
+        val res = withContext(Dispatchers.IO) { http.newCall(builder.build()).execute() }
         return readResponse(res)
     }
 
