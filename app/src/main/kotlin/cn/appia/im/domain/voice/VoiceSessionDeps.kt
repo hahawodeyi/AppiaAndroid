@@ -82,6 +82,12 @@ interface VoiceSessionDeps {
      */
     fun roomCallMsgForRid(rid: String): VoiceCallMsg?
 
+    /**
+     * RN clearLocalRoomCallAfterEnd（groupVoiceCall.ts）：清除房间本地 callMsg,避免 DB 仍显示
+     * calling 导致无法立即重拨（voiceSessionStore.ts:1631-1643 endCall 收尾,Task 12 生产接线）。
+     */
+    fun clearRoomCallMsg(rid: String)
+
     /** 40002 → 缓存失效回调（生产 = VoiceTokenCache.invalidate()，oncallApi.ts:63 同位）。 */
     fun onTokenExpired()
 }

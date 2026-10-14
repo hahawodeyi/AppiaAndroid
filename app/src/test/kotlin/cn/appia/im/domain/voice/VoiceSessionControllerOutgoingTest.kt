@@ -127,7 +127,7 @@ class VoiceSessionControllerOutgoingTest {
         assertEquals("dialing", state().outgoingHint)
     }
 
-    /** brief: meeting active blocks start——inMeeting/minimized 拦截 + meeting_end_voice_first。 */
+    /** brief: meeting active blocks start——inMeeting/minimized 拦截 + meeting_already_active（RN :1044）。 */
     @Test
     fun `meeting active blocks start`() {
         deps.meetingPhase = "inMeeting"
@@ -135,7 +135,7 @@ class VoiceSessionControllerOutgoingTest {
         testScope.runCurrent()
         assertEquals(VoicePhase.Idle, state().phase)
         assertTrue(deps.calls.isEmpty())
-        assertEquals(listOf("meeting_end_voice_first"), uiEvents.map { it.key })
+        assertEquals(listOf("meeting_already_active"), uiEvents.map { it.key })
 
         deps.meetingPhase = "minimized"
         controller.startOutgoing(hoster)
@@ -406,6 +406,74 @@ class VoiceSessionControllerOutgoingTest {
         assertTrue(state().hadRemoteParticipant)
     }
 
+    /** brief: endCall clears room callMsg when eligible——shouldClearLocalRoomCallAfterEnd true（单聊/无 callMsg）。 */
+    @Test
+    fun `endCall clears room callMsg when eligible`() {
+        controller.startOutgoing(hoster)
+        testScope.runCurrent()
+
+        controller.endCall(null)
+        testScope.runCurrent()
+
+        assertEquals(listOf("room-1"), deps.clearedRids)
+    }
+
+    /** brief: endCall skips clear when group still has active participants——RN :1632-1641 gate。 */
+    @Test
+    fun `endCall skips clear when group has active participants`() {
+        val groupHoster = VoiceChatHoster(
+            roomId = "room-1",
+            roomType = "p",
+            receivers = listOf(VoiceChatReceiver(receiver = "bob", name = "Bob")),
+        )
+        controller.startOutgoing(groupHoster)
+        testScope.runCurrent()
+
+        // 群聊 callMsg（roomType p）+ bob 已进频道（status in,非本端 alice）→ 仍有人在线,不清
+        val talkingMsg = VoiceCallMsg(
+            status = "talking",
+            roomId = "room-1",
+            roomType = "p",
+            userStatus = listOf(cn.appia.im.core.voice.VoiceUserStatus(username = "bob", status = "in")),
+        )
+        controller.store.update { it.copy(callMsg = talkingMsg) }
+
+        controller.endCall(null)
+        testScope.runCurrent()
+
+        assertTrue(deps.clearedRids.isEmpty())
+        assertEquals(VoicePhase.Idle, state().phase)
+    }
+
+    /** brief: quick redial bumps generation——first init 返回后补 cancel 自己的 record,second 链继续（RN test :321）。 */
+    @Test
+    fun `quick redial cancels stale record`() {
+        val gate = CompletableDeferred<Unit>()
+        deps.initGate = gate
+        controller.startOutgoing(hoster)
+        testScope.runCurrent()
+        assertEquals(VoicePhase.OutgoingRinging, state().phase)
+
+        controller.endCall(null)
+        testScope.runCurrent()
+        assertEquals(VoicePhase.Idle, state().phase)
+
+        // 第二通：init 不再 gate,返回 rec-2
+        deps.initGate = null
+        deps.initQueue += okResponse(data = buildJsonObject { put("recordId", "rec-2"); put("status", 1) })
+        controller.startOutgoing(hoster)
+        testScope.runCurrent()
+
+        // 第一通 init 放行：代数已 bump → 补发 cancel(rec-1),不 join
+        gate.complete(Unit)
+        testScope.runCurrent()
+
+        assertTrue(deps.calls.contains("updateRecordStatus:rec-1:cancel"))
+        assertEquals("rec-2", state().recordId)
+        assertEquals(VoicePhase.OutgoingRinging, state().phase)
+        assertEquals(1, fakeRtc.joinCalls)
+    }
+
     /** brief: volume indication maps to users isSpeaking。 */
     @Test
     fun `volume indication maps to users isSpeaking`() {
@@ -464,6 +532,9 @@ class VoiceSessionControllerOutgoingTest {
         var initGate: CompletableDeferred<Unit>? = null
         var initResponse: OncallResponse =
             okResponse(data = buildJsonObject { put("recordId", "rec-1"); put("status", 1) })
+
+        /** 逐次 init 应答（RN mockImplementationOnce 语义;空则回落 initResponse）。 */
+        val initQueue = ArrayDeque<OncallResponse>()
         var updateStatusGate: CompletableDeferred<Unit>? = null
         var lastInitBody: InformInitBody? = null
         var lastAddUsersBody: AddUsersBody? = null
@@ -478,7 +549,7 @@ class VoiceSessionControllerOutgoingTest {
             calls += "informInit"
             lastInitBody = body
             initGate?.await()
-            return initResponse
+            return if (initQueue.isNotEmpty()) initQueue.removeFirst() else initResponse
         }
 
         override suspend fun updateRecordStatus(ctx: OncallContext, recordId: String, status: String): OncallResponse {
@@ -525,6 +596,12 @@ class VoiceSessionControllerOutgoingTest {
         override val dismissed: VoiceCallDismissedStore = VoiceCallDismissedStore()
 
         override fun roomCallMsgForRid(rid: String): VoiceCallMsg? = roomCallMsg
+
+        val clearedRids = mutableListOf<String>()
+
+        override fun clearRoomCallMsg(rid: String) {
+            clearedRids += rid
+        }
 
         override fun onTokenExpired() {
             onTokenExpiredCalls += 1

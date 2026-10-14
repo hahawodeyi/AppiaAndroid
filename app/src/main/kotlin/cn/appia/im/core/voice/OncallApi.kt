@@ -135,10 +135,12 @@ class OncallApi(
         } else {
             builder.method(method, null)
         }
-        // OkHttp execute() 为阻塞调用——Dispatchers.IO 承接（T4 遗留修复：Main 调用方
+        // OkHttp execute() + body 读取均为阻塞——Dispatchers.IO 承接（T4 遗留修复：Main 调用方
         // NetworkOnMainThreadException 防线收在本层，调用方无需各自切线程；测试见 OncallApiTest 不受影响）。
-        val res = withContext(Dispatchers.IO) { http.newCall(builder.build()).execute() }
-        return readResponse(res)
+        return withContext(Dispatchers.IO) {
+            val res = http.newCall(builder.build()).execute()
+            readResponse(res)
+        }
     }
 
     /** oncallApi.ts:102-113：HTTP ≥400 → oncall_http_error；code 40002 → token expired。 */

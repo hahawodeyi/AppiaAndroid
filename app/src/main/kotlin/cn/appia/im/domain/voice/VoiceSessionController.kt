@@ -20,7 +20,9 @@ import cn.appia.im.core.voice.lib.applyRemoteMuteToUsers
 import cn.appia.im.core.voice.lib.groupHasCalleeInVoiceChannel
 import cn.appia.im.core.voice.lib.isGroupVoiceCallMsg
 import cn.appia.im.core.voice.lib.mapCallMsgToVoiceUsers
+import cn.appia.im.core.voice.lib.resolveVoiceCallRoomType
 import cn.appia.im.core.voice.lib.shouldAcceptRemoteUserJoined
+import cn.appia.im.core.voice.lib.shouldClearLocalRoomCallAfterEnd
 import cn.appia.im.core.voice.rtc.VoiceRtcEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -114,7 +116,7 @@ class VoiceSessionController(
         if (store.state.value.phase != VoicePhase.Idle) return
         val meetingPhase = deps.meetingPhaseProvider()
         if (meetingPhase == "inMeeting" || meetingPhase == "minimized") {
-            emitUi(VoiceUiEvent("meeting_end_voice_first"))
+            emitUi(VoiceUiEvent("meeting_already_active"))
             return
         }
         scope.launch { runStartOutgoing(hoster) }
@@ -539,6 +541,23 @@ class VoiceSessionController(
             stopCallStatusPolling()
             deps.timers.clear()
             releaseAgoraRtc()
+
+            // RN :1630-1643:乐观清除房间 callMsg,避免 DB 仍显示 calling 导致无法立即重拨。
+            // gate = shouldClearLocalRoomCallAfterEnd(endedCallMsg, ctx?.username, clearCtx);
+            // clearCtx.fallbackRoomType = hoster?.roomType ?? resolveVoiceCallRoomType(callMsg)。
+            val rid = snapshot.rid
+            if (rid != null &&
+                shouldClearLocalRoomCallAfterEnd(
+                    snapshot.callMsg,
+                    deps.sessionContext()?.username,
+                    VoiceCallMsgContextFallback(
+                        snapshot.hoster?.roomType
+                            ?: resolveVoiceCallRoomType(snapshot.callMsg, null),
+                    ),
+                )
+            ) {
+                deps.clearRoomCallMsg(rid)
+            }
 
             if (store.state.value.sessionGeneration == generation) {
                 store.update { store.idleState() }
