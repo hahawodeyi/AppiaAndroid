@@ -90,6 +90,42 @@ interface VoiceSessionDeps {
 
     /** 40002 → 缓存失效回调（生产 = VoiceTokenCache.invalidate()，oncallApi.ts:63 同位）。 */
     fun onTokenExpired()
+
+    /**
+     * RN lib/voice/switchSessionToVoiceCallOrg（跨主体来电确认后切换登录主体到记录 org）。
+     * 返回 true = 切换成功且 [sessionContext] 已指向新 org；生产装配走 OrgSwitchCoordinator
+     * （Task 12）。RN 的 no_candidate/switch_failed 细分收窄为 Boolean——false 时 Controller
+     * 统一 toast voice_crossOrg_switchUnavailable（RN :1542-1549）。
+     */
+    suspend fun switchToVoiceOrg(org: String): Boolean
+
+    /**
+     * 来电铃声/震动缝（RN services/voice/voiceRingtone.ts 的 start/stopIncomingRingtone）。
+     * AppState-active 分流（后台交 Telecom 系统铃声）归 Task 9 AndroidVoiceRinger 内部；
+     * Task 9 实现于 core/voice/platform 时可整体上移 core/voice（依赖方向）。
+     */
+    val ringer: VoiceRinger
+
+    /**
+     * RN utils/deviceInfo.getDeviceId（语音多端接听判定 + oncallJoin deviceId 字段）。
+     * 生产 = ANDROID_ID 读取（Task 12 装配）；空/失败返回 null（RN '' falsy 同位）。
+     */
+    val deviceIdProvider: () -> String?
+
+    /**
+     * RN joinExisting :1918-1929 / startFromMessage :1751-1754 直读房间行 callMsg raw
+     * （chats.callMsg 原文，无 store 合并——与 [roomCallMsgForRid] 的 effective 合并语义不同）。
+     */
+    fun roomCallMsgRawForRid(rid: String): String?
+
+    /** RN joinExisting :1924-1926 `options?.serverOnCallStatus ?? chat.onCallStatus` 的 DB 回退。 */
+    fun roomOnCallStatusForRid(rid: String): Boolean?
+}
+
+/** RN voiceRingtone.ts 最小缝（来电铃声 + 震动；Task 9 AndroidVoiceRinger 生产实现）。 */
+interface VoiceRinger {
+    fun start()
+    fun stop()
 }
 
 /**

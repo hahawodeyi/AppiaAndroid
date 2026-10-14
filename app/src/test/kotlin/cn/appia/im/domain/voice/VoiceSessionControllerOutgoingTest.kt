@@ -581,7 +581,9 @@ class VoiceSessionControllerOutgoingTest {
 
         override suspend fun getRecordStatusV2(ctx: OncallContext, recordId: String, recordOrg: String): OncallResponse {
             calls += "getRecordStatusV2:$recordId"
-            return okResponse(data = buildJsonObject { })
+            // data=null → callMsgFromOncallRecordResponse null → 轮询结果不触发同步链
+            // （T8 前 stub 无副作用;RN mock data:{} 会清空 callMsg,此处置 null 对齐「无数据不动作」）
+            return okResponse(data = null)
         }
 
         override suspend fun getNotify(ctx: OncallContext, org: String, recordId: String, username: String, recordOrg: String?): OncallResponse {
@@ -606,6 +608,26 @@ class VoiceSessionControllerOutgoingTest {
         override fun onTokenExpired() {
             onTokenExpiredCalls += 1
         }
+
+        override suspend fun switchToVoiceOrg(org: String): Boolean = false
+
+        private val ringerCalls = mutableListOf<String>()
+
+        override val ringer: cn.appia.im.domain.voice.VoiceRinger = object : cn.appia.im.domain.voice.VoiceRinger {
+            override fun start() {
+                ringerCalls += "start"
+            }
+
+            override fun stop() {
+                ringerCalls += "stop"
+            }
+        }
+
+        override val deviceIdProvider: () -> String? = { null }
+
+        override fun roomCallMsgRawForRid(rid: String): String? = null
+
+        override fun roomOnCallStatusForRid(rid: String): Boolean? = null
     }
 
     private class FakeRtc : VoiceRtcApi {
