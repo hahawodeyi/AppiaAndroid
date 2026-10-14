@@ -549,9 +549,30 @@ class VoiceSessionController(
      * RN 铃声由 UI VoiceCallHost 驱动（差异裁定,类 KDoc）;AA 在此 start。
      */
     fun presentIncoming(autoAccept: Boolean, callMsg: VoiceCallMsg?, rid: String?) {
-        if (store.state.value.phase != VoicePhase.Idle) return
+        if (!presentIncomingBody(callMsg, rid)) return
+        if (autoAccept) {
+            scope.launch { acceptIncomingInternal() }
+        }
+    }
+
+    /**
+     * RN `await presentIncoming({autoAccept:true})` 的 await 面（:1307）:
+     * joinExisting 分支 9b / otherIncoming 切换链在 await 后才检查 phase。
+     * 落态同步完成,autoAccept 的 acceptIncoming 全链 await 完成后返回
+     * （accept 成功 → connecting;失败 → reset 回 idle）。
+     */
+    private suspend fun presentIncomingInternal(autoAccept: Boolean, callMsg: VoiceCallMsg?, rid: String?) {
+        if (!presentIncomingBody(callMsg, rid)) return
+        if (autoAccept) {
+            acceptIncomingInternal()
+        }
+    }
+
+    /** :1247-1305 落态 + notifyHost + 轮询 + 65s 计时 + 铃声;accept 分发归调用方（同步/异步两形态）。 */
+    private fun presentIncomingBody(callMsg: VoiceCallMsg?, rid: String?): Boolean {
+        if (store.state.value.phase != VoicePhase.Idle) return false
         val parsed = callMsg ?: store.state.value.callMsg
-        if (parsed?.recordDataObj?.channelId?.isNotEmpty() != true) return
+        if (parsed?.recordDataObj?.channelId?.isNotEmpty() != true) return false
 
         val myGeneration = bumpVoiceSessionGeneration()
         store.update {
@@ -591,10 +612,7 @@ class VoiceSessionController(
         }
 
         deps.ringer.start()
-
-        if (autoAccept) {
-            scope.launch { acceptIncomingInternal() }
-        }
+        return true
     }
 
     /** RN :1310-1314 openIncomingConfirm:incomingRinging 才展开。 */
@@ -1019,66 +1037,69 @@ class VoiceSessionController(
      */
     fun joinOngoingCall(rid: String, callMsg: VoiceCallMsg) {
         if (store.state.value.phase != VoicePhase.Idle) return
-        scope.launch {
-            val ctx = deps.sessionContext() ?: run {
-                emitUi(VoiceUiEvent("voice_error_generic"))
-                return@launch
-            }
-            if (isAnsweredOnOtherDevice(callMsg, ctx.username)) return@launch
+        scope.launch { joinOngoingCallInternal(rid, callMsg) }
+    }
 
-            val preparedCallMsg = prepareCallMsgForRoomVoiceJoin(callMsg, ctx.username)
-            val recordId = preparedCallMsg.recordId ?: preparedCallMsg.recordDataObj?.recordId
-            val channelId = preparedCallMsg.recordDataObj?.channelId
-            if (recordId.isNullOrEmpty() || channelId.isNullOrEmpty()) {
-                emitUi(VoiceUiEvent("voice_error_generic"))
-                return@launch
-            }
+    /** joinOngoingCall 的 suspend 核心:joinExisting 分支 9a `await joinOngoingCall` 的 await 面。 */
+    private suspend fun joinOngoingCallInternal(rid: String, callMsg: VoiceCallMsg) {
+        val ctx = deps.sessionContext() ?: run {
+            emitUi(VoiceUiEvent("voice_error_generic"))
+            return
+        }
+        if (isAnsweredOnOtherDevice(callMsg, ctx.username)) return
 
-            val uid = try {
-                resolveAgoraJoinUid(preparedCallMsg, ctx.username)
-            } catch (e: VoiceUidResolveException) {
-                emitUi(VoiceUiEvent("voice_error_token_failed"))
-                return@launch
-            }
+        val preparedCallMsg = prepareCallMsgForRoomVoiceJoin(callMsg, ctx.username)
+        val recordId = preparedCallMsg.recordId ?: preparedCallMsg.recordDataObj?.recordId
+        val channelId = preparedCallMsg.recordDataObj?.channelId
+        if (recordId.isNullOrEmpty() || channelId.isNullOrEmpty()) {
+            emitUi(VoiceUiEvent("voice_error_generic"))
+            return
+        }
 
-            val myGeneration = bumpVoiceSessionGeneration()
-            store.update {
-                it.copy(
-                    phase = voiceTransition(VoicePhase.Idle, VoiceEvent.JoinOngoing),
-                    callMsg = preparedCallMsg,
-                    rid = rid,
+        val uid = try {
+            resolveAgoraJoinUid(preparedCallMsg, ctx.username)
+        } catch (e: VoiceUidResolveException) {
+            emitUi(VoiceUiEvent("voice_error_token_failed"))
+            return
+        }
+
+        val myGeneration = bumpVoiceSessionGeneration()
+        store.update {
+            it.copy(
+                phase = voiceTransition(VoicePhase.Idle, VoiceEvent.JoinOngoing),
+                callMsg = preparedCallMsg,
+                rid = rid,
+                recordId = recordId,
+                channelId = channelId,
+                hoster = null,
+                users = mapCallMsgToVoiceUsers(preparedCallMsg),
+                incomingUiExpanded = false,
+                uiMinimized = false,
+                sessionGeneration = myGeneration,
+            )
+        }
+        startCallStatusPollingInternal()
+
+        val deviceId = deps.deviceIdProvider()
+        try {
+            deps.join(
+                ctx.oncallContext(),
+                JoinBody(
+                    org = ctx.org,
                     recordId = recordId,
-                    channelId = channelId,
-                    hoster = null,
-                    users = mapCallMsgToVoiceUsers(preparedCallMsg),
-                    incomingUiExpanded = false,
-                    uiMinimized = false,
-                    sessionGeneration = myGeneration,
-                )
-            }
-            startCallStatusPollingInternal()
-
-            val deviceId = deps.deviceIdProvider()
-            try {
-                deps.join(
-                    ctx.oncallContext(),
-                    JoinBody(
-                        org = ctx.org,
-                        recordId = recordId,
-                        username = ctx.username,
-                        userUid = uid,
-                        deviceId = deviceId?.takeIf { it.isNotEmpty() },
-                    ),
-                )
-                val joined = joinAgoraChannel(channelId, uid, ctx.oncallContext())
-                if (!joined) {
-                    emitUi(VoiceUiEvent("voice_error_agora_join_failed"))
-                    resetSession()
-                }
-            } catch (e: Exception) {
-                emitUi(VoiceUiEvent("voice_error_generic", e.message))
+                    username = ctx.username,
+                    userUid = uid,
+                    deviceId = deviceId?.takeIf { it.isNotEmpty() },
+                ),
+            )
+            val joined = joinAgoraChannel(channelId, uid, ctx.oncallContext())
+            if (!joined) {
+                emitUi(VoiceUiEvent("voice_error_agora_join_failed"))
                 resetSession()
             }
+        } catch (e: Exception) {
+            emitUi(VoiceUiEvent("voice_error_generic", e.message))
+            resetSession()
         }
     }
 
@@ -1105,19 +1126,29 @@ class VoiceSessionController(
      *    syncCallMsgFromRoom + presentIncoming(autoAccept=true);否则 generic。
      */
     fun joinExisting(rid: String, options: JoinExistingOptions = JoinExistingOptions()) {
+        // RN joinExisting 为 async;外部调用方均不依赖其完成时序 → fire-and-forget
+        scope.launch { joinExistingInternal(rid, options) }
+    }
+
+    /**
+     * joinExisting 的 suspend 核心（RN :1883-2078 全分支）。RN 调用方中
+     * startFromMessage（:1743/:1748）await 本链后才检查 phase——AA 同构:
+     * [startFromMessage] 经 launch + await 本函数实现「join 上则后续入口跳过」。
+     */
+    private suspend fun joinExistingInternal(rid: String, options: JoinExistingOptions = JoinExistingOptions()) {
         val state = store.state.value
 
         // RN :1886-1889（分支 1）
         if (state.phase == VoicePhase.IncomingRinging && state.rid == rid) {
-            acceptIncoming()
+            acceptIncomingInternal()
             return
         }
 
-        // RN :1891-1915（分支 2）
+        // RN :1891-1915（分支 2）:读 DB raw 由 try/catch-ignore 包裹（:1896-1913）
         if (state.phase != VoicePhase.Idle) {
             val recordId = state.recordId
             if (recordId != null) {
-                val raw = deps.roomCallMsgRawForRid(rid)
+                val raw = runCatching { deps.roomCallMsgRawForRid(rid) }.getOrNull()
                 val parsed = parseCallMsg(raw)
                 val username = sessionUsername()
                 if (parsed != null && username != null &&
@@ -1129,16 +1160,16 @@ class VoiceSessionController(
             return
         }
 
-        scope.launch { joinExistingIdle(rid, options) }
-    }
+        // RN :1917-1929（分支 3）:DB raw + onCallStatus 读体 try/catch-ignore（:1920-1929）。
+        // RN 单个 try 同时覆盖两读,catch 显式置 dbCallMsgRaw = undefined（已赋值也作废）;
+        // AA 同构:onFailure 重置,两读体抛错时皆空。
+        var dbCallMsgRaw: String? = null
+        var serverOnCallStatus: Boolean? = null
+        runCatching {
+            dbCallMsgRaw = deps.roomCallMsgRawForRid(rid)
+            serverOnCallStatus = options.serverOnCallStatus ?: deps.roomOnCallStatusForRid(rid)
+        }.onFailure { dbCallMsgRaw = null }
 
-    /** RN :1917-2078 joinExisting 的 idle 主链（suspend:getRecordStatusV2 刷新 + autoAccept 接听）。 */
-    private suspend fun joinExistingIdle(rid: String, options: JoinExistingOptions) {
-        // RN :1917-1929（分支 3）:DB raw + options/serverOnCallStatus/DB onCallStatus 回退
-        val dbCallMsgRaw = deps.roomCallMsgRawForRid(rid)
-        val serverOnCallStatus = options.serverOnCallStatus ?: deps.roomOnCallStatusForRid(rid)
-
-        val state = store.state.value
         val storeCallMsg = state.rid?.takeIf { it == rid }?.let { state.callMsg }
         // RN mergeJoinExistingCallMsgRaw:banner 与 store 取富,再与 DB 取富
         val fromBannerStore = pickRicherRoomCallMsgRaw(options.callMsgRaw, storeCallMsg)
@@ -1175,10 +1206,10 @@ class VoiceSessionController(
             return
         }
 
-        // RN :1985-1990（分支 6）:他设备已接听 → 中止（banner 场景弹 voice_other_device_alert）
+        // RN :1985-1990（分支 6）:他设备已接听 → 中止（banner 场景弹 message_voiceOtherDeviceAccepted）
         if (isAnsweredOnOtherDevice(msg, username)) {
             if (options.joinFromRoomBanner) {
-                emitUi(VoiceUiEvent("voice_other_device_accepted"))
+                emitUi(VoiceUiEvent("message_voiceOtherDeviceAccepted"))
             }
             return
         }
@@ -1218,7 +1249,7 @@ class VoiceSessionController(
                     presentIncoming = shouldPresentIncomingForUser(msg, username, serverOnCallStatus, deps.dismissed)
                     if (isAnsweredOnOtherDevice(msg, username)) {
                         if (options.joinFromRoomBanner) {
-                            emitUi(VoiceUiEvent("voice_other_device_accepted"))
+                            emitUi(VoiceUiEvent("message_voiceOtherDeviceAccepted"))
                         }
                         return
                     }
@@ -1232,16 +1263,16 @@ class VoiceSessionController(
             return
         }
 
-        // RN :2025-2031（分支 9a）
+        // RN :2025-2031（分支 9a）:await joinOngoingCall
         if (joinOngoing) {
-            joinOngoingCall(rid, msg)
+            joinOngoingCallInternal(rid, msg)
             return
         }
 
-        // RN :2033-2038（分支 9b）
+        // RN :2033-2038（分支 9b）:sync + await presentIncoming(autoAccept=true)
         if (presentIncoming) {
             syncCallMsgFromRoom(rid, mergedRaw)
-            presentIncoming(autoAccept = true, callMsg = msg, rid = rid)
+            presentIncomingInternal(autoAccept = true, callMsg = msg, rid = rid)
             return
         }
 
@@ -1251,46 +1282,50 @@ class VoiceSessionController(
     /**
      * RN :1734-1798 startFromMessage（消息点击入口）。msgData.status ∈ calling/talking 对应
      * RN msgData.type（AA 签名收 VoiceCallMsg,status 承载 type 语义）:
-     * 活动 phase → calling/talking 走 joinExisting;idle → calling/talking 先 joinExisting
-     * （未接上且 calling 再补被叫呈现,直读 DB raw 复核）;其余 → receivers 回退 startOutgoing。
+     * 活动 phase → calling/talking 走 joinExisting;idle → calling/talking 先 await joinExisting
+     * （:1743-1748,join 上则后续入口整体跳过;join 不上且 calling 再补被叫呈现,直读 DB raw 复核）;
+     * 其余 → receivers 回退 startOutgoing。全链 async → AA launch 包裹。
      */
     fun startFromMessage(rid: String, msgData: VoiceCallMsg) {
-        val state = store.state.value
         val isCallingOrTalking = msgData.status == "calling" || msgData.status == "talking"
 
-        if (state.phase != VoicePhase.Idle) {
+        if (store.state.value.phase != VoicePhase.Idle) {
             if (isCallingOrTalking) joinExisting(rid)
             return
         }
 
-        if (isCallingOrTalking) {
-            joinExisting(rid)
-            if (store.state.value.phase != VoicePhase.Idle) return
+        scope.launch {
+            if (isCallingOrTalking) {
+                // RN :1743-1748 await joinExisting——phase 检查在 await 之后:
+                // joinExisting 内部落态（accept/joinOngoing/presentIncoming）完成后才判定
+                joinExistingInternal(rid)
+                if (store.state.value.phase != VoicePhase.Idle) return@launch
+            }
+
+            if (msgData.status == "calling") {
+                val callMsgRaw = runCatching { deps.roomCallMsgRawForRid(rid) }.getOrNull()
+                val parsed = parseCallMsg(callMsgRaw)
+                if (parsed?.recordDataObj == null || !isRoomCallMsgActive(parsed, null)) return@launch
+                syncCallMsgFromRoom(rid, callMsgRaw)
+                presentIncoming(autoAccept = false, callMsg = parsed, rid = rid)
+                return@launch
+            }
+
+            val ctx = deps.sessionContext() ?: return@launch
+
+            val receivers = msgData.userStatus.orEmpty()
+                .filter { !it.username.isNullOrEmpty() && it.username != ctx.username }
+                .map { VoiceChatReceiver(receiver = it.username!!, name = it.name ?: it.username!!) }
+            if (receivers.isEmpty()) return@launch
+
+            startOutgoing(
+                cn.appia.im.core.voice.VoiceChatHoster(
+                    roomId = rid,
+                    roomType = msgData.roomType ?: "d",
+                    receivers = receivers,
+                ),
+            )
         }
-
-        if (msgData.status == "calling") {
-            val callMsgRaw = deps.roomCallMsgRawForRid(rid)
-            val parsed = parseCallMsg(callMsgRaw)
-            if (parsed?.recordDataObj == null || !isRoomCallMsgActive(parsed, null)) return
-            syncCallMsgFromRoom(rid, callMsgRaw)
-            presentIncoming(autoAccept = false, callMsg = parsed, rid = rid)
-            return
-        }
-
-        val ctx = deps.sessionContext() ?: return
-
-        val receivers = msgData.userStatus.orEmpty()
-            .filter { !it.username.isNullOrEmpty() && it.username != ctx.username }
-            .map { VoiceChatReceiver(receiver = it.username!!, name = it.name ?: it.username!!) }
-        if (receivers.isEmpty()) return
-
-        startOutgoing(
-            cn.appia.im.core.voice.VoiceChatHoster(
-                roomId = rid,
-                roomType = msgData.roomType ?: "d",
-                receivers = receivers,
-            ),
-        )
     }
 
     // ─────────────────────────────────────────────────────────────────────
