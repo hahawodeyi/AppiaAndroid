@@ -28,6 +28,9 @@ class VoiceConnectionService : ConnectionService() {
         request: ConnectionRequest?,
     ): Connection {
         val callId = request.callId()
+        // callId 解析失败（extras 缺失/空串）→ 官方模板 createCanceledConnection，
+        // 不注册 listener/connection（"" 键会污染注册表并闩住 reportedCallId）
+        if (callId.isBlank()) return Connection.createCanceledConnection()
         val connection = VoiceConnection(callId)
         TelecomCallBridge.registerConnection(callId, connection)
         return connection
@@ -63,6 +66,9 @@ private class VoiceConnection(private val callId: String) : Connection() {
 
     override fun onReject() {
         TelecomCallBridge.dispatchReject(callId)
+        // 与 onDisconnect 路径对称：清 listener/connection 注册 + reported 旗标
+        // （否则 reject 闩住 reportedCallId 连坐后续来电，泄漏注册表条目）
+        TelecomCallBridge.connectionDisconnected(callId)
         setDisconnected(DisconnectCause(DisconnectCause.REJECTED))
         destroy()
     }

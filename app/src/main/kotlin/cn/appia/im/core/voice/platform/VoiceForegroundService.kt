@@ -74,8 +74,7 @@ class VoiceForegroundService : Service() {
  *
  * **命名注记**：类名 `VoiceFloatServiceStarter` 为 M10 计划接口面锁定名（Task 12 装配引用）；
  * 实际启动的是前台服务（无悬浮窗——语音来电 overlay 提示是另一特性，RN voice_float_*
- * strings 属之）。callerName 非空时作通知 contentText（RN 通知无此参——AA 增强，标题仍
- * voice_notification_active verbatim）。
+ * strings 属之）。
  */
 object VoiceFloatServiceStarter {
 

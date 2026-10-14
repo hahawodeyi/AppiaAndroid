@@ -26,11 +26,13 @@ object VoiceForegroundTracker {
         private set
 
     private val listeners = CopyOnWriteArrayList<(Boolean) -> Unit>()
-    private var registered = false
+
+    /** 按 Application 实例注册去重（MeetingFloatAppStateWatcher WeakHashMap 先例：测试中
+     *  每方法重建 Application，进程级布尔会令新实例漏注册）。 */
+    private val registered = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Application, Boolean>())
 
     fun ensureRegistered(app: Application) {
-        if (registered) return
-        registered = true
+        if (registered.put(app, true) != null) return
         var startedActivities = 0
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
@@ -63,11 +65,12 @@ object VoiceForegroundTracker {
 
 /**
  * 来电铃声/震动（RN services/voice/voiceRingtone.ts 原生等价）：
- * - **AppState-active 分流**（RN :15-21）：前台才自响——[VoiceForegroundTracker.foreground]；
- *   后台交 Telecom 系统铃声。
- * - **Telecom 去重**（Task 8 承接裁定）：[TelecomCallBridge.hasActiveIncomingReport] 为真
- *   （系统铃在响）时 in-app 不再响，避免后台双响——Controller presentIncoming 无条件 start()，
- *   去重收拢在本类内部。
+ * - **AppState-active 分流**（RN :15-21）：前台才自响——[VoiceForegroundTracker.foreground]。
+ *   铃声归属（Fix round 1 裁定）：前台 = 应用内铃声+振动；后台可听告警由推送 voice_incoming
+ *   通道（IMPORTANCE_HIGH+振动+系统默认铃声）承载；Telecom reportIncomingCall 承担音频
+ *   焦点/系统通话元数据/降级链，**不承担铃声**——SELF_MANAGED 来电系统侧零铃声零振动
+ *   （AOSP Ringer.java getRingerAttributes 对 isSelfManaged endEarly）。若未来改为系统
+ *   托管（非 self-managed）连接，需重引入「已上报→不响」去重门。
  * - 震动 `[0,500,1000,500]` 循环（RN Vibration.vibrate 同参）+ RingtoneManager
  *   TYPE_RINGTONE 系统铃声循环播放（RN InCallManager.startRingtone('_BUNDLE_') 的 Android
  *   原生对位——AA 无打包 ringtone 资源，用系统默认来电铃声）。
@@ -96,8 +99,6 @@ class AndroidVoiceRinger(context: Context) : VoiceRinger {
 
     override fun start() {
         if (ringing) return
-        // Telecom 已上报（系统铃在响）→ 不再 in-app 响（后台/前台均让系统铃声接管）
-        if (TelecomCallBridge.hasActiveIncomingReport()) return
         ringing = true
         // RN :16-21 AppState.currentState === 'active' 才响
         if (VoiceForegroundTracker.foreground) startPlayback()

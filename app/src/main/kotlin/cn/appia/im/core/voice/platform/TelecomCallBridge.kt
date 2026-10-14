@@ -23,8 +23,8 @@ import java.util.concurrent.ConcurrentHashMap
  *   失败（未注册 account / 系统 SecurityException）一律 false 降级，**不抛**——上层回退
  *   in-app 铃声/通知路径。
  * - [setActive]/[setDisconnected]：接通/挂断时同步 Connection 状态。
- * - [hasActiveIncomingReport]：来电已成功上报 Telecom 的全局查询——[AndroidVoiceRinger]
- *   据此去重（系统铃响时 in-app 铃不响，避免后台双响——Task 8 承接裁定）。
+ * - [hasActiveIncomingReport]：来电已成功上报 Telecom 的全局查询（Task 12 装配可用；
+ *   SELF_MANAGED 系统侧零铃声——铃声归属见 [AndroidVoiceRinger] KDoc，ringer 不再据此去重）。
  *
  * 静态桥（companion listener registry keyed by callId）：[VoiceConnectionService] 的
  * onAnswer/onReject 回调经 [dispatchAnswer]/[dispatchReject] 投递到 reportIncomingCall
@@ -114,7 +114,7 @@ class TelecomCallBridge(
         /** onCreateIncomingConnection 建立的 Connection（setActive/setDisconnected 操作对象）。 */
         private val connections = ConcurrentHashMap<String, Connection>()
 
-        /** 最近一次成功上报 Telecom 的 callId（null = 无活动上报；ringer 去重查询）。 */
+        /** 最近一次成功上报 Telecom 的 callId（null = 无活动上报；Task 12 装配查询面）。 */
         @Volatile
         private var reportedCallId: String? = null
 
