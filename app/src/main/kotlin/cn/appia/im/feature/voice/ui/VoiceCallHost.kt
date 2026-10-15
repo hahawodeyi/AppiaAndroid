@@ -89,16 +89,18 @@ fun VoiceCallHost(
     t: (String) -> String,
     onOpenRoom: (String) -> Unit,
     onPickMembers: (rid: String, roomType: String) -> Unit,
+    /** Task 11 遗留 1：本机 username（过滤参与者中心本地自己；装配层自 session 注入）。 */
+    currentUsername: String? = null,
 ) {
     if (controller == null) return
     val state = controller.store.state.collectAsStateCompat().value
     when (val surface = voiceUiSurface(state)) {
         VoiceUiSurface.None -> Unit
         VoiceUiSurface.Banner -> VoiceIncomingBanner(state, controller, t)
-        VoiceUiSurface.Confirm -> VoiceIncomingConfirm(state, controller, t)
+        VoiceUiSurface.Confirm -> VoiceIncomingConfirm(state, controller, t, currentUsername)
         is VoiceUiSurface.Overlay -> {
             BoxFill {
-                VoiceCallOverlay(state, controller, t, onPickMembers)
+                VoiceCallOverlay(state, controller, t, onPickMembers, currentUsername)
                 if (surface.otherIncoming) {
                     VoiceOtherCallBanner(state, controller, t)
                 }
@@ -119,6 +121,7 @@ internal fun VoiceIncomingConfirm(
     state: VoiceSessionState,
     controller: VoiceSessionController,
     t: (String) -> String,
+    currentUsername: String? = null,
 ) {
     val callMsg = state.callMsg
     val isDirect = callMsg?.roomType == "d"
@@ -153,7 +156,7 @@ internal fun VoiceIncomingConfirm(
                 VoiceParticipantCenter(
                     users = displayUsers,
                     roomType = callMsg?.roomType,
-                    localUsername = null,
+                    localUsername = currentUsername,
                     callMsg = callMsg,
                     waitingCallee = waitingCallee,
                     t = t,

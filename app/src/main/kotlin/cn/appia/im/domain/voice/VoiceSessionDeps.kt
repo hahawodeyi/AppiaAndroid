@@ -112,14 +112,21 @@ interface VoiceSessionDeps {
      */
     val deviceIdProvider: () -> String?
 
-    /**
-     * RN joinExisting :1918-1929 / startFromMessage :1751-1754 直读房间行 callMsg raw
+    /** RN joinExisting :1918-1929 / startFromMessage :1751-1754 直读房间行 callMsg raw
      * （chats.callMsg 原文，无 store 合并——与 [roomCallMsgForRid] 的 effective 合并语义不同）。
      */
     fun roomCallMsgRawForRid(rid: String): String?
 
     /** RN joinExisting :1924-1926 `options?.serverOnCallStatus ?? chat.onCallStatus` 的 DB 回退。 */
     fun roomOnCallStatusForRid(rid: String): Boolean?
+
+    /**
+     * 麦克风运行时权限门（RN requestVoiceMicrophonePermission——startOutgoing :1070 /
+     * acceptIncoming :1334 / joinOngoingCall :1806 三处 store 内置门，Task 12 装配）。
+     * true = 已授权（含已授予过的同步短路）；false = 拒绝（RN 侧已弹 voice_error_mic_denied
+     * Alert，AA 装配层同义）。默认恒 true（测试/JVM 无权限域）。
+     */
+    suspend fun requestMicPermission(): Boolean = true
 }
 
 /** RN voiceRingtone.ts 最小缝（来电铃声 + 震动；Task 9 AndroidVoiceRinger 生产实现）。 */

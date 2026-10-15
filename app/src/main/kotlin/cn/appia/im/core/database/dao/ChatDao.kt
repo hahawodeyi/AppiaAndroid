@@ -50,6 +50,10 @@ interface ChatDao {
     @Query("SELECT * FROM chats WHERE rid = :rid LIMIT 1")
     fun observeByRid(rid: String): Flow<ChatEntity?>
 
+    /** 单房间行现读（M10-T12 语音 deps.roomCallMsgRawForRid / roomOnCallStatusForRid）。 */
+    @Query("SELECT * FROM chats WHERE rid = :rid LIMIT 1")
+    suspend fun getByRid(rid: String): ChatEntity?
+
     /**
      * 会话列表观察（RN useRoomListChats.ts:38-43）：
      * `archived = false AND open = true AND bot != true`，按 room_updated_at 倒序兜底

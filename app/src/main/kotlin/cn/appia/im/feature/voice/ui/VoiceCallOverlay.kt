@@ -55,6 +55,7 @@ internal fun VoiceCallOverlay(
     controller: VoiceSessionController,
     t: (String) -> String,
     onPickMembers: (rid: String, roomType: String) -> Unit,
+    currentUsername: String? = null,
 ) {
     val phase = state.phase
     val hoster = state.hoster
@@ -96,7 +97,7 @@ internal fun VoiceCallOverlay(
                 VoiceParticipantCenter(
                     users = state.users,
                     roomType = roomType,
-                    localUsername = null,
+                    localUsername = currentUsername,
                     callMsg = callMsg,
                     hoster = hoster,
                     waitingCallee = waitingCallee,

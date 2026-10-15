@@ -95,6 +95,9 @@ fun RoomAttachmentButton(
     pending: PendingAttachments,
     showMeeting: Boolean = false,
     onMeeting: () -> Unit = {},
+    /** 语音通话项（M10-T12 / RN AttachmentPanel voice_chat → openVoiceChatFromRoom）。 */
+    showVoice: Boolean = false,
+    onVoice: () -> Unit = {},
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -146,6 +149,17 @@ fun RoomAttachmentButton(
                 },
                 modifier = Modifier.testTag("qa-room-attachment-file"),
             )
+            // 语音通话（M10-T12 / RN AttachmentPanel voice_chat → openVoiceChatFromRoom）
+            if (showVoice) {
+                DropdownMenuItem(
+                    text = { Text(context.t("chatinput_voicechat")) },
+                    onClick = {
+                        menuOpen = false
+                        onVoice()
+                    },
+                    modifier = Modifier.testTag("qa-room-attachment-voice"),
+                )
+            }
             // 会议（M8-T4 / RN AttachmentPanel showMeeting → RoomScreen :683 push MeetingForm）
             if (showMeeting) {
                 DropdownMenuItem(

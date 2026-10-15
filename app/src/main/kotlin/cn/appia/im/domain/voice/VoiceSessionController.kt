@@ -164,6 +164,9 @@ class VoiceSessionController(
             return
         }
 
+        // RN :1070-1074 requestVoiceMicrophonePermission（mic 拒绝静默 return——RN Alert 归 gate 内）
+        if (!deps.requestMicPermission()) return
+
         val ctx = deps.sessionContext() ?: run {
             emitUi(VoiceUiEvent("voice_error_not_logged_in"))
             return
@@ -645,6 +648,9 @@ class VoiceSessionController(
         }
         if (phase != VoicePhase.IncomingRinging) return
 
+        // RN :1334-1338 requestVoiceMicrophonePermission（mic 拒绝静默 return）
+        if (!deps.requestMicPermission()) return
+
         val ctx = deps.sessionContext()
         val s = store.state.value
         val recordId = s.recordId
@@ -1042,6 +1048,11 @@ class VoiceSessionController(
 
     /** joinOngoingCall 的 suspend 核心:joinExisting 分支 9a `await joinOngoingCall` 的 await 面。 */
     private suspend fun joinOngoingCallInternal(rid: String, callMsg: VoiceCallMsg) {
+        // RN :1806-1810 requestVoiceMicrophonePermission（mic 拒绝 toast voice_error_mic_denied + return）
+        if (!deps.requestMicPermission()) {
+            emitUi(VoiceUiEvent("voice_error_mic_denied"))
+            return
+        }
         val ctx = deps.sessionContext() ?: run {
             emitUi(VoiceUiEvent("voice_error_generic"))
             return

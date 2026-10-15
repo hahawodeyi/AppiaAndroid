@@ -379,6 +379,17 @@ data class MeetingRoomRoute(
     val resumed: Boolean = false,
 )
 
+/**
+ * M10-T12 语音选人页（RN push('VoiceMemberPicker', {rid, roomType, intent})）：
+ * intent=start（房间附件菜单群聊发起）/ invite（通话中 overlay 加人）。
+ */
+@Serializable
+data class VoiceMemberPickerRoute(
+    val rid: String,
+    val roomType: String,
+    val intent: String = "start",
+)
+
 // T8 已落地（选人器）：RN navigate('CreateChannelMembers', {intent, rid?, t?, teamId?,
 // existingMemberUsernames?, preselectedUsernames?})；teamId 来自 RN RoomInfo :200
 // `chat?.teamMain ? chat.teamId : undefined`（T4 minor 补——agent 移除 team 主房双调用 M5+ 用）
@@ -550,6 +561,8 @@ class RouteDeps(
     val meetingRoom: MeetingRoomHandle? = null,
     /** M9-T6 邮件角标单例（DDP 推送增量与列表行消费同一实例；UI 测试可 null）。 */
     val mailBadge: cn.appia.im.feature.mail.MailBadgeStore? = null,
+    /** M10-T12 语音房间装配束（Controller/Watcher/Telecom 桥同一实例；UI 测试可 null）。 */
+    val voice: cn.appia.im.feature.voice.VoiceRoomHandle? = null,
 ) {
     /** AI 房间控制态机（M7-T7 / RN aiStore zustand 全局单例同寿：随 app scope，不随路由）。 */
     val aiRooms: AiRoomStateMachine by lazy { AiRoomStateMachine(scope) }
@@ -633,6 +646,121 @@ internal fun androidx.navigation.NavController.navigateToRoomFromAppRoot(route: 
 }
 
 /**
+ * RN isCurrentUserInRoomVoiceChannel.ts verbatim（M10-T12）：本机是否已在房间语音频道内
+ * （status==='in' 且 deviceId 与本机一致；双方任一空 deviceId 视为一致）。
+ */
+internal fun isCurrentUserInRoomVoiceChannel(
+    callMsg: cn.appia.im.core.voice.VoiceCallMsg?,
+    username: String?,
+    localDeviceId: String,
+): Boolean {
+    if (callMsg == null) return false
+    val name = username?.trim()?.lowercase().orEmpty()
+    if (name.isEmpty()) return false
+    val effective = cn.appia.im.core.voice.lib.reconcileStaleLocalRoomCallMsg(callMsg) ?: callMsg
+    val selfRow = effective.userStatus?.find { it.username?.trim()?.lowercase() == name } ?: return false
+    if (selfRow.status != "in") return false
+    val rowDevice = selfRow.deviceId?.trim().orEmpty()
+    return if (rowDevice.isNotEmpty() && localDeviceId.isNotEmpty()) rowDevice == localDeviceId else true
+}
+
+/**
+ * RN handleRoomVoiceJoinBannerPress.ts verbatim（M10-T12）：横幅点击——
+ * 本机已在会话中 → 展开；otherIncoming 同 rid → beginJoin；本人已在频道且 idle → joinExisting；
+ * 否则 joinExisting（joinFromRoomBanner=true）→ 展开语音界面。
+ */
+internal fun handleRoomVoiceJoinBannerPress(
+    controller: cn.appia.im.domain.voice.VoiceSessionController,
+    rid: String,
+    roomType: String?,
+    currentUsername: String?,
+    chatCallMsgRaw: String?,
+    chatOnCallStatus: Boolean?,
+    localDeviceId: String,
+) {
+    val state = controller.store.state.value
+    val expandPhases = setOf(
+        cn.appia.im.core.voice.VoicePhase.InCall,
+        cn.appia.im.core.voice.VoicePhase.Connecting,
+        cn.appia.im.core.voice.VoicePhase.OutgoingRinging,
+        cn.appia.im.core.voice.VoicePhase.IncomingRinging,
+    )
+    if (state.rid == rid && state.phase in expandPhases) {
+        // RN expandVoiceCallUi：active → setUiMinimized(false)；incomingRinging → 展开确认页
+        if (state.phase == cn.appia.im.core.voice.VoicePhase.IncomingRinging) {
+            controller.openIncomingConfirm()
+        } else {
+            controller.setUiMinimized(false)
+        }
+        return
+    }
+
+    val queued = state.otherIncoming
+    if (queued?.rid == rid) {
+        controller.beginOtherIncomingJoin()
+        return
+    }
+
+    val parsed = cn.appia.im.core.voice.lib.parseCallMsg(chatCallMsgRaw)
+    if (parsed != null && !currentUsername.isNullOrEmpty() &&
+        isCurrentUserInRoomVoiceChannel(parsed, currentUsername, localDeviceId) &&
+        state.phase == cn.appia.im.core.voice.VoicePhase.Idle
+    ) {
+        controller.joinExisting(
+            rid,
+            cn.appia.im.domain.voice.VoiceSessionController.JoinExistingOptions(
+                callMsgRaw = chatCallMsgRaw,
+                roomType = roomType,
+                serverOnCallStatus = chatOnCallStatus,
+                joinFromRoomBanner = true,
+            ),
+        )
+        controller.setUiMinimized(false)
+        return
+    }
+
+    controller.joinExisting(
+        rid,
+        cn.appia.im.domain.voice.VoiceSessionController.JoinExistingOptions(
+            callMsgRaw = chatCallMsgRaw,
+            roomType = roomType,
+            serverOnCallStatus = chatOnCallStatus,
+            joinFromRoomBanner = true,
+        ),
+    )
+    controller.setUiMinimized(false)
+}
+
+/**
+ * oncall 卡片点击（M10-T12 / RN onPressCard → startFromMessage）：msgData（IVoiceChatMsgData）
+ * → [cn.appia.im.core.voice.VoiceCallMsg] 形态映射（startFromMessage 消费 status/userStatus/roomType）。
+ * RN 侧两类型字段名不同（type↔status），此处按语义对齐。
+ */
+internal fun parseVoiceChatMsgDataForStart(raw: String): cn.appia.im.core.voice.VoiceCallMsg? =
+    runCatching {
+        val obj = Json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonObject ?: return null
+        val type = obj.stringFieldOrNull("type") ?: return null
+        cn.appia.im.core.voice.VoiceCallMsg(
+            status = type,
+            roomType = obj.stringFieldOrNull("roomType"),
+            userStatus = (obj["userStatus"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { el ->
+                (el as? kotlinx.serialization.json.JsonObject)?.let { u ->
+                    cn.appia.im.core.voice.VoiceUserStatus(
+                        username = u.stringFieldOrNull("username"),
+                        name = u.stringFieldOrNull("name"),
+                        operation = u.stringFieldOrNull("operation"),
+                        deviceId = u.stringFieldOrNull("deviceId"),
+                        status = u.stringFieldOrNull("status"),
+                    )
+                }
+            },
+        )
+    }.getOrNull()
+
+private fun kotlinx.serialization.json.JsonObject.stringFieldOrNull(name: String): String? =
+    (get(name) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+
+/**
  * 导航宿主：默认落 EnterpriseCode（RN AuthStack 首屏）；verify 参数化供 UI 测试注入 fake。
  * `session` 为会话编排（登录持久化/bootstrap/登出/切组织的挂接点）；`startAuthenticated`
  * 供 MainActivity 以同步恢复判定直落 Main（RN RootNavigator.tsx:66-95 首帧即定，无闪屏）。
@@ -685,6 +813,17 @@ fun AppiaNavHost(
     fun goMain() = nav.navigate(MainRoute) { popUpTo(0) { inclusive = true } }
     fun goAuth() = nav.navigate(EnterpriseCodeRoute) { popUpTo(0) { inclusive = true } }
 
+    // M10-T12：本机 deviceId（ANDROID_ID，Controller deps.deviceIdProvider 同源口径）——
+    // oncall 卡片他机已接判定 + 加入横幅点击的本机频道判定共用。
+    val voiceDeviceId = remember {
+        runCatching {
+            android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID,
+            )
+        }.getOrNull().orEmpty()
+    }
+
     /**
      * M8-T7 原生会议室入会（三 join 站点统一：RN openAntMeetingWeb 的原生替代落点）：
      * AntMeeting URL → 会议号（extractMeetingNumberFromUrl）→ MeetingRoomRoute。
@@ -701,7 +840,74 @@ fun AppiaNavHost(
             Toast.makeText(context, context.t("meeting_room_joinfailed"), Toast.LENGTH_SHORT).show()
             return
         }
+        // 语音互斥收口（M8-T9 缝 / M10-T12 接线，坑 6）：语音任意非 idle 相位阻塞入会
+        //（RN openAntMeetingWeb.ts:29-33 toast meeting_end_voice_first）。VoicePhase.Idle.name
+        // == "Idle" 必须 lowercase——meetingBlockedByVoice 比对小写 "idle"。
+        val voicePhase = deps?.voice?.controller?.store?.state?.value?.phase?.name?.lowercase()
+        if (cn.appia.im.domain.meeting.meetingBlockedByVoice(voicePhase)) {
+            Toast.makeText(context, context.t("meeting_end_voice_first"), Toast.LENGTH_SHORT).show()
+            return
+        }
         nav.navigate(MeetingRoomRoute(channelName = number, meetingNumber = number, title = subject.orEmpty()))
+    }
+
+    /**
+     * M10-T12 房间附件「语音通话」（RN openVoiceChatFromRoom.ts verbatim）：
+     * - 单人 username 拦截（群/频道 usernames 恰 1 人 → 旧版对齐静默返回）
+     * - canStartOutgoing false（房间通话进行中）→ Alert voice_calling_alert_title
+     * - 单聊 → getFederatedRoomMembers + buildVoiceReceivers → startOutgoing 全员
+     * - 群/频道 → push VoiceMemberPicker（intent=start）
+     */
+    fun openVoiceChatFromRoom(rid: String, roomType: String, usernamesRaw: String?, chatCallMsgRaw: String?) {
+        val controller = deps?.voice?.controller ?: return
+        val currentUsername = deps?.store?.load()?.user?.username ?: return
+        val isGroupOrChannel = roomType == "p" || roomType == "c"
+
+        // 对齐旧版 MessageBox：仅当 usernames 明确只有 1 人时拦截（空字段不拦截）
+        val usernames = runCatching {
+            (Json.parseToJsonElement(usernamesRaw.orEmpty()) as? kotlinx.serialization.json.JsonArray)
+                ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+        }.getOrNull().orEmpty()
+        if (isGroupOrChannel && usernames.size == 1) return
+
+        val callMsg = cn.appia.im.core.voice.lib.parseCallMsg(chatCallMsgRaw)
+        if (!cn.appia.im.domain.voice.canStartOutgoing(
+                cn.appia.im.domain.voice.StartOutgoingParams(callMsg = callMsg),
+            )
+        ) {
+            android.app.AlertDialog.Builder(context)
+                .setMessage(context.t("voice_calling_alert_title"))
+                .setPositiveButton(context.t("voice_ok"), null)
+                .show()
+            return
+        }
+
+        if (roomType == "d") {
+            scope.launch {
+                try {
+                    val groups = cn.appia.im.core.network.api.ReadReceiptsApi
+                        .getFederatedRoomMembers(deps!!.sdk, rid).data
+                    val receivers = cn.appia.im.core.voice.lib.buildVoiceReceivers(
+                        groups.flatMap { g -> g.members.map { cn.appia.im.core.voice.lib.RoomMemberLike(it.username, it._id, it.name) } },
+                        currentUsername,
+                    )
+                    if (receivers.isNotEmpty()) {
+                        controller.startOutgoing(
+                            cn.appia.im.core.voice.VoiceChatHoster(roomId = rid, roomType = roomType, receivers = receivers),
+                        )
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(NAV_TAG, "openVoiceChatFromRoom direct failed rid=$rid", e)
+                }
+            }
+            return
+        }
+
+        if (isGroupOrChannel) {
+            nav.navigate(VoiceMemberPickerRoute(rid = rid, roomType = roomType, intent = "start"))
+        }
     }
 
     /** 登录成功统一路径（账密/SMS onLoginSuccess 与 CAS runSsoLogin 汇入）：持久化 → Main。 */
@@ -888,6 +1094,17 @@ fun AppiaNavHost(
                 val mailSession by gateway.sessionFlow.collectAsState(initial = deps.store.load())
                 val mailOrgKey = normalizeMailOrgKey(mailSession?.serverUrl)
                 LaunchedEffect(mailSession, mailEnabled) { gateway.refreshMailBadge(mailEnabled) }
+                // M10-T12 会话驱动挂点（Task 10 handoff ③）：登录/组织切换（save 汇入
+                // sessionFlow）→ watcher.watch(新 server) + drainPendingVoicePushIntents
+                // （RN MainNavigator.tsx:63 AppState-active 分支的会话变化收敛触发）。
+                val voiceHandle = deps.voice
+                if (voiceHandle != null) {
+                    LaunchedEffect(mailSession?.serverUrl) {
+                        mailSession?.serverUrl?.takeIf { it.isNotEmpty() }?.let {
+                            voiceHandle.onSessionActive(it)
+                        }
+                    }
+                }
                 val mailRow = remember(mailEnabled, mailOrgKey) {
                     if (!mailEnabled) {
                         MutableStateFlow(null)
@@ -1187,6 +1404,39 @@ fun AppiaNavHost(
                     showMeetingAttachment = showMeetingAttachment,
                     onOpenMeetingForm = {
                         nav.navigate(MeetingFormRoute(rid = route.rid, roomType = route.roomType))
+                    },
+                    // 语音（M10-T12）：加入横幅源（chats 行 callMsg/onCallStatus 实时流）+ 附件菜单 +
+                    // oncall 卡片（相位经 controller 状态收集；deviceId = ANDROID_ID 同 Controller deps）
+                    voiceCallMsgRaw = chatRow?.callMsg,
+                    voiceServerOnCallStatus = chatRow?.onCallStatus,
+                    onJoinVoiceBanner = {
+                        val controller = deps.voice?.controller ?: return@RoomScreen
+                        handleRoomVoiceJoinBannerPress(
+                            controller = controller,
+                            rid = route.rid,
+                            roomType = route.roomType,
+                            currentUsername = auth?.user?.username,
+                            chatCallMsgRaw = chatRow?.callMsg,
+                            chatOnCallStatus = chatRow?.onCallStatus,
+                            localDeviceId = voiceDeviceId,
+                        )
+                    },
+                    showVoiceAttachment = deps.voice != null,
+                    onOpenVoiceChat = {
+                        openVoiceChatFromRoom(
+                            rid = route.rid,
+                            roomType = route.roomType,
+                            usernamesRaw = chatRow?.usernames,
+                            chatCallMsgRaw = chatRow?.callMsg,
+                        )
+                    },
+                    voicePhaseIdle = deps.voice?.controller?.store?.state?.collectAsState()?.value?.phase ==
+                        cn.appia.im.core.voice.VoicePhase.Idle,
+                    localDeviceId = voiceDeviceId,
+                    onStartVoiceFromMessage = { rid, msgDataRaw ->
+                        val controller = deps.voice?.controller ?: return@RoomScreen
+                        val msgData = parseVoiceChatMsgDataForStart(msgDataRaw)
+                        if (msgData != null) controller.startFromMessage(rid, msgData)
                     },
                     // AI 槽位（M7-T7 / RN aiStore rooms[rid] 消费面）：控制态下发 + 停止按钮 +
                     // 发送后 AI 触发（fire-and-forget 跑 app 级 scope，RN `void maybeTriggerAi...`）
@@ -1679,6 +1929,25 @@ fun AppiaNavHost(
                 )
             }
         }
+        // 语音选人页（M10-T12 / RN VoiceMemberPickerScreen）：start=群聊发起，invite=通话中加人
+        composable<VoiceMemberPickerRoute> { entry ->
+            val route = entry.toRoute<VoiceMemberPickerRoute>()
+            if (deps == null) {
+                Text(LocalContext.current.t("feature_not_implemented"))
+            } else {
+                val bound = rememberServerBoundDb(deps)
+                cn.appia.im.feature.voice.ui.VoiceMemberPickerScreen(
+                    rid = route.rid,
+                    roomType = route.roomType,
+                    intent = route.intent,
+                    controller = deps.voice?.controller,
+                    sdk = deps.sdk,
+                    t = { context.t(it) },
+                    onBack = { nav.popBackStack() },
+                    currentUsername = bound.auth?.user?.username,
+                )
+            }
+        }
         // 会议首页（M8-T5 / RN MEETING_HOME_URL 原生替代）：meetingRoomList 未来窗口预订列表
         // + 右上 + → MeetingFormRoute（rid 空）；加入坑 9 三分同面板（AntMeeting → seam toast，
         // 腾讯外跳屏内 Intent）。
@@ -2005,6 +2274,34 @@ fun AppiaNavHost(
                     // 简历/个人页链接（M5-T10）：InAppWeb 应用内打开（RN 同位 navigate InAppWeb）
                     onOpenWeb = { url, title ->
                         nav.navigate(InAppWebRoute(url = url, title = title))
+                    },
+                    // 语音通话（M10-T12 / RN handleVoiceCall）：resolveDirectChatRid → startOutgoing
+                    // 单人 receiver（无 DM → toast voice_error_no_direct_room）
+                    canVoiceCall = deps.voice != null,
+                    onVoiceCall = { username, name ->
+                        val controller = deps.voice?.controller ?: return@MemberProfileScreen
+                        deps.scope.launch {
+                            val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
+                            if (rid == null) {
+                                android.widget.Toast.makeText(
+                                    context, context.t("voice_error_no_direct_room"), android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                                return@launch
+                            }
+                            controller.startOutgoing(
+                                cn.appia.im.core.voice.VoiceChatHoster(
+                                    roomId = rid,
+                                    roomType = "d",
+                                    receivers = listOf(
+                                        cn.appia.im.core.voice.VoiceChatReceiver(
+                                            receiver = username,
+                                            receiverAppiaId = route.userId,
+                                            name = name.ifEmpty { username },
+                                        ),
+                                    ),
+                                ),
+                            )
+                        }
                     },
                 )
             }
@@ -2944,6 +3241,36 @@ fun AppiaNavHost(
             },
         )
     }
+
+    // M10-T12 语音通话宿主（RN VoiceCallHost 根部）：NavHost 之上，活跃相位全屏 overlay /
+    // 来电横幅·确认页 / otherIncoming 横幅+弹窗；FGS 起停归 VoiceRoomHandle.startPlatformWiring。
+    // onPickMembers（overlay 邀请钮）→ VoiceMemberPicker 路由（intent=invite 语义复用 start 路由）。
+    // currentUsername（Task 11 遗留 1）：过滤参与者中心本地自己。
+    val voiceHandle = deps?.voice
+    if (voiceHandle != null) {
+        val voiceUsername = remember { deps.store.load()?.user?.username }
+        cn.appia.im.feature.voice.ui.VoiceCallHost(
+            controller = voiceHandle.controller,
+            t = { key -> context.t(key) },
+            onOpenRoom = { rid ->
+                nav.navigateToRoomFromAppRoot(RoomRoute(rid, "", ""))
+            },
+            onPickMembers = { rid, roomType ->
+                nav.navigate(VoiceMemberPickerRoute(rid = rid, roomType = roomType, intent = "invite"))
+            },
+            currentUsername = voiceUsername,
+        )
+        // 最小化气泡（活跃相位 + uiMinimized）：VoiceCallHost None 分支的补位（RN MinimizeShell 气泡）
+        cn.appia.im.feature.voice.ui.VoiceCallMiniBubbleOverlay(
+            controller = voiceHandle.controller,
+            kv = deps.kv,
+        )
+        // 跨组织来电横幅（RN VoiceCrossOrgNotifier：App.tsx 根部挂载；轮询触发在 onResume）
+        cn.appia.im.feature.voice.ui.VoiceCrossOrgNotifierBanner(
+            notifier = voiceHandle.crossOrgNotifier,
+            t = { key -> context.t(key) },
+        )
+    }
     }
 }
 
@@ -3045,6 +3372,11 @@ class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var meetingRoom: MeetingRoomHandle
 
+    // M10-T12 语音房间装配（同款 @Singleton app 域：Controller/Watcher/Telecom 桥跨重建存活；
+    // VoiceCallHost 根部与推送分流共用同一实例；provider 在 VoiceRoomModule）
+    @Inject
+    lateinit var voice: cn.appia.im.feature.voice.VoiceRoomHandle
+
     /** RN MainNavigator.tsx:60 AppState 'active' → syncCurrentUserRoles()（30s 节流内置）。 */
     override fun onResume() {
         super.onResume()
@@ -3054,6 +3386,9 @@ class MainActivity : AppCompatActivity() {
         // M6-T7：RN AppState active → invalidateQueries（AppUpdatePromptHost.tsx:68-75）同位；
         // 登录门在控制器内部（loggedIn 流），无需调用侧判定
         appReleaseCheck.onAppForeground()
+        // M10-T12：mic 权限门宿主引用 + 跨组织来电轮询（RN VoiceCrossOrgNotifier AppState listener）
+        cn.appia.im.feature.voice.VoiceMicGate.onActivityResumed(this)
+        voice.crossOrgNotifier.poll()
         if (authStore.isAuthenticated) {
             backgroundScope.launch { roleRefresher.refresh() }
         }
@@ -3063,15 +3398,40 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         // RN else 分支：离前台取消在途 400ms 延迟 drain
         PushNavigationDrainer.shared.onAppBackground()
+        cn.appia.im.feature.voice.VoiceMicGate.onActivityPaused()
+    }
+
+    /** M10-T12 mic 权限结果回灌（VoiceMicGate REQUEST_CODE 41012）。 */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 41012 &&
+            permissions.firstOrNull() == android.Manifest.permission.RECORD_AUDIO
+        ) {
+            cn.appia.im.feature.voice.VoiceMicGate.deliverResult(
+                grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED,
+            )
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // T11：冷启动恢复 per-app locale（MMKV 偏好在，AppCompat 重建 Resources）
         LocaleController.restore(kv)
+        // M10-T12：语音推送分流接线（PushClickRouter.shared 可变缝 ← ingress.handle，
+        // 幂等覆盖写）+ mic 权限门 appContext + 登录后 drain/watch 的进程级挂点
+        voice.wirePushIngress()
+        cn.appia.im.feature.voice.VoiceMicGate.attach(this)
         // 首帧判定在 setContent 前完成（同步读 MMKV 持久化会话）：有会话直落 Main（RN
         // RootNavigator.tsx:66-95 首帧即定 Auth/Main，无闪屏）；Main 内再异步 bootstrap（RN 同构）
         val startAuthenticated = session.hasRestorableSession()
+        if (startAuthenticated) {
+            // 冷启动恢复会话：watcher.watch + drain 与 Main 进入（onSessionReady）同语义
+            session.restorableSession()?.serverUrl?.let { voice.onSessionActive(it) }
+        }
         // M6-T7：登录态变化驱动检查的收集起点（幂等；RN enabled 流首次收集 = 挂载即查一次）
         // M8-T8：浮窗 AppState 绑定（meetingFloat.ts:41-68）——会话机为单例，进程级监听只挂一次
         //（Activity 重建经 ensureRegistered 幂等）；退后台且相位非 idle 起系统浮窗，回前台 hide。
@@ -3106,6 +3466,7 @@ class MainActivity : AppCompatActivity() {
                             appUpdatePrompt,
                             meetingRoom,
                             mailBadge,
+                            voice,
                         ),
                     )
                 }

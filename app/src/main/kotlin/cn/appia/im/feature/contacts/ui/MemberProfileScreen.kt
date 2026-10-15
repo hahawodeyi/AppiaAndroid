@@ -70,6 +70,12 @@ fun MemberProfileScreen(
     onBack: () -> Unit,
     onSendMessage: (username: String, displayName: String) -> Unit = { _, _ -> },
     onOpenWeb: (url: String, title: String) -> Unit = { _, _ -> },
+    /**
+     * 语音通话（M10-T12 / RN handleVoiceCall）：resolveDirectChatRid → startOutgoing 单人
+     * receiver。null = 无语音装配（按钮禁用，M10 前占位同态）。
+     */
+    canVoiceCall: Boolean = false,
+    onVoiceCall: (username: String, displayName: String) -> Unit = { _, _ -> },
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -79,6 +85,7 @@ fun MemberProfileScreen(
     var profile by remember { mutableStateOf<MemberProfileData?>(null) }
     var loaded by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
+    var calling by remember { mutableStateOf(false) }
 
     // RN useMemberProfile effect：fetchMemberProfile(userId ?? username)
     LaunchedEffect(username, userId, sdk) {
@@ -243,14 +250,24 @@ fun MemberProfileScreen(
                     },
                 )
                 Spacer(Modifier.size(12.dp))
-                // 语音通话：占位禁用（M10 语音域接线——brief 明示）
+                // 语音通话（M10-T12 / RN handleVoiceCall）：canVoiceCall=false 禁用占位
                 ActionButton(
                     label = context.t("memberprofile_voicecall"),
-                    enabled = false,
+                    enabled = canVoiceCall && !calling,
                     modifier = Modifier
                         .weight(1f)
                         .testTag("qa-member-profile-voice"),
-                    onClick = {},
+                    onClick = {
+                        if (calling) return@ActionButton
+                        calling = true
+                        scope.launch {
+                            try {
+                                onVoiceCall(username, displayName)
+                            } finally {
+                                calling = false
+                            }
+                        }
+                    },
                 )
             }
 

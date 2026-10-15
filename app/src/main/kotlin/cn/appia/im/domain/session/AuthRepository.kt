@@ -65,6 +65,14 @@ class AuthRepository @Inject constructor(
     private val appUpdatePrompt: AppUpdatePromptController,
     /** M9-T6 邮件角标单例：logout resetForLogout（RN mailChannelStore 重置）。 */
     private val mailBadge: cn.appia.im.feature.mail.MailBadgeStore,
+    /**
+     * M10-T12 语音房间装配束：logout 收尾（endCall("logout") + watcher/FGS stop）。**Lazy 破环**
+     * （VoiceRoomHandle → OrgSwitchCoordinator → AuthRepository 构造环；dagger.Lazy 延迟解析，
+     * logout 期取值，与 mailBadge.reset 同位）。默认值仅测试夹具用（Hilt 恒注入；logout 的
+     * runCatching 兜住默认取值异常）——RouteDeps.voice 默认 null 同款口径。
+     */
+    private val voiceHandle: dagger.Lazy<cn.appia.im.feature.voice.VoiceRoomHandle> =
+        dagger.Lazy { error("voiceHandle not wired (unit-test default)") },
     @BackgroundScope private val backgroundScope: CoroutineScope,
 ) {
 
@@ -129,6 +137,8 @@ class AuthRepository @Inject constructor(
         cn.appia.im.core.permissions.PermissionsStore.reset() // RN :147 usePermissionsStore.reset()
         cn.appia.im.feature.contacts.ContactsStore.reset() // RN contactStore 重置（登出清缓存）
         mailBadge.reset() // M9-T6：mailChannelStore resetForLogout
+        // M10-T12：语音收尾（endCall("logout") + watcher.stop + ringer/FGS stop——VoiceRoomHandle.shutdown）
+        runCatching { voiceHandle.get().shutdown() }
         RoomAccessLoss.clearHints() // 良性补充（非 RN 语义）：RN 生产零调用 hint 残留至进程终；清掉防跨账号串判
         teardownRealtime() // RN :152
         resetSendOrchestrator() // RN App.tsx dbKey 效应等价：登出即丢发送队列（重登后重建，见 login 同款挂点）

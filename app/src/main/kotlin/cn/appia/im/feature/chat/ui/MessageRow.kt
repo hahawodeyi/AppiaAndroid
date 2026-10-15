@@ -292,6 +292,12 @@ fun MessageRow(
     useRealName: Boolean = true,
     /** 跳转高亮（M5-T6 / RN RoomMessageRow `highlighted`）：整行底色 #FFF7D6 + qa-message-highlighted tag。 */
     highlighted: Boolean = false,
+    /** 语音相位 idle（M10-T12 / RN onPressCard phase guard）；缺省 true（无装配可点，controller 自守卫）。 */
+    voicePhaseIdle: Boolean = true,
+    /** 本机 deviceId（M10-T12 / isVoiceChatMsgOtherDeviceAccepted 输入）。 */
+    localDeviceId: String = "",
+    /** oncall 消息卡片点击（M10-T12 / startFromMessage）：(rid, msgData raw)。 */
+    onStartVoiceFromMessage: (String, String) -> Unit = { _, _ -> },
 ) {
     val colors = LocalAppiaColors.current
     // pointerInput 捕获的是首个组合的 lambda：经 rememberUpdatedState 每次事件读最新回调，
@@ -416,6 +422,15 @@ fun MessageRow(
                         ForwardMergeCard(
                             msgData = message.msg_data,
                             onOpen = onOpenForwardMerge,
+                        )
+                    } else if (message.msg_type == ONCALL_MSG_TYPE) {
+                        // oncall 通话卡片（M10-T12 / RN AppiaMessage `oncall → VoiceChatMessage`）
+                        VoiceChatMessageCard(
+                            message = message,
+                            voicePhaseIdle = voicePhaseIdle,
+                            currentUsername = currentUsername,
+                            localDeviceId = localDeviceId,
+                            onCardTap = { rid, msgData -> onStartVoiceFromMessage(rid, message.msg_data.orEmpty()) },
                         )
                     } else {
                         val context = LocalContext.current

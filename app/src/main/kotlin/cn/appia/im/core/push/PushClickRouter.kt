@@ -61,10 +61,12 @@ class PushClickRouter(
     private val afterEnqueue: () -> Unit = { PushNavigationDrainer.shared.onNavReady() },
     /**
      * oncall 语音意图出口（RN :262-265 `void routeToVoiceSession(params)` →
-     * voicePushIngress）。构造纯净：默认 no-op（语音分流静默丢失可接受——CallSyncWatcher
-     * 与轮询是主被叫同步主路径）；MainActivity 装配接线 VoicePushIngress.handle（Task 12）。
+     * voicePushIngress）。可变缝（Task 12 装配接线）：receiver 反射实例化无 Hilt 注入点，
+     * MainActivity 挂载后注入 VoicePushIngress.handle；null 期间语音分流静默丢失可接受
+     * （CallSyncWatcher 与轮询是主被叫同步主路径）。
      */
-    private val onVoiceOncall: suspend (rid: String, voice: PushVoiceOncallParams, host: String?) -> Unit = { _, _, _ -> },
+    @Volatile
+    var onVoiceOncall: (suspend (rid: String, voice: PushVoiceOncallParams, host: String?) -> Unit)? = null,
 ) {
 
     /**
@@ -101,9 +103,14 @@ class PushClickRouter(
         // oncall 分流（RN :262-265）：通话中语音意图不进房，交语音分流；isCallEnd 落到房间
         val voice = params.voiceOncall
         if (voice != null && !voice.isCallEnd) {
+            val sink = onVoiceOncall
+            if (sink == null) {
+                Log.w(TAG, "oncall intent dropped (voice ingress not wired) rid=${params.rid}")
+                return
+            }
             Log.i(TAG, "oncall intent → voice ingress rid=${params.rid} recordId=${voice.recordId}")
             voiceScope.launch {
-                runCatching { onVoiceOncall(params.rid, voice, params.host) }
+                runCatching { sink(params.rid, voice, params.host) }
                     .onFailure { Log.w(TAG, "voice ingress failed rid=${params.rid}: $it") }
             }
             return

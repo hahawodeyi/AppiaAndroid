@@ -263,6 +263,27 @@ fun RoomScreen(
     showMeetingAttachment: Boolean = false,
     onOpenMeetingForm: () -> Unit = {},
     /**
+     * 「语音通话」附件菜单项（M10-T12 / RN AttachmentPanel voice_chat）：
+     * 门控在装配处（showVoice = voice != null）；点击 → openVoiceChatFromRoom 等价。
+     */
+    showVoiceAttachment: Boolean = false,
+    onOpenVoiceChat: () -> Unit = {},
+    /**
+     * 「加入语音」横幅（M10-T12 / RN RoomScreen :1037-1041）：chat.callMsg 源由装配处
+     * observeByRid 供给；null = 无语音装配（UI 测试缺省不渲染）。
+     * onJoin = handleRoomVoiceJoinBannerPress 等价（装配处 controller 承载）。
+     */
+    voiceCallMsgRaw: String? = null,
+    voiceServerOnCallStatus: Boolean? = null,
+    onJoinVoiceBanner: () -> Unit = {},
+    /**
+     * oncall 消息卡片（M10-T12 / RN AppiaMessage `oncall` 分发）：点击 → startFromMessage。
+     * false = 无语音装配（卡片仍渲染，点击 no-op——RN onPressCard 的 phase guard 同构）。
+     */
+    voicePhaseIdle: Boolean = true,
+    localDeviceId: String = "",
+    onStartVoiceFromMessage: (rid: String, msgData: String) -> Unit = { _, _ -> },
+    /**
      * 待办（M7-T3 / RN RoomScreen :355,375-381 RoomHeaderTodoEntry）：todoCount>0 才显示
      * （DDP subscription 计数，非 REST total——研究坑 1 双计数源）；点击 → RoomTodo（装配处）。
      */
@@ -717,6 +738,18 @@ fun RoomScreen(
             },
         )
 
+        // 「加入语音」横幅（M10-T12 / RN RoomScreen :1037-1041：messageList 容器顶、列表上方）
+        if (voiceCallMsgRaw != null) {
+            cn.appia.im.feature.voice.ui.RoomVoiceJoinBanner(
+                callMsgRaw = voiceCallMsgRaw,
+                roomType = state.roomType.ifEmpty { null },
+                username = currentUsername,
+                serverOnCallStatus = voiceServerOnCallStatus,
+                t = { context.t(it) },
+                onJoin = onJoinVoiceBanner,
+            )
+        }
+
         // 下拉刷新（M5-T6 修复 I1 / RN RoomMessageList RefreshControl :313-320 →
         // RoomScreen handleRefresh :563-565 = exitJumpMode + refresh）。
         // ponytail: reverseLayout 下最新端拉动会被列表向历史方向滚动消费——刷新手势实际只在
@@ -803,6 +836,10 @@ fun RoomScreen(
                                         } else {
                                             null
                                         },
+                                        // oncall 卡片点击（M10-T12）：startFromMessage（controller 自守卫相位）
+                                        voicePhaseIdle = voicePhaseIdle,
+                                        localDeviceId = localDeviceId,
+                                        onStartVoiceFromMessage = onStartVoiceFromMessage,
                                         // T13：自定义表情进 InlineEnv / 表格·公式 overlay 入口 / 附件重试
                                         getCustomEmoji = getCustomEmoji,
                                         onTableOpen = { rows -> tableOverlayRows = rows },
@@ -1021,6 +1058,9 @@ fun RoomScreen(
                 pending = pendingAttachments,
                 showMeeting = showMeetingAttachment,
                 onMeeting = onOpenMeetingForm,
+                // 语音通话项（M10-T12）：openVoiceChatFromRoom 等价（装配处实现）
+                showVoice = showVoiceAttachment,
+                onVoice = onOpenVoiceChat,
             )
             Box(
                 Modifier
