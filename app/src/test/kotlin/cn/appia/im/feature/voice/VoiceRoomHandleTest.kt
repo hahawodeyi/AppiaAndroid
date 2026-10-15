@@ -45,6 +45,8 @@ import org.junit.Test
 class VoiceRoomHandleTest {
 
     private class FakeRtc : VoiceRtcApi {
+        var released = false
+        var joinCalls = 0
         override fun create(appId: String, onEvent: (VoiceRtcEvent) -> Unit) {}
         override fun joinChannel(token: String?, channelId: String, uid: Long, encKey: String?, muted: Boolean, speakerOn: Boolean): Int = 0
         override fun leaveChannel(): Int = 0
@@ -54,7 +56,7 @@ class VoiceRoomHandleTest {
         override fun startAudioMixing(path: String, loop: Boolean): Int = 0
         override fun stopAudioMixing(): Int = 0
         override fun adjustAudioMixingVolume(volume: Int): Int = 0
-        override fun destroy() {}
+        override fun destroy() { released = true }
     }
 
     private class FakeRoute : InCallAudioRoute {
@@ -104,12 +106,32 @@ class VoiceRoomHandleTest {
         var stopCount = 0
     }
 
+    /** Telecom 桥记录替身（M-5：相位驱动上报/接通/断开三段断言）。 */
+    private class FakeTelecom : cn.appia.im.core.voice.platform.TelecomCallBridge(null, null) {
+        val reported = mutableListOf<String>()
+        val active = mutableListOf<String>()
+        val disconnected = mutableListOf<String>()
+        var answerHandler: (() -> Unit)? = null
+        var rejectHandler: (() -> Unit)? = null
+        override fun reportIncomingCall(callId: String, callerName: String, onAnswer: () -> Unit, onReject: () -> Unit): Boolean {
+            reported += callId
+            answerHandler = onAnswer
+            rejectHandler = onReject
+            return true
+        }
+        override fun setActive(callId: String) { active += callId }
+        override fun setDisconnected(callId: String) { disconnected += callId }
+        override fun hasAccountPermission(): Boolean = true
+    }
+
     private class TestHandle(
         scope: CoroutineScope,
         val fgs: FgsRecorder,
+        val telecom: FakeTelecom = FakeTelecom(),
     ) {
+        val fakeRtc = FakeRtc()
         val deps = AssemblyDeps(
-            rtc = VoiceRtcEngine(FakeRtc(), FakeRoute(), scope, delayMs = 0),
+            rtc = VoiceRtcEngine(fakeRtc, FakeRoute(), scope, delayMs = 0),
             timers = VoiceCallTimers(scope),
             store = VoiceSessionStore(),
             ringer = object : VoiceRinger {
@@ -135,6 +157,8 @@ class VoiceRoomHandleTest {
             watcher = watcher,
             pushIngress = pushIngress,
             crossOrgNotifier = crossOrgNotifier,
+            deps = deps,
+            telecom = telecom,
             scope = scope,
             fgsStarter = { fgs.started = true; fgs.startCount += 1 },
             fgsStopper = { fgs.started = false; fgs.stopCount += 1 },
@@ -192,6 +216,78 @@ class VoiceRoomHandleTest {
             th.controller.store.update { it.copy(phase = VoicePhase.Idle) }
             scope.runCurrent()
             assertFalse(fgs.started)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `shutdown does not release rtc engine and clears push queue and banner`() = runTest(scheduler) {
+        val scope = TestScope(UnconfinedTestDispatcher(scheduler))
+        val fgs = FgsRecorder()
+        val th = TestHandle(scope, fgs)
+        try {
+            th.controller.store.update { it.copy(phase = VoicePhase.InCall) }
+            fgs.started = true
+            th.pushIngress.enqueueForTest(
+                cn.appia.im.domain.voice.VoicePushQueue.Intent(rid = "r9", recordId = "rec-9"),
+            )
+            th.handle.shutdown()
+            scope.runCurrent()
+            assertEquals(VoicePhase.Idle, th.controller.store.state.value.phase)
+            assertFalse(fgs.started)
+            // H-1 核心：@Singleton 常驻 handle 登出 shutdown 不释放引擎——重登后可再 join
+            assertFalse(th.fakeRtc.released)
+            assertEquals(0, th.pushIngress.queuedCount)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `incoming ringing reports telecom call once and answer and reject dispatch to controller`() = runTest(scheduler) {
+        val scope = TestScope(UnconfinedTestDispatcher(scheduler))
+        val th = TestHandle(scope, FgsRecorder())
+        try {
+            th.handle.startPlatformWiring(scope)
+            // IncomingRinging + recordId → 上报一次（同 recordId 不重复）
+            th.controller.store.update {
+                it.copy(phase = VoicePhase.IncomingRinging, rid = "r1", recordId = "rec-1")
+            }
+            scope.runCurrent()
+            assertEquals(listOf("rec-1"), th.telecom.reported)
+            th.controller.store.update { it.copy(recordId = "rec-1") } // 同值重发不重复
+            scope.runCurrent()
+            assertEquals(listOf("rec-1"), th.telecom.reported)
+
+            // 接通 → setActive
+            th.controller.store.update { it.copy(phase = VoicePhase.Connecting) }
+            scope.runCurrent()
+            assertEquals(listOf("rec-1"), th.telecom.active)
+
+            // Idle → setDisconnected
+            th.controller.store.update { it.copy(phase = VoicePhase.Idle) }
+            scope.runCurrent()
+            assertEquals(listOf("rec-1"), th.telecom.disconnected)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `telecom answer rejects incoming and reject path ends call`() = runTest(scheduler) {
+        val scope = TestScope(UnconfinedTestDispatcher(scheduler))
+        val th = TestHandle(scope, FgsRecorder())
+        try {
+            th.handle.startPlatformWiring(scope)
+            th.controller.store.update {
+                it.copy(phase = VoicePhase.IncomingRinging, rid = "r1", recordId = "rec-1")
+            }
+            scope.runCurrent()
+            // Telecom onReject → controller 拒接路径
+            th.telecom.rejectHandler?.invoke()
+            scope.runCurrent()
+            assertEquals(VoicePhase.Idle, th.controller.store.state.value.phase)
         } finally {
             scope.cancel()
         }

@@ -686,7 +686,9 @@ internal fun handleRoomVoiceJoinBannerPress(
         cn.appia.im.core.voice.VoicePhase.IncomingRinging,
     )
     if (state.rid == rid && state.phase in expandPhases) {
-        // RN expandVoiceCallUi：active → setUiMinimized(false)；incomingRinging → 展开确认页
+        // RN expandVoiceCallUi 的 active 分支 = setUiMinimized(false)；incomingRinging 分支
+        // AA 展开确认页为**有意增强**（RN 该相位 actions 为 null 实际 no-op——横幅点击无反应
+        // 不合理；终审 L-2 裁定保留差异、注释如实）
         if (state.phase == cn.appia.im.core.voice.VoicePhase.IncomingRinging) {
             controller.openIncomingConfirm()
         } else {
@@ -2278,7 +2280,7 @@ fun AppiaNavHost(
                     // 语音通话（M10-T12 / RN handleVoiceCall）：resolveDirectChatRid → startOutgoing
                     // 单人 receiver（无 DM → toast voice_error_no_direct_room）
                     canVoiceCall = deps.voice != null,
-                    onVoiceCall = { username, name ->
+                    onVoiceCall = { username, name, profileAppiaId ->
                         val controller = deps.voice?.controller ?: return@MemberProfileScreen
                         deps.scope.launch {
                             val rid = resolveDirectChatRid(db.chatDao(), deps.sdk, username)
@@ -2295,7 +2297,9 @@ fun AppiaNavHost(
                                     receivers = listOf(
                                         cn.appia.im.core.voice.VoiceChatReceiver(
                                             receiver = username,
-                                            receiverAppiaId = route.userId,
+                                            // L-5（终审）：RN contactUser._id ?? userId ?? profileUserId
+                                            // 回退链——profile 数据优先，route.userId 兜底
+                                            receiverAppiaId = profileAppiaId ?: route.userId,
                                             name = name.ifEmpty { username },
                                         ),
                                     ),
@@ -3248,7 +3252,10 @@ fun AppiaNavHost(
     // currentUsername（Task 11 遗留 1）：过滤参与者中心本地自己。
     val voiceHandle = deps?.voice
     if (voiceHandle != null) {
-        val voiceUsername = remember { deps.store.load()?.user?.username }
+        // M-3（终审）：响应式 username——登出换账号后跟随 sessionFlow（mailSession 同款先例，
+        // 一次性 remember 会残留旧账号致参与者中心过滤/他机判定用错人）
+        val voiceSession by (session?.sessionFlow ?: kotlinx.coroutines.flow.MutableStateFlow(null))
+            .collectAsState(initial = deps.store.load())
         cn.appia.im.feature.voice.ui.VoiceCallHost(
             controller = voiceHandle.controller,
             t = { key -> context.t(key) },
@@ -3258,7 +3265,7 @@ fun AppiaNavHost(
             onPickMembers = { rid, roomType ->
                 nav.navigate(VoiceMemberPickerRoute(rid = rid, roomType = roomType, intent = "invite"))
             },
-            currentUsername = voiceUsername,
+            currentUsername = voiceSession?.user?.username,
         )
         // 最小化气泡（活跃相位 + uiMinimized）：VoiceCallHost None 分支的补位（RN MinimizeShell 气泡）
         cn.appia.im.feature.voice.ui.VoiceCallMiniBubbleOverlay(

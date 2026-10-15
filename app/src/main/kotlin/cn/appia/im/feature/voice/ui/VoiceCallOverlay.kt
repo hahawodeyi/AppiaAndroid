@@ -56,6 +56,8 @@ internal fun VoiceCallOverlay(
     t: (String) -> String,
     onPickMembers: (rid: String, roomType: String) -> Unit,
     currentUsername: String? = null,
+    /** M-2：接通锚点（SystemClock.elapsedRealtime 域，Host 级常驻——最小化期间连续）。 */
+    connectedAtMs: Long = 0L,
 ) {
     val phase = state.phase
     val hoster = state.hoster
@@ -88,7 +90,7 @@ internal fun VoiceCallOverlay(
             // RN top：接通后计时 pill（录音点裁定③跳过）
             Box(Modifier.fillMaxWidth().height(45.dp), contentAlignment = Alignment.Center) {
                 if (state.hadRemoteParticipant) {
-                    ConnectTimer()
+                    ConnectTimer(connectedAtMs)
                 }
             }
 
@@ -190,16 +192,28 @@ private fun EndButton(tag: String, t: (String) -> String, onClick: () -> Unit) {
     }
 }
 
-/** RN VoiceConnectTimer（45 行）：接通后 mm:ss 顶部 pill（1s ticker；录音点跳过）。 */
+/**
+ * RN VoiceConnectTimer（45 行）：接通后 mm:ss 顶部 pill（1s ticker；录音点跳过）。
+ * M-2：秒数自 Host 级锚点推导（connectedAtMs，SystemClock.elapsedRealtime）——最小化
+ * 期间 overlay 卸载计时连续，恢复即正确值。
+ */
 @Composable
-private fun ConnectTimer() {
-    var seconds by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
+private fun ConnectTimer(connectedAtMs: Long) {
+    // tick 驱动每秒重组（.also 读取使其参与快照）；秒数 = 锚点差现读（elapsedRealtime 域，
+    // 最小化期间 overlay 卸载、Host 锚点常驻 → 恢复即正确值）
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(connectedAtMs) {
+        if (connectedAtMs <= 0L) return@LaunchedEffect
         while (true) {
             delay(1_000)
-            seconds += 1
+            tick += 1
         }
     }
+    val seconds = (if (connectedAtMs > 0L) {
+        ((android.os.SystemClock.elapsedRealtime() - connectedAtMs) / 1000L).coerceAtLeast(0L)
+    } else {
+        0L
+    }).also { tick }
     val minutes = seconds / 60
     val text = "%02d:%02d".format(minutes, seconds % 60)
     Row(

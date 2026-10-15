@@ -31,16 +31,17 @@ import java.util.concurrent.ConcurrentHashMap
  * 注册的 listener（Task 12 装配接 Controller）。Robolectric 测试只打桩桥逻辑，不触达
  * 真实 Telecom bind。
  */
-class TelecomCallBridge(
-    private val context: Context,
-    private val telecomManager: TelecomManager,
+open class TelecomCallBridge(
+    private val context: Context?,
+    private val telecomManager: TelecomManager?,
 ) {
 
     /**
      * 上报来电。返回 false = 降级（未授权/未注册 phone account/系统拒绝），调用方转
-     * in-app 路径，不抛异常。
+     * in-app 路径，不抛异常。open：装配层（VoiceRoomHandle.startPlatformWiring）与
+     * 测试替身（VoiceRoomHandleTest FakeTelecom）共同消费面。
      */
-    fun reportIncomingCall(
+    open fun reportIncomingCall(
         callId: String,
         callerName: String,
         onAnswer: () -> Unit,
@@ -61,7 +62,7 @@ class TelecomCallBridge(
             putBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS, callExtras)
         }
         return try {
-            telecomManager.addNewIncomingCall(phoneAccountHandle(context), extras)
+            telecomManager?.addNewIncomingCall(phoneAccountHandle(context!!), extras) ?: return false
             reportedCallId = callId
             true
         } catch (e: Exception) {
@@ -72,12 +73,12 @@ class TelecomCallBridge(
     }
 
     /** 接通（Controller accept 后同步系统侧状态；未知 callId no-op）。 */
-    fun setActive(callId: String) {
+    open fun setActive(callId: String) {
         connections[callId]?.setActive()
     }
 
     /** 挂断/拒绝收尾：同步 Connection Disconnected、清 listener 与上报旗标。 */
-    fun setDisconnected(callId: String) {
+    open fun setDisconnected(callId: String) {
         connections.remove(callId)?.apply {
             setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
             destroy()
@@ -87,8 +88,9 @@ class TelecomCallBridge(
     }
 
     /** 自管 phone account 是否已注册可用（未注册 → 上报必失败）。 */
-    fun hasAccountPermission(): Boolean = try {
-        telecomManager.getPhoneAccount(phoneAccountHandle(context)) != null
+    open fun hasAccountPermission(): Boolean = try {
+        val ctx = context ?: return false
+        telecomManager?.getPhoneAccount(phoneAccountHandle(ctx)) != null
     } catch (e: Exception) {
         Log.w(TAG, "getPhoneAccount failed", e)
         false

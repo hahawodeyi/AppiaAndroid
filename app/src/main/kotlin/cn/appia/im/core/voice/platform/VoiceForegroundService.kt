@@ -54,16 +54,25 @@ class VoiceForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun buildNotification(): Notification =
-        NotificationCompat.Builder(this, PushNotificationChannels.VOICE_ACTIVE_ID)
+    private fun buildNotification(): Notification {
+        // 通知点击回通话页（brief 锁定；RN 无但 brief 承诺——MainActivity launch PendingIntent）
+        val contentIntent = android.app.PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, cn.appia.im.MainActivity::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return NotificationCompat.Builder(this, PushNotificationChannels.VOICE_ACTIVE_ID)
             // AA 无 mipmap/ic_launcher 资源（RN 原用）——平台通话图标代位（FGS 必须有 smallIcon，
             // MeetingForegroundService 同款）
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setContentTitle(getString(R.string.voice_notification_active))
+            .setContentIntent(contentIntent)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
 }
 
 /**

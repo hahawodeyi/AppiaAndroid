@@ -92,6 +92,16 @@ object VoiceMicGate {
         pending.getAndSet(null)?.complete(granted)
     }
 
+    /**
+     * Telecom onAnswer 的接听资格（终审 M-5）：已授权 → 直接过（后台接听同 RN）；未授权
+     * 且宿主不可达（锁屏/后台）→ false（调用方判拒挂断——绝不在后台等系统弹窗）。
+     * 未授权但宿主在前台 → 允许走 acceptIncoming（mic 门内弹窗有宿主可承载）。
+     */
+    fun canAnswerWithoutPrompt(): Boolean {
+        val ctx = appContext ?: return false
+        return hasMic(ctx) || currentActivity != null
+    }
+
     private fun showDeniedAlert(activity: Activity) {
         val ctx = appContext ?: return
         activity.runOnUiThread {

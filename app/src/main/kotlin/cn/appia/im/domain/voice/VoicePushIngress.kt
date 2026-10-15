@@ -188,6 +188,15 @@ class VoicePushIngress(
         // （每轮一次网络往返的慢轮询）；若需上限，加同 recordId 重试计数即可
     }
 
+    /** 登出收尾（VoiceRoomHandle.shutdown）：清积压语音意图（RN clearVoicePushQueue 同位）。 */
+    fun clearQueued() = queue.clear()
+
+    /** 积压数（测试/观测面）。 */
+    val queuedCount: Int get() = queue.pendingCount
+
+    /** 测试夹具面：直入队。 */
+    internal fun enqueueForTest(intent: cn.appia.im.domain.voice.VoicePushQueue.Intent) = queue.enqueue(intent)
+
     private companion object {
         private const val TAG = "VoicePushIngress"
     }

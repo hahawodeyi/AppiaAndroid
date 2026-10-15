@@ -75,7 +75,7 @@ fun MemberProfileScreen(
      * receiver。null = 无语音装配（按钮禁用，M10 前占位同态）。
      */
     canVoiceCall: Boolean = false,
-    onVoiceCall: (username: String, displayName: String) -> Unit = { _, _ -> },
+    onVoiceCall: (username: String, displayName: String, profileAppiaId: String?) -> Unit = { _, _, _ -> },
 ) {
     val colors = LocalAppiaColors.current
     val context = LocalContext.current
@@ -262,7 +262,7 @@ fun MemberProfileScreen(
                         calling = true
                         scope.launch {
                             try {
-                                onVoiceCall(username, displayName)
+                                onVoiceCall(username, displayName, profile?._id)
                             } finally {
                                 calling = false
                             }

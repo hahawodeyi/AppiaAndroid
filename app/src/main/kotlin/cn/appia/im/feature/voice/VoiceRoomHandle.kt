@@ -66,6 +66,8 @@ class VoiceRoomHandle(
     val pushIngress: cn.appia.im.domain.voice.VoicePushIngress,
     /** 跨组织来电发现（progress.md 归属裁定归本任务；idle 相位前台轮询）。 */
     val crossOrgNotifier: cn.appia.im.feature.voice.ui.VoiceCrossOrgNotifier,
+    /** deps 同源（shutdown 的 ringer stop 走 controller 同一 ringer 实例）。 */
+    private val deps: VoiceSessionDeps,
     val telecom: TelecomCallBridge? = null,
     /** app 级 scope（onSessionActive 的 drain/watch 挂载宿）。 */
     private val scope: CoroutineScope? = null,
@@ -82,27 +84,75 @@ class VoiceRoomHandle(
     )
 
     /**
-     * phase → FGS 接线（App 级 scope 挂一次；重复调用幂等——旧 job 先取消）。
+     * phase → FGS + Telecom 接线（App 级 scope 挂一次；重复调用幂等——旧 job 先取消）。
      * RN :82-89 useEffect：active 相位 startForegroundService，否则 stop。
+     * M-5（终审）：IncomingRinging + recordId → telecom.reportIncomingCall（recordId 去重）；
+     * Connecting/InCall → setActive；其余相位 → setDisconnected。hasAccountPermission false
+     * → 静默跳过（降级 in-app 横幅）。Telecom onAnswer 的 mic 门在 [TelecomAnswerGate]——
+     * 锁屏（activity null）未授权时判拒挂断，绝不在后台等权限弹窗。
      */
     fun startPlatformWiring(scope: CoroutineScope) {
         scope.launch {
+            var lastReportedCallId: String? = null
             controller.store.state.collect { state ->
                 if (activePhases.contains(state.phase)) fgsStarter() else fgsStopper()
+
+                val telecom = telecom ?: return@collect
+                val recordId = state.recordId
+                when {
+                    state.phase == cn.appia.im.core.voice.VoicePhase.IncomingRinging && !recordId.isNullOrEmpty() -> {
+                        if (recordId != lastReportedCallId && telecom.hasAccountPermission()) {
+                            val accepted = telecom.reportIncomingCall(
+                                callId = recordId,
+                                callerName = resolveTelecomCallerLabel(state),
+                                onAnswer = {
+                                    if (cn.appia.im.feature.voice.VoiceMicGate.canAnswerWithoutPrompt()) {
+                                        controller.acceptIncoming()
+                                    } else {
+                                        controller.rejectIncoming()
+                                    }
+                                },
+                                onReject = { controller.rejectIncoming() },
+                            )
+                            if (accepted) lastReportedCallId = recordId
+                        }
+                    }
+                    state.phase == cn.appia.im.core.voice.VoicePhase.Connecting ||
+                        state.phase == cn.appia.im.core.voice.VoicePhase.InCall -> {
+                        if (recordId != null) telecom.setActive(recordId)
+                    }
+                    else -> {
+                        val done = recordId ?: lastReportedCallId
+                        if (done != null) telecom.setDisconnected(done)
+                        lastReportedCallId = null
+                    }
+                }
             }
         }
     }
 
+    /** Telecom 上报的来电显示名（RN 无对应——横幅 stable label 同源口径）。 */
+    private fun resolveTelecomCallerLabel(state: cn.appia.im.domain.voice.VoiceSessionState): String =
+        cn.appia.im.core.voice.lib.resolveIncomingCallerIdentity(state.callMsg).displayName
+            .ifEmpty { state.callMsg?.roomId.orEmpty() }
+
     /**
-     * 登出收尾（brief Step 3）：endCall("logout")（活跃通话走完整清算 → idle；idle/ending
-     * 端内 no-op）+ watcher.stop + ringer.stop + FGS stop。ringer stop 兜底 endCall 清算
-     * 之外的半态（presentIncoming 异常路径）。
+     * 登出收尾（brief Step 3 + 终审 H-1/L-4/针脚 6）：endCall("logout")（活跃通话走完整
+     * 清算 → idle；idle/ending 端内 no-op）+ watcher.stop + ringer.stop + FGS stop +
+     * pushIngress 队列清 + crossOrg 横幅收。
+     *
+     * **不调 controller.shutdown()**（终审 H-1）：rtc.release 是终态（released 恒真、
+     * scope.cancel），与 @Singleton 常驻 handle 冲突——登出重登后语音将永久哑火。登出后
+     * sessionContext() 返回 null 已天然挡住新会话，引擎无需释放。
      */
     fun shutdown() {
         controller.endCall("logout")
         watcher.stop()
-        controller.shutdown()
+        controller.store.update { it.copy(uiMinimized = false) }
+        deps.ringer.stop()
         fgsStopper()
+        pushIngress.clearQueued()
+        crossOrgNotifier.dismissBanner()
     }
 
     /**
@@ -316,6 +366,7 @@ object VoiceRoomModule {
             watcher = watcher,
             pushIngress = pushIngress,
             crossOrgNotifier = crossOrgNotifier,
+            deps = deps,
             telecom = TelecomCallBridge(context, context.getSystemService(android.telecom.TelecomManager::class.java)),
             scope = scope,
             fgsStarter = { VoiceFloatServiceStarter.start(context, "") },

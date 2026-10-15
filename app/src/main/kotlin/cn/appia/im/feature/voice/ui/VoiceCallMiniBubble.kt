@@ -69,17 +69,24 @@ data class VoiceBubbleBounds(
     val maxBottom: Float,
 )
 
-/** RN getVoiceMiniBubbleBounds（:14-30 同式）。 */
+/**
+ * RN getVoiceMiniBubbleBounds（:14-30 同式）。**全 px 域**（终审 M-1）：屏幕/insets/bubbleSize
+ * 均为 px 实测值；RN 的 50/30 dp 常量由调用方转 px 后经 [minBottomPadPx]/[maxBottomPadPx] 传入
+ * （密度 2.75 设备 60dp 气泡 = 165px——px/dp 混用会右缘溢出 ~105px）。
+ */
 fun getVoiceMiniBubbleBounds(
     screenWidth: Float,
     screenHeight: Float,
     topInset: Float,
     bottomInset: Float,
+    bubbleSizePx: Float,
+    minBottomPadPx: Float,
+    maxBottomPadPx: Float,
 ): VoiceBubbleBounds = VoiceBubbleBounds(
     minLeft = 0f,
-    maxLeft = screenWidth - VOICE_MINI_BUBBLE_SIZE_PX,
-    minBottom = bottomInset + 50f,
-    maxBottom = screenHeight - topInset - VOICE_MINI_BUBBLE_SIZE_PX - 30f,
+    maxLeft = screenWidth - bubbleSizePx,
+    minBottom = bottomInset + minBottomPadPx,
+    maxBottom = screenHeight - topInset - bubbleSizePx - maxBottomPadPx,
 )
 
 /** RN clampVoiceMiniBubblePosition（:32-41 同式）。 */
@@ -141,12 +148,15 @@ private fun BubbleContent(kv: KvStore, onExpand: () -> Unit) {
     val topInset = WindowInsets.statusBars.getTop(density).toFloat()
     val bottomInset = WindowInsets.navigationBars.getBottom(density).toFloat()
     val bubbleSize = with(density) { VOICE_MINI_BUBBLE_SIZE_PX.dp.toPx() }
+    // RN 50/30 dp 常量的 px 域换算（M-1：bounds 全 px，dp 直混会边界错位）
+    val minBottomPad = with(density) { 50.dp.toPx() }
+    val maxBottomPad = with(density) { 30.dp.toPx() }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val screenW = constraints.maxWidth.toFloat()
         val screenH = constraints.maxHeight.toFloat()
-        val bounds = remember(screenW, screenH, topInset, bottomInset) {
-            getVoiceMiniBubbleBounds(screenW, screenH, topInset, bottomInset)
+        val bounds = remember(screenW, screenH, topInset, bottomInset, bubbleSize) {
+            getVoiceMiniBubbleBounds(screenW, screenH, topInset, bottomInset, bubbleSize, minBottomPad, maxBottomPad)
         }
         var position by remember(bounds) { mutableStateOf(loadVoiceBubblePosition(kv, bounds)) }
         // RN shell effect（index.tsx:64-76）：屏幕/insets 变化即重钳制

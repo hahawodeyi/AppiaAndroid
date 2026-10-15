@@ -16,9 +16,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,7 +84,10 @@ internal fun voiceUiSurface(state: VoiceSessionState): VoiceUiSurface = when {
  * Idle → 空；IncomingRinging → 横幅/确认；活跃相位 → 全屏 overlay + 第二路横幅 + 三型弹窗叠加。
  *
  * RN :82-151 的 FGS/AppState/ringer/float 副作用已由 Controller（Task 8/9 铃声归属裁定）与
- * 平台层承载——本组件纯 render，不重新实现。
+ * 平台层承载——本组件纯 render，不重新实现。唯一例外（终审 H-2）：uiEvents 收集器——
+ * Controller 的错误反馈通道（RN showVoiceError Alert 的等价），放 composable body 顶部
+ * （surface 分流之前，Idle 相位也可见；Host 常驻 Main 根部 → LaunchedEffect 恒活）。
+ * 针脚 8：ON_RESUME 音频重应用（RN AppState-active configureInCallAudio parity）。
  *
  * @param onOpenRoom 预留房间跳转缝（Task 12 路由接线；当前无 UI 消费点）
  * @param onPickMembers overlay 邀请钮路由：最小化后跳选人页（intent=invite，Task 12 接路由）
@@ -93,14 +102,64 @@ fun VoiceCallHost(
     currentUsername: String? = null,
 ) {
     if (controller == null) return
-    val state = controller.store.state.collectAsStateCompat().value
+
+    // H-2：emitUi → AlertDialog（RN voiceUserFeedback.ts showVoiceError 逐字对齐——title =
+    // t(key)，单确认钮 t("voice_ok")；detail 仅 DEV 调试面，不进用户 UI）
+    var errorEvent by remember { mutableStateOf<cn.appia.im.domain.voice.VoiceUiEvent?>(null) }
+    LaunchedEffect(controller) {
+        controller.uiEvents.collect { errorEvent = it }
+    }
+    errorEvent?.let { event ->
+        AlertDialog(
+            onDismissRequest = { errorEvent = null },
+            title = { Text(t(event.key)) },
+            confirmButton = {
+                TextButton(onClick = { errorEvent = null }) {
+                    Text(t("voice_ok"))
+                }
+            },
+        )
+    }
+
+    // 针脚 8：回前台重应用音频路由（RN AppState-active configureInCallAudio parity）
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(controller, lifecycle) {
+        lifecycle.addObserver(
+            androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                    val s = controller.store.state.value
+                    if (s.phase == VoicePhase.InCall) {
+                        controller.setMuted(s.muteLocal)
+                        controller.setSpeaker(s.speakerOn)
+                    }
+                }
+            },
+        )
+    }
+
+    // M-2：Host 级接通锚点（SystemClock 域 wall-clock）——进入活跃相位打点、Idle 复位；
+    // ConnectTimer/气泡共用（最小化期间 overlay 卸载，恢复即正确值）
+    val connectedAtRef = remember { mutableStateOf(0L) }
+    val state0 = controller.store.state.collectAsStateCompat().value
+    LaunchedEffect(state0.phase) {
+        when (state0.phase) {
+            VoicePhase.InCall ->
+                if (connectedAtRef.value == 0L) {
+                    connectedAtRef.value = android.os.SystemClock.elapsedRealtime()
+                }
+            VoicePhase.Idle -> connectedAtRef.value = 0L
+            else -> Unit
+        }
+    }
+
+    val state = state0
     when (val surface = voiceUiSurface(state)) {
         VoiceUiSurface.None -> Unit
         VoiceUiSurface.Banner -> VoiceIncomingBanner(state, controller, t)
         VoiceUiSurface.Confirm -> VoiceIncomingConfirm(state, controller, t, currentUsername)
         is VoiceUiSurface.Overlay -> {
             BoxFill {
-                VoiceCallOverlay(state, controller, t, onPickMembers, currentUsername)
+                VoiceCallOverlay(state, controller, t, onPickMembers, currentUsername, connectedAtRef.value)
                 if (surface.otherIncoming) {
                     VoiceOtherCallBanner(state, controller, t)
                 }

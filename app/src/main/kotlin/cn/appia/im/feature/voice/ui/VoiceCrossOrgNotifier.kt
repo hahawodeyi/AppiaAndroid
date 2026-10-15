@@ -96,10 +96,6 @@ class VoiceCrossOrgNotifier(
                 _banner.value = null
                 return@launch
             }
-            if (cn.appia.im.core.voice.lib.getVoiceOrgShortName(foreign.org) { key -> key } == null) {
-                _banner.value = null
-                return@launch
-            }
             _banner.value = BannerState(foreign, foreign.initiatorName.orEmpty(), foreign.org)
             scope.launch { runCatching { notifyHost(ctx, foreign.org, foreign.recordId, ctx.username) } }
         }
@@ -112,6 +108,11 @@ class VoiceCrossOrgNotifier(
             runCatching { deps.reject(ctx.oncallContext(), record.recordId, ctx.username, record.org) }
             _banner.value = null
         }
+    }
+
+    /** 登出收尾（VoiceRoomHandle.shutdown；L-4）：清横幅防跨账号残留。 */
+    fun dismissBanner() {
+        _banner.value = null
     }
 
     /** RN :102-124 onSwitchOrg：switchToVoiceOrg → 失败 toast（i18n key 回调承载）。 */
@@ -135,24 +136,20 @@ fun VoiceCrossOrgNotifierBanner(
 ) {
     if (notifier == null) return
     val state by notifier.banner.collectAsStateCompat()
-    var toastKey by remember { mutableStateOf<String?>(null) }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    var errorKey by remember { mutableStateOf<String?>(null) }
 
-    toastKey?.let { key ->
-        androidx.compose.runtime.LaunchedEffect(key) { toastKey = null }
-        Box(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), contentAlignment = Alignment.TopCenter) {
-            Text(
-                t(key),
-                color = Color.White,
-                fontSize = 13.sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xCC000000))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-        }
-        // 非横幅态也可达（switch 失败时横幅已收）——toast 独立呈现
-        if (state == null) return
+    // M-4（终审）：switch 失败 → AlertDialog（RN showVoiceError 同构；旧 toast 一帧即逝
+    // 且与横幅兄弟节点叠放，两缺陷一并消除）
+    errorKey?.let { key ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { errorKey = null },
+            title = { Text(t(key)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { errorKey = null }) {
+                    Text(t("voice_ok"))
+                }
+            },
+        )
     }
 
     val s = state ?: return
@@ -222,7 +219,7 @@ fun VoiceCrossOrgNotifierBanner(
                     .clip(RoundedCornerShape(6.dp))
                     .background(Color(0xFF1B5BFF))
                     .clickable {
-                        notifier.switchOrg(record) { toastKey = it }
+                        notifier.switchOrg(record) { errorKey = it }
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp)
                     .testTag("qa-voice-cross-org-switch"),
