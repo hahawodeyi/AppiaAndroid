@@ -111,10 +111,10 @@ class VoiceSessionControllerOutgoingTest {
         assertEquals("bob", deps.lastInitBody!!.receivers[0].receiver)
         assertEquals(8888L, deps.lastInitBody!!.initiatorUid)
 
-        // Joined → 主叫回铃开启（loop + 音量 10）
+        // Joined → 主叫回铃开启（loop + 音量 10；Task 11 裁定 assets 寻址路径）
         fakeRtc.emit(VoiceRtcEvent.Joined)
         testScope.runCurrent()
-        assertEquals(listOf("voice_calling" to true), fakeRtc.startMixingCalls)
+        assertEquals(listOf("/assets/voice_calling.wav" to true), fakeRtc.startMixingCalls)
         assertEquals(listOf(10), fakeRtc.adjustVolumeCalls)
         assertEquals(VoicePhase.OutgoingRinging, state().phase)
 
