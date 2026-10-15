@@ -43,8 +43,8 @@ import kotlinx.coroutines.launch
  *
  * 轮询（RN :46-77）：idle 相位 + sessionContext 就绪 → oncallGetCurrentRecordV2 →
  * 外来 org（org ≠ ctx.org 且 status=calling 且非本人发起）→ 呈现横幅 + notifyHost2
- * fire-and-forget。触发点：挂载即一次 + AppState active（AA：[onAppForeground]——
- * MainActivity.onResume 与 PushSessionTriggers 同位调用）。
+ * fire-and-forget。触发点：挂载即一次 + AppState active（AA：MainActivity.onResume
+ * 直接调用 poll）。
  *
  * 动作（RN :90-135）：ignore = oncallReject（org = record.org）+ 收横幅；
  * switch = switchToVoiceOrg（deps 缝 → OrgSwitchCoordinator），失败 toast
@@ -125,8 +125,8 @@ class VoiceCrossOrgNotifier(
 }
 
 /**
- * 横幅宿主（RN render 半部 :137-189）：VoiceCallHost 同层挂载。[onPoll] = 前台触发点
- * （MainActivity onResume 直接调用 notifier.poll——宿主不重复轮询）。
+ * 横幅宿主（RN render 半部 :137-189）：VoiceCallHost 同层挂载。前台触发点 =
+ * MainActivity.onResume 直接调用 notifier.poll（宿主不重复轮询）。
  */
 @Composable
 fun VoiceCrossOrgNotifierBanner(
