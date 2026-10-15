@@ -1,6 +1,9 @@
 package cn.appia.im.feature.voice.ui
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,6 +91,8 @@ internal fun VoiceParticipantCenter(
     }
 
     val numColumns = if (displayUsers.size >= 3) 3 else 2
+    // RN resolveParticipantGridLayout: avatar = (screenWidth - 20*2) / cols - 5*2（发现 7 动态宽）
+    val avatarSize = ((LocalConfiguration.current.screenWidthDp - 40f) / numColumns - 10f).toInt()
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(numColumns),
@@ -97,7 +103,7 @@ internal fun VoiceParticipantCenter(
             horizontalArrangement = Arrangement.Center,
         ) {
             items(displayUsers, key = { it.username ?: "u-${it.uid}" }) { user ->
-                ParticipantCell(user = user, t = t)
+                ParticipantCell(user = user, avatarSize = avatarSize, t = t)
             }
         }
     }
@@ -123,7 +129,7 @@ private fun SinglePeerView(peer: VoiceDisplayPeer) {
 
 /** RN VoiceParticipantAvatar（61 行）：头像 + dim + waiting 遮罩 + muted/speaking 徽标。 */
 @Composable
-private fun ParticipantCell(user: VoiceUser, t: (String) -> String) {
+private fun ParticipantCell(user: VoiceUser, avatarSize: Int, t: (String) -> String) {
     val uiState = remember(user) { resolveVoiceParticipantUiState(user) }
     val connected = uiState.kind == cn.appia.im.core.voice.lib.VoiceParticipantUiKind.Connected
     val showMuted = connected && user.isMuted == true
@@ -139,11 +145,11 @@ private fun ParticipantCell(user: VoiceUser, t: (String) -> String) {
             PeerAvatar(
                 username = user.username ?: "",
                 fallbackLabel = user.name.orEmpty().ifEmpty { user.username }.orEmpty(),
-                size = 88,
+                size = avatarSize,
                 modifier = Modifier.alpha(if (connected) 1f else 0.45f),
             )
             if (uiState.showWaitingOverlay) {
-                WaitingOverlay(size = 88, label = t(uiState.labelKey))
+                WaitingOverlay(size = avatarSize, label = t(uiState.labelKey))
             }
             if (showMuted) {
                 Badge(color = Color.White, tag = "qa-voice-participant-muted") {
@@ -151,12 +157,14 @@ private fun ParticipantCell(user: VoiceUser, t: (String) -> String) {
                 }
             }
             if (showSpeaking) {
-                // 说话徽标（RN 静态 icon；AA 动效 alpha pulse——ruling 允许）
-                val pulse by animateFloatAsState(
-                    targetValue = 1f,
-                    animationSpec = tween(600),
-                    label = "speaking",
-                )
+                // 说话徽标 alpha 脉冲 0.4→1f 循环（RN 静态 icon；AA 动效——ruling 允许）
+                val pulse by rememberInfiniteTransition(label = "speaking")
+                    .animateFloat(
+                        initialValue = 0.4f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+                        label = "pulse",
+                    )
                 Badge(color = Color(0xFF2DE0A5), tag = "qa-voice-participant-speaking", alpha = pulse) {
                     Text("♪", color = Color.White, fontSize = 11.sp)
                 }

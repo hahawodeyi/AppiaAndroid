@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,7 +43,8 @@ internal fun VoiceOtherCallBanner(
     val receiverCount = other.callMsg.recordDataObj?.receivers?.size ?: 0
     val subtitle = t(if (receiverCount > 1) "voice_incoming_multi" else "voice_incoming_from_appia")
 
-    Box(Modifier.fillMaxSize()) {
+    // RN Modal 承载：拦截对底层 overlay 控件的触摸（发现 2）
+    Box(Modifier.fillMaxSize().pointerInput(Unit) {}) {
         Column(
             Modifier
                 .fillMaxWidth()

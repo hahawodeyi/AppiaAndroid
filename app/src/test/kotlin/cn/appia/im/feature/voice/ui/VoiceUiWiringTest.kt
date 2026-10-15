@@ -133,7 +133,7 @@ class VoiceUiWiringTest {
     fun `idle renders nothing`() {
         setContent()
         rule.onNodeWithTag("qa-voice-overlay").assertDoesNotExist()
-        rule.onNodeWithTag("qa-voice-incoming-banner").assertDoesNotExist()
+        rule.onNodeWithTag("qa-voice-banner").assertDoesNotExist()
     }
 
     @Test
@@ -146,7 +146,7 @@ class VoiceUiWiringTest {
             )
         }
         setContent()
-        rule.onNodeWithTag("qa-voice-incoming-banner").assertExists()
+        rule.onNodeWithTag("qa-voice-banner").assertExists()
         rule.onNodeWithTag("qa-voice-confirm").assertDoesNotExist()
     }
 
@@ -163,7 +163,7 @@ class VoiceUiWiringTest {
         rule.waitForIdle()
         assertTrue(state().incomingUiExpanded)
         rule.onNodeWithTag("qa-voice-confirm").assertExists()
-        rule.onNodeWithTag("qa-voice-incoming-banner").assertDoesNotExist()
+        rule.onNodeWithTag("qa-voice-banner").assertDoesNotExist()
     }
 
     @Test

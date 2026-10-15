@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -51,6 +52,7 @@ internal fun VoiceOtherCallAlert(
         Modifier
             .fillMaxSize()
             .background(Color(0x80000000))
+            .pointerInput(Unit) {}
             .testTag("qa-voice-other-call-alert"),
         contentAlignment = Alignment.Center,
     ) {

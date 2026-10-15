@@ -59,7 +59,7 @@ internal fun VoiceIncomingBanner(
                         .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF000000))
                     .padding(16.dp)
-                    .testTag("qa-voice-incoming-banner"),
+                    .testTag("qa-voice-banner"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(

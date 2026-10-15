@@ -65,6 +65,7 @@ fun VoiceMemberPickerScreen(
     sdk: RocketSdk?,
     t: (String) -> String,
     onBack: () -> Unit,
+    currentUsername: String? = null,
 ) {
     val colors = LocalAppiaColors.current
     val isInvite = intent == "invite"
@@ -90,11 +91,14 @@ fun VoiceMemberPickerScreen(
         loading = false
     }
 
+    // RN :102 listMembers 排除自身 + 空名（发现 3：currentUsername 由 Task 12 从 sessionContext 注入）
+    val listMembers = remember(members) { members.filter { !it.username.isNullOrBlank() && it.username != currentUsername } }
+    val storeState = controller?.store?.state?.collectAsStateCompat()?.value
+    val callMsg = storeState?.callMsg
     val isMemberLocked: (String) -> Boolean = { username ->
-        isInvite && isVoiceMemberLockedForInvite(controller?.store?.state?.value?.callMsg, username)
+        isInvite && isVoiceMemberLockedForInvite(callMsg, username)
     }
-    val listMembers = remember(members) { members.filter { !it.username.isNullOrBlank() } }
-    val selectableMembers = remember(listMembers, isInvite, controller?.store?.state?.value?.callMsg) {
+    val selectableMembers = remember(listMembers, isInvite, callMsg) {
         listMembers.filter { !isMemberLocked(it.username!!) }
     }
     val displayedMembers = remember(listMembers, searchText) {
@@ -104,9 +108,8 @@ fun VoiceMemberPickerScreen(
             it.username?.lowercase()?.contains(q) == true || (it.name ?: "").lowercase().contains(q)
         }
     }
-    val selectedMembers = remember(listMembers, selected) {
-        listMembers.filter { selected.contains(it.username) }
-    }
+    // SnapshotStateList equals 是恒等语义——不能作 remember key（发现 1），直接计算
+    val selectedMembers = listMembers.filter { selected.contains(it.username) }
     val allSelectableSelected = selectableMembers.isNotEmpty() && selectableMembers.all { selected.contains(it.username) }
 
     fun toggle(username: String) {
@@ -134,7 +137,8 @@ fun VoiceMemberPickerScreen(
                         .clickable(enabled = canConfirm) {
                             submitting = true
                             val picked = listMembers.filter { selected.contains(it.username) && !isMemberLocked(it.username!!) }
-                            val receivers = picked.map {
+                            // RN :55 receiversFromMembers 再滤一次自身（发现 3）
+                            val receivers = picked.filter { it.username != currentUsername }.map {
                                 VoiceChatReceiver(receiver = it.username!!, receiverAppiaId = it._id, name = it.name ?: it.username!!)
                             }
                             if (isInvite) {
