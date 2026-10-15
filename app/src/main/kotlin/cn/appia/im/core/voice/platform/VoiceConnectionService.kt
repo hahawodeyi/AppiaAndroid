@@ -1,5 +1,6 @@
 package cn.appia.im.core.voice.platform
 
+import android.os.Build
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
@@ -55,7 +56,9 @@ class VoiceConnectionService : ConnectionService() {
 private class VoiceConnection(private val callId: String) : Connection() {
 
     init {
-        setConnectionProperties(PROPERTY_SELF_MANAGED)
+        // setConnectionProperties API 25+（MeetingFloatWindow.kt:148 门控先例）；API<25 跳过
+        // （装饰性标记，连接本体状态迁移不受影响）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) setConnectionProperties(PROPERTY_SELF_MANAGED)
         setAudioModeIsVoip(true)
         setRinging()
     }

@@ -259,7 +259,8 @@ class OncallApi(
         getNotify(ctx, org = ctx.org, recordId = recordId, username = username, recordOrg = recordOrg)
 
     private fun enc(value: String): String =
-        java.net.URLEncoder.encode(value, Charsets.UTF_8).replace("+", "%20")
+        // String-charset 重载（AppReleaseInstaller.kt:50 先例）——Charset 重载 API 33
+        java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
     private fun obj(vararg pairs: Pair<String, String>) = buildJsonObject {
         pairs.forEach { (k, v) -> put(k, v) }

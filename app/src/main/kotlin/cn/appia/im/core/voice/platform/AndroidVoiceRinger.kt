@@ -119,7 +119,9 @@ class AndroidVoiceRinger(context: Context) : VoiceRinger {
                     .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build()
-                isLooping = true
+                // setLooping API 28+（MeetingFloatWindow.kt:148 门控先例）；API<28 不循环
+                // （体验增强非正确性，铃声播完即止）
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) isLooping = true
                 play()
             }
         }.onFailure { Log.w(TAG, "start ringtone failed", it) }
