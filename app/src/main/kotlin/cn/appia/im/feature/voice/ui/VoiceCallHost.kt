@@ -121,17 +121,15 @@ fun VoiceCallHost(
         )
     }
 
-    // 针脚 8：回前台重应用音频路由（RN AppState-active configureInCallAudio parity）
+    // 针脚 8：回前台重应用音频路由（RN AppState-active configureInCallAudio parity）。
+    // reapplyInCallAudio 四相位门为 RN 三相位的良性超集（终审核证无副作用），KDoc 载明
+    // Task 12 UI 层 resume 时直调。
     val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(controller, lifecycle) {
         lifecycle.addObserver(
             androidx.lifecycle.LifecycleEventObserver { _, event ->
                 if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                    val s = controller.store.state.value
-                    if (s.phase == VoicePhase.InCall) {
-                        controller.setMuted(s.muteLocal)
-                        controller.setSpeaker(s.speakerOn)
-                    }
+                    controller.reapplyInCallAudio()
                 }
             },
         )

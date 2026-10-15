@@ -131,9 +131,6 @@ data class VoiceCallMsg(
         fun recordDataFromJson(json: JsonObject): VoiceCallRecordData =
             voiceJson.decodeFromJsonElement(VoiceCallRecordData.serializer(), json)
 
-        fun recordDataFromJson(raw: String): VoiceCallRecordData =
-            recordDataFromJson(voiceJson.parseToJsonElement(raw) as JsonObject)
-
         private fun expandJsonObject(element: JsonElement?): JsonObject? {
             if (element == null) return null
             if (element is JsonObject) return element

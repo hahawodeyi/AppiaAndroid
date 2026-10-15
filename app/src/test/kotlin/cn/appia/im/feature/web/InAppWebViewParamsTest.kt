@@ -112,7 +112,7 @@ class InAppWebViewParamsTest {
     fun `empty auth fields degrade to bare url`() {
         val out = buildNeedAuthUrl(
             "https://survey.appia.cn/form",
-            ExternalTokenResult(), // success=false 无 token/accessUrl
+            ExternalTokenResult(), // success 缺省（null）无 token/accessUrl
             needAuth = true, source = null, userId = "u1", username = "alice", enterpriseId = "E1",
         )
         assertEquals("https://survey.appia.cn/form", out)

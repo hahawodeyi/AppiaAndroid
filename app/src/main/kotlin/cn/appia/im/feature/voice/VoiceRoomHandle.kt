@@ -88,8 +88,9 @@ class VoiceRoomHandle(
      * RN :82-89 useEffect：active 相位 startForegroundService，否则 stop。
      * M-5（终审）：IncomingRinging + recordId → telecom.reportIncomingCall（recordId 去重）；
      * Connecting/InCall → setActive；其余相位 → setDisconnected。hasAccountPermission false
-     * → 静默跳过（降级 in-app 横幅）。Telecom onAnswer 的 mic 门在 [TelecomAnswerGate]——
-     * 锁屏（activity null）未授权时判拒挂断，绝不在后台等权限弹窗。
+     * → 静默跳过（降级 in-app 横幅）。Telecom onAnswer 的 mic 门在
+     * [VoiceMicGate.canAnswerWithoutPrompt]——锁屏（activity null）未授权时判拒挂断，绝不在
+     * 后台等权限弹窗。
      */
     fun startPlatformWiring(scope: CoroutineScope) {
         scope.launch {
@@ -193,13 +194,14 @@ object VoiceRoomModule {
         // oncall 网关（独立 OkHttp——RocketSdk 之外的独立网关域，OncallApi KDoc 裁定）
         val oncall = OncallApi(baseUrlProvider = { "" })
 
-        // RN voiceTokenCache.fetchToken = getVoiceExternalToken（REST GET users.externalToken，
-        // X-User-Id/X-Auth-Token 头经 sdk.get 携带）。安全口径（ExternalTokenApi KDoc）：
-        // 响应体含换得凭证，不得打印/埋点——失败仅走 null 上抛链。
-        // Task 4 Info(4) 陷阱：missing success 按 RN 接受（voiceTokenCache.ts:23 只拒显式 false）。
+        // RN voiceTokenCache.fetchToken = getVoiceExternalToken（REST GET users.externalToken
+        // 裸端点 + 仅鉴权头，RN webAuth.ts:12-27 / legacy iOS server.js:318——零 query 参）。
+        // 安全口径（ExternalTokenApi KDoc）：响应体含换得凭证，不得打印/埋点——失败仅走
+        // null 上抛链。success 三态：missing/null 接受（RN voiceTokenCache.ts:23 只拒显式
+        // false），显式 false 拒绝。
         val tokenCache = VoiceTokenCache(
             fetchToken = { serverUrl, userId, authToken ->
-                fetchExternalToken(sdk, serverUrl, "voice")
+                fetchExternalToken(sdk, serverUrl, null as Map<String, String>?)
                     .takeIf { it.success != false }
                     ?.token
             },

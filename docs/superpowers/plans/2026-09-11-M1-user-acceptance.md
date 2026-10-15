@@ -883,7 +883,7 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 7. **CallKeep iOS-only 在 AA 由 Telecom 替代（增强）**：RN 的 CallKeep 只在 iOS 生效（Android RN 无系统来电集成）；AA 用自管 ConnectionService 实现双端系统级来电——行为增强非差异。
 8. **openVoiceChatFromRoom 预检口径**：预检用 parseCallMsg（无 DB 合并），RN 用 parseEffectiveRoomCallMsg——Controller 内部守卫兜底正确性，仅预检提示口径差异（Task 12 L-1 裁定）。
 9. **MemberPicker 失败反馈走全局弹窗层**：呼叫/邀请失败反馈经 uiEvents 全局 AlertDialog（VoiceCallHost 常驻根部），RN 为页面内 Alert——授权分歧（Task 11 M-6 裁定）。
-10. **ON_RESUME 音频重应用仅 InCall 相位**：RN 三活跃相位（InCall/Connecting/OutgoingRinging）均重应用；AA 仅 InCall——响铃中开扬声器切后台回前台不重应用（边缘场景，Controller 状态为源）。
+10. **ON_RESUME 音频重应用已对齐 RN**：三活跃相位（InCall/Connecting/OutgoingRinging）音频重应用经 `controller.reapplyInCallAudio()` 直调，与 RN 三相位口径一致（M10 终审修复后成立）。
 11. **第二路横幅与 Alert 同显 z 序相反**：横幅与确认弹窗同显时堆叠序与 RN Modal 相反（边缘场景，裁定不修）。
 12. **推送点击离线走 V2 fetch 全量**：RN 离线时最小合成 callMsg 即响铃；AA 走 getRecordStatusV2 拉全量记录（严格更强）——离线点击极端场景下 AA 入队重试、RN 即响铃。
 

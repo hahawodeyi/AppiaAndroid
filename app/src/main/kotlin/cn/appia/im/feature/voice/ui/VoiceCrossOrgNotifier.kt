@@ -84,8 +84,10 @@ class VoiceCrossOrgNotifier(
     /** RN :46-77 pollCrossOrg（挂载/前台双触发——MainActivity onResume 调用）。 */
     fun poll() {
         if (controller.store.state.value.phase != VoicePhase.Idle) return
-        val ctx = deps.sessionContext() ?: return
         scope.launch {
+            // I-3：ctx 在协程内读（sessionContext 含 runBlocking Room/网络——主线程 onResume
+            // 直调 poll 时同步读有 ANR 风险；ignore/switchOrg 同为 launch 内读形态）
+            val ctx = deps.sessionContext() ?: return@launch
             val rows = runCatching { fetchCurrentRecords(ctx, ctx.username) }.getOrDefault(emptyList())
             val localOrg = ctx.org.lowercase()
             val foreign = rows.firstOrNull {

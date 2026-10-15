@@ -58,9 +58,31 @@ class ExternalTokenApiTest {
             ),
         )
         val r = fetchExternalToken(newSdk(), "https://ssc-docs.appia.vip/doc", "")
-        assertTrue(r.success)
+        assertTrue(r.success == true)
         assertEquals("https://ssc-docs.appia.vip/a?x=1", r.accessUrl)
         assertEquals("CODE123", r.token)
+    }
+
+    @Test
+    fun `voice flow sends bare endpoint without query params`() = runBlocking {
+        // I-2：voice 路径裸端点（RN webAuth.ts:12-27 / legacy iOS server.js:318——零 query 参）
+        server.enqueue(MockResponse().setBody("""{"token":"V1"}"""))
+        fetchExternalToken(newSdk(), "https://voice.example", null as Map<String, String>?)
+
+        val req = server.takeRequest()
+        assertEquals("/api/v1/users.externalToken", req.path.orEmpty())
+    }
+
+    @Test
+    fun `missing success parses to null and voice gate accepts`() {
+        // I-1：missing success 三态为 null——RN voiceTokenCache.ts:23 只拒显式 false
+        val r = parseExternalToken(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"token":"T"}"""),
+        )
+        assertNull(r.success)
+        assertEquals("T", r.token)
+        // voice 门（VoiceRoomHandle fetchToken 的 takeIf 形态）：null != false → 接受
+        assertTrue(r.success != false)
     }
 
     @Test

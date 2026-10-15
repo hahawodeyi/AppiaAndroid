@@ -15,9 +15,9 @@ import kotlinx.serialization.json.contentOrNull
  * 埋点只允许布尔形态（hasCode/hasAccessUrl，RN InAppWebScreen :260-268 同口径）。
  */
 
-/** RN UsersExternalTokenResult（webAuth.ts:5-9）。 */
+/** RN UsersExternalTokenResult（webAuth.ts:5-9）。success 三态：null = missing（voice 流接受）。 */
 data class ExternalTokenResult(
-    val success: Boolean = false,
+    val success: Boolean? = null,
     val accessUrl: String? = null,
     val token: String? = null,
 )
@@ -25,18 +25,23 @@ data class ExternalTokenResult(
 /**
  * 换码：成功/失败上抛由调用方降级（RN try/catch → auth=null 裸 URL 继续）。
  * 响应经 sdk.get 平铺（`data ?? resp`，RocketSdk 既有口径）。
+ *
+ * params：web 流传 {url, source, platform}（RN webAuth.ts:29-35）；voice 流传 null——
+ * RN voice 路径（webAuth.ts:12-27）与 legacy iOS（server.js:318）均为裸端点 + 仅鉴权头。
  */
+suspend fun fetchExternalToken(sdk: RocketSdk, url: String, params: Map<String, String>?): ExternalTokenResult =
+    parseExternalToken(sdk.get("users.externalToken", params))
+
+/** web 流变体：`GET users.externalToken {url, source, platform:'APP'}`。 */
 suspend fun fetchExternalToken(sdk: RocketSdk, url: String, source: String): ExternalTokenResult =
-    parseExternalToken(
-        sdk.get("users.externalToken", mapOf("url" to url, "source" to source, "platform" to "APP")),
-    )
+    fetchExternalToken(sdk, url, mapOf("url" to url, "source" to source, "platform" to "APP"))
 
 internal fun parseExternalToken(raw: JsonElement?): ExternalTokenResult {
     val o = raw as? JsonObject ?: return ExternalTokenResult()
     fun str(key: String): String? =
         (o[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull?.takeIf { it.isNotEmpty() }
     return ExternalTokenResult(
-        success = (o["success"] as? JsonPrimitive)?.contentOrNull == "true",
+        success = (o["success"] as? JsonPrimitive)?.let { it.content == "true" },
         accessUrl = str("accessUrl"),
         token = str("token"),
     )
