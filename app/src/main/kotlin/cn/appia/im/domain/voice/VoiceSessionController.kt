@@ -1572,8 +1572,12 @@ class VoiceSessionController(
         private const val OUTGOING_HINT_DIALING = "dialing"
         private const val OUTGOING_HINT_NOT_CONNECT = "not_connect"
 
-        /** RN agoraRtc.ts:14 HOST_RINGBACK_FILE('calling_sound.wav') → AA raw 资源名(Task 11 约定)。 */
-        private const val HOST_RINGBACK_ASSET = "voice_calling"
+        /**
+         * RN agoraRtc.ts:14 HOST_RINGBACK_FILE('calling_sound.wav') → AA assets 寻址
+         * （Task 11 裁定：Agora startAudioMixing 只认绝对路径或 /assets/ 前缀，res/raw 不可寻址；
+         * 文件 = app/src/main/assets/voice_calling.wav）。
+         */
+        private const val HOST_RINGBACK_ASSET = "/assets/voice_calling.wav"
 
         /** RN agoraVoiceConstants.ts:1-2(= VoiceEnv.VOICE_HOSTER_AGORA_UID)。 */
         private const val HOSTER_AGORA_UID = 8888L
