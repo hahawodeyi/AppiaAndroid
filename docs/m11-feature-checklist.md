@@ -1,9 +1,9 @@
-# M11 功能 Checklist——基础域（M1-M4）
+# M11 功能 Checklist——基础域（M1-M4）+ 扩展域（M5-M7）
 
 > RN 锚 = 冻结基线 `c92e3df`（`git -C ../appiaMobile show c92e3df:<path>` 可复核）。
 > 状态三值：✅已实现（AA 文件锚 + 里程碑终审）/ ❌缺口（入结构化缺口清单）/ 🔶授权差异（引用协议已知差异节号或总纲裁定）。
-> 协议差异节 = `docs/superpowers/plans/2026-09-11-M1-user-acceptance.md`（四/六/八/九/十/十一节）。
-> 本文件 T2 建档（基础域 M1-M4）；T3/T4 追加扩展域与 RTC 域。
+> 协议差异节 = `docs/superpowers/plans/2026-09-11-M1-user-acceptance.md`（四/六/八/九/十/十一/十三/十五/十七节）。
+> 本文件 T2 建档（基础域 M1-M4）；T3 追加扩展域（M5-M7）；T4 追加 RTC 域。
 
 ## 一、M1 认证与多组织
 
@@ -151,7 +151,127 @@
 | RN "+" 菜单本身（创建频道 + 扫一扫） | 🔶 | AA 无 "+" 菜单为 M5-T9 既定裁定（ChatListScreen.kt:100 注记；delta 表 ddef1b5/48c2961 行引）；其内「创建频道」功能经 转发页「创建频道并转发」+ RoomInfo 直聊加号（peer 预选 create intent）+ 通讯录建群路径可达，独立「空手建群」入口缺——与 #G7 合并评估（扫码入口需重锚定） |
 | 列表顶栏头像 → 侧栏抽屉（RoomListProfileHeader onPressAvatar → openDrawer → MineMenuScreen） | 🔶 | AA 无抽屉为 M5-T9 裁定（ChatListScreen.kt:85-100 注记链）；抽屉内容（待办/工作台/通讯录/会议/个人资料/我的企业/登出）全部经 ⋮ 菜单可达（M7-T3/T4、M8-T5 菜单化迁移注记） |
 
-## 附：状态分布（基础域）
+## 五、M5 搜索 + presence + 设置
+
+| RN 功能点（文件锚） | AA 状态 | 证据/差异引用 |
+|---|---|---|
+| settings.public 分批同步（50/批 + stream-notify-all 增量，86 键注册表） | ✅ | M5-T1；core/settings/ServerSettingRegistry.kt + SettingsPublicApi.kt（CHUNK_SIZE=50） |
+| 全局角色运行时刷新（30s 节流 + inflight 去重 + bootstrap/ON_RESUME/focus 三触发） | ✅ | M5-T2；domain/session/RoleRefresher.kt |
+| presence 三层（store + 2s 批量订阅 + username 解析 isRocketChatUserId） | ✅ | M5-T3；domain/presence/PresenceStore.kt + PresenceBatcher.kt + UsernameIdResolver.kt |
+| presence 绿点（仅 online/away；TeamScreen/名片/成员网格/单聊 peer 四消费点） | ✅ | M5-T3；feature/chat/ui/PresenceBadge.kt（TeamScreen.kt:639/MemberProfileScreen/RoomInfoScreen.kt:632/ChatRow.kt:179 消费）；bot 剔除 PresenceJudgments.isBotUserId |
+| 名片「在线」文字态仅 online（与绿点判定分离） | ✅ | M5-T3；PresenceJudgments.kt isOnlineTextStatus（MemberProfileScreen.kt:165 消费） |
+| UI_Use_Real_Name 接线（缺省 true；发送者名/提及/预览/引用四消费点） | ✅ | M5-T4；MessageRow.kt buildMessageHeaderDisplay（:100 缺行 true 注记） |
+| 全局搜索 4 tab（all 预览 3 条+折叠 / members / messages / files cursor 分页） | ✅ | M5-T5；GlobalSearchViewModel.kt + GlobalSearchScreen.kt（三分区折叠 :292）+ FilesSearchApi.kt |
+| 全局搜索防抖 300ms + 竞态守卫 + 离线本地分区回退 | ✅ | M5-T5；GlobalSearchViewModel.kt（DEBOUNCE + localFallbackRows :491，banner=error 回退） |
+| spotlight contact 点击 rid username 回退走 openDirectMessage 链 | ✅ | M5-T5；GlobalSearchViewModel.kt resolveDmRid（knownRid 仅本地确证后采用） |
+| 消息详情屏（chat.search 分页 50 / _id 去重 append / addedCount==0 止步） | ✅ | M5-T5；GlobalSearchMessageDetailScreen.kt（appendChatSearchPage :96） |
+| 高亮截断（keepMatchVisible 前后缀省略） | ✅ | M5-T5；feature/search/ui/HighlightText.kt |
+| 跳转高亮（loadSurroundingMessages 50 + chunk 占位 1px + #FFF7D6 + 15s 超时 + 300ms loading 防抖 + 取消） | ✅ | M5-T6；MessageJumpController.kt + MessageJumpApi.kt + MessageRow.kt JumpHighlightColor |
+| 跳转只响应路由参数变化（防死循环）/ 发消息或下拉刷新退实时 | ✅ | M5-T6；MessageJumpController.kt（plan 三路 not-found/navigate-room/scroll/fetch） |
+| 房间内搜索 6/4 tab（群 messages/members/files/media/mentions/links；单聊 4） | ✅ | M5-T7；RoomSearchViewModel.kt getVisibleRoomSearchTabs + RoomSearchScreen.kt |
+| 房间内搜索各 tab 语义（messages notIncludeFile / files/media regex / mentions 双层 / members 本地 / links 启发式） | ✅ | M5-T7；RoomSearchViewModel.kt（links 启发式照抄——协议十三节差异 7） |
+| 加密房本地 LIKE 搜索（字面匹配） | 🔶 | 协议十三节差异 6（AA 字面转义修正 RN _ 通配退化——故意分歧）；RoomSearchViewModel.kt:336 ESCAPE 注记 |
+| tSearch bump（进房/离房双 bump + 800ms 重试 + DDP 覆盖防护） | ✅ | M5-T8；domain/chat/ChatBumper.kt |
+| 设置页五分区（通用/通知/关于/法律/账户） | ✅ | M5-T9；feature/settings/ui/SettingsScreen.kt（五分区 qa tag 逐段） |
+| 语言三段切换（登录头下拉 + 设置三段，运行时全 app 生效） | ✅ | M5-T11；core/i18n/LocaleController.kt + AuthHeaderLanguageSwitch.kt；下拉视觉差异——协议十三节差异 11 |
+| 字体段选择仅持久化不改变渲染 | 🔶 | 协议十三节差异 2（RN 真实应用字体资产；AA MMKV 先行） |
+| 头像样式 photo｜letter（users.setPreferences 乐观回滚） | ✅ | M5-T9；SettingsScreen.kt:201-215（乐观翻转+失败回滚）；letter 头像 /avatar 变体未消费——协议十三节差异 3 |
+| 通知细项三键（disableNotifications/muteGroupMentions/hideUnreadStatus '1'/'0'） | ✅ | M5-T9；UserPreferencesApi.kt + RoomInfo 通知细项接线 |
+| 消息设置屏（showImageSummary/showDocumentSummary 两开关乐观） | ✅ | M5-T9；feature/settings/ui/MessageSettingScreen.kt |
+| 状态编辑（maxLength 120 + users.setStatus + mergeStatusText） | ✅ | M5-T9；StatusEditScreen.kt（STATUS_MAX_LENGTH=120） |
+| ProfileScreen 只读基线（头像/姓名只读 + 二维码 + 邮箱 + 设置入口） | ✅ | M5-T9；feature/settings/ui/ProfileScreen.kt（RN 无编辑端点不发明——计划 Global Constraint） |
+| MyCard 迁正（唯一入口 ProfileScreen；Enterprise_Name 表读显示） | ✅ | M5-T9；MyCardScreen.kt:322（Enterprise_Name 两侧细线） |
+| 头像上传不做（RN ProfileScreen 未实现） | 🔶 | 协议十三节差异 1（只读对齐） |
+| 检查更新（设置-关于：GET /provider/api/v1/version 免登录 + 结果 Alert） | ✅ | M5-T9 + M6-T6；SettingsScreen.kt:179-194 + AppReleaseApi.kt；应用内弹窗 M6 收口 |
+| 清除缓存（teardown → 删库 → 重 bootstrap） | ✅ | M5-T9；feature/settings/ClearLocalCache.kt（generation 防竞态） |
+| 退出其他设备（users.removeOtherTokens 确认弹窗） | ✅ | M5-T9；SettingsScreen.kt 账户分区 |
+| guest 删号判定（username 含 appia.guest 显示删号入口） | ✅ | M5-T9；SettingsScreen.kt（判定走登出链） |
+| 法律分区（服务条款/隐私政策 LEGAL_URLS；浏览器 pref inApp→应用内 systemDefault→外跳） | ✅ | M5-T9 + M5-T10；SettingsScreen.kt:147-149 + openLink 决策（InAppWebScreen.kt:666） |
+| 电池优化状态行（isIgnoringBatteryOptimizations + ON_RESUME 刷新 + 申请豁免） | ✅ | M5-T9；SettingsScreen.kt:134-166（null 不渲染分区 RN 同） |
+| 快捷回复行 no-op（CustomQuickReply 屏计划外） | 🔶 | 协议十三节差异 5（行渲染不可导航）；RN CustomQuickReplyScreen 实为 128 行可编辑屏（setUserPreferences appiaQuickReplies）——AA 仅渲染行无屏无编辑，差异节按 no-op 裁定收录 |
+| InAppWeb 壳（needAuth 白名单三域 + users.externalToken 换 code + 返回栈 canGoBack 域外判定） | ✅ | M5-T10；feature/web/InAppWebScreen.kt（survey/lexiang/ssc-docs 三域 :66-69）+ ExternalTokenApi.kt |
+| InAppWeb 时序（Meteor localStorage 注入 onPageStarted→evaluateJavascript） | 🔶 | 协议十三节差异 9（RN-on-Android 同款时序逐位同）；泛微/石墨/WPS/会议拦截 M7 收口见下节 |
+| 跳转加载遮罩仅覆盖消息区（非 RN 全屏 Modal） | 🔶 | 协议十三节差异 12 |
+| 跨房跳转平跳（navigate 非 reset 清栈）收口 | ✅ | 协议十三节差异 10 已由 M6-T1 navigateToRoomFromAppRoot 收口（协议十五节差异 12）；MainActivity 导航 helper |
+
+## 六、M6 推送 + 自更新
+
+| RN 功能点（文件锚） | AA 状态 | 证据/差异引用 |
+|---|---|---|
+| 阿里云推送 SDK 初始化（Application.onCreate + meta-data + init 结果码 10000/PUSH_20110 均成功） | ✅ | M6-T2；core/push/AliyunPushBootstrap.kt + AppiaApplication.kt（坑 1 语义） |
+| channel_01 预建 IMPORTANCE_HIGH + im_default | ✅ | M6-T2；PushNotificationChannels.kt（坑 3 不预建则系统低重要性） |
+| manifest 全套（POST_NOTIFICATIONS/RECEIVE_BOOT_COMPLETED/角标三权限/receiver 三 action/PopupPushActivity/meta-data） | ✅ | M6-T2；AndroidManifest.xml:20,82 + com/wix/.../PopupPushActivity.kt |
+| FCM 辅助通道（google-services 插件仅 release 应用） | 🔶 | 协议十五节差异 2（.debug 后缀与 json package 冲突；GMS 离线送达验收须 release 包）；app/build.gradle.kts:98-105 任务图条件应用 |
+| 推送 token 注册（登录 deviceId→push.token / 登出删除；deviceId=CloudPushService.getDeviceId） | ✅ | M6-T3；PushTokenRegistrar.kt（端点/body/存储键与 RN 对齐） |
+| POST_NOTIFICATIONS 运行时申请（每进程会话至多一次） | 🔶 | 协议十五节差异 1（RN 从不申请——AA 故意分歧优于基线）；NotificationPermissionGate.kt |
+| 电池优化引导（冷启动+登录双触发；跳系统白名单页） | 🔶 | 协议十五节差异 5（收窄：每会话至多一弹、登出态冷启动不触发）；BatteryOptimizationGuide.kt |
+| payload 四层兜底解析（ejson→extra 袋内双重转义→整袋→顶层 rid+type→裸 rid 兜底 'c'；ROOM_TYPE_MAP；标题规则） | ✅ | M6-T4；PushPayloadParser.kt（全兜底层 + 双重转义 ≥14 用例） |
+| oncall 识别分流（通话中语音意图不进房；isCallEnd 照常进房） | ✅ | M6-T4 桩 + M10-T12 收口；PushClickRouter.kt onVoiceOncall 出口 + VoicePushIngress.kt（协议十五节差异 3 已收口） |
+| host 校验（多组织防护：B 组织推送 A 组织点击静默跳过） | ✅ | M6-T4；PushClickRouter.kt isPushHostMatchingCurrentServer（hostname 比、忽略协议/尾斜杠/子域后缀） |
+| 90s TTL 导航队列（rid:messageId 去重 + drain 门控 auth∧navReady） | ✅ | M6-T4；PendingPushNavigation.kt（双向过期丢弃） |
+| 三 drain 点（导航就绪/Main 挂载/回前台 + 400ms 延迟二次 drain） | ✅ | M6-T5；PushNavigationDrainer.kt（400ms 原样移植非 Android 惯例） |
+| 进房复用跳转管线（RoomRoute(jumpToMessageId)；ejson 无 messageId 只进房不高亮） | ✅ | M6-T5；MainActivity drain→navigateToRoomFromAppRoot→M5 跳转管线零新增逻辑 |
+| 通知清理（回前台 cancelAll——进房已读后通知残留清空） | ✅ | M6-T5；PushNavigationDrainer.kt:40（坑 16）；清理时序——协议十五节差异 10（冷启动 onResume 即清，无行为差） |
+| 冷启动点击直达（进程内回调直接入队无 JS 桥缓存层） | 🔶 | 协议十四节自测 1 + M6 计划 T5 注记（AA 原生单进程天然简化，结构差报告注明） |
+| appia:// scheme 深链（RN manifest 声明） | 🔶 | 协议十五节差异 4（RN 死配置不移植——src 无 Linking 消费者；AA 走推送 intent extras 自建径）；亦见 M2 节同款行 |
+| 自更新检查（裸 OkHttp GET provider/api/v1/version 无 IM token + url 逗号取下标 + semver 比较 + 3h stale 窗口 + 仅已登录） | ✅ | M6-T6；AppReleaseApi.kt（APP_RELEASE_URL_COMMA_INDEX=0）+ CompareAppVersions.kt + AppReleaseCheckController.kt |
+| 自更新检查无瞬时重试（失败保持旧结果） | 🔶 | 协议十五节差异 6（RN TanStack 3 retry 不移植——终态一致） |
+| 前台重查受 3h 窗口门（RN invalidateQueries 每前台真查） | 🔶 | 协议十五节差异 7（最大提示滞后 3 小时） |
+| semver 比较省略长度帽/边界锚 | 🔶 | 协议十五节差异 11（19+ 位数字段抛异常 vs RN 降级字典序——服务端可控输入判不可达） |
+| 自更新弹窗（强制无暂不+返回键不可关；可选暂不=会话内内存静默冷启动重弹；手动检查 bypassDismiss；下载中隐藏按钮） | ✅ | M6-T7；feature/settings/ui/AppUpdateModal.kt + AppUpdatePromptController.kt（坑 11/12 语义） |
+| 弹窗头图 update.png | 🔶 | 协议十五节差异 8（无美术资产——主题化头盒承载同文案） |
+| 应用内 APK 下载安装（app 专属 Download 免权限→临时名→改名→FileProvider→系统安装器；缓存命中同名跳下载；挂载清理旧版） | ✅ | M6-T7；AppReleaseInstaller.kt（downloadAndInstall/cleanupInstalled） |
+| FileProvider authority 差异 | 🔶 | 协议十五节差异 9（${applicationId}.provider vs RN 硬编码 cn.appia.im.provider） |
+| versionCode > 28187853 下限接线（release.properties VERSION_CODE 守门） | ✅ | M6-T8；app/build.gradle.kts:27-39（MIN_INSTALLABLE_VERSION_CODE 校验失败即报错） |
+| 跨组织未读刷新（onNotification 到达非本组织 host→刷新跨组织未读） | ✅ | M7-T1 收口协议十七节差异 9；CrossOrgUnreadRefresh.kt + AppiaAliyunPushReceiver.kt:24,57（onNotification/receivedInApp 双挂点；onMessage 透传无 extraMap 仍不挂——差异 9 注记） |
+
+## 七、M7 待办 + 工作台 + AI
+
+| RN 功能点（文件锚） | AA 状态 | 证据/差异引用 |
+|---|---|---|
+| 待办四接口（GET appia/todos / set-message-todo status:1 / update-message-todo-status -1 / update-message-todo） | ✅ | M7-T2；core/network/api/TodosApi.kt（发送值≠显示值服务端约定照抄——坑 2） |
+| 待办分区段头 + 段内四分排序（高优+草稿>高优>普通+草稿>普通） | ✅ | M7-T2；ChatListSectioner.kt（TODO("roomList_sectionTodo") 段头落地） |
+| 待办双计数源（抽屉=REST total / 红点=DDP todoCount 有意不同步） | 🔶 | 协议十七节差异 4（RN 同构勿统一——坑 1）；ChatListScreen.kt:142 REST 线 + ChatRow.kt:167 DDP 线 |
+| 抽屉待办卡（⋮ 菜单：total 计数 + 首条标题；点击→全量列表） | 🔶 | 协议十七节差异 3（迁菜单后附件缩略图/元信息框无宿主未移植——仅 total+首条标题）；ChatListScreen.kt:231-253 |
+| 会话行头像红点（todoCount>0；>99 显 99+） | ✅ | M7-T3；ChatRow.kt:165-170 + TodoCard.kt RoomItemTodoBadge（红底白字） |
+| 房间头待办入口（todoCount>0 显 ☑ → 房间待办屏） | ✅ | M7-T3；RoomScreen.kt:287,701-719（qa-room-header-todo；todo→search 顺序 RN 同） |
+| 长按设待办/完成待办（互斥二元：appia_todo 进行中→完成否则设为） | ✅ | M7-T3；MessageActionController.kt:113,138（SET_TODO/FINISH_TODO；M3 长按菜单全集行交叉引用） |
+| 待办列表屏全量 + 房间待办屏按 rid（footer/空态「全部待办」钮） | ✅ | M7-T3；TodoListScreen.kt + RoomTodoScreen.kt |
+| 待办卡（高优 tag/stripMarkdownLite 标题/附件图与文件行/房间名/超时红/完成+去处理） | ✅ | M7-T3；TodoCard.kt（RN TodoListCard 逐块对照） |
+| 完成待办双写（POST 成功 + 清本地消息 appiaTodo——房间内样式即消失） | ✅ | M7-T3；TodoActions.kt complete（坑 12 双写）+ TodoListRepository.kt invalidate |
+| 改提醒（过去时间拒提；保存后条目更新） | ✅ | M7-T3；TodoActions.kt setReminder（date <= now 拒提 RN 同口径） |
+| 待办附件跳转（图片→大图查看器鉴权；文件→文档预览） | ✅ | M7-T3；TodoAttachmentJumpTest 四用例（viewer 鉴权参对照 openTodoAttachment） |
+| 去处理（跳来源房间；同房保留路由参 jumpToMessageId） | ✅ | M7-T3；RoomTodoScreen.kt onGotoSession（RN :109-118 roomType/routeTitle/fromAgent 原样透传） |
+| 工作台宫格（worktable_config 裸 fetch 无 auth 头 + normalizeWorktableGroups 过滤/补前缀/空组丢弃） | ✅ | M7-T4；WorktableApi.kt（独立实例——坑 8）+ LaborRepository.kt（guest E-Learning 过滤） |
+| 工作台搜索过滤 + 空态双文案（labor_emptyaftersearch/emptyconfig） | ✅ | M7-T4；LaborScreen.kt:163-167（filterWorktableBySearch + showEmpty RN :76-81） |
+| 工作台三支路由（type3 建私信 DM / 消息待办 type10→TodoList / 其余 InAppWeb；url 空→nonsupport） | ✅ | M7-T4；LaborRouting.kt（NONSUPPORT_PATH） |
+| 考勤打卡定位权限先询（拒绝 Alert 不打开） | ✅ | M7-T4；LaborScreen.kt:121-131（ensureFineLocation） |
+| Labor urlType=1 hash-query 拼参未入 | 🔶 | 协议十七节差异 7（RN 仅 hash-query 调用方用——需要时补路由参数） |
+| 泛微三件套（Weavertoken 头+cookie+sessionStorage 防循环 reload hasReloaded_<url> + XHR/fetch 劫持 + 跨页 transition 注入） | ✅ | M7-T5；InAppWebScreen.kt:231,281-297 + InAppWebIntercepts.kt FanweiWeaverTokenGate（进程内去重） |
+| 泛微 token 快路竞态（并发首调可能多一次冗余 HTTP） | 🔶 | 协议十七节差异 10（creator 持锁 await——仅冗余无错误） |
+| 石墨拼参 appendShimoQueryIfNeeded（org/source/userId/token） | ✅ | M7-T5；InAppWebIntercepts.kt:29-51 |
+| WPS 入口改写（WPS_ORG_DOC_HOSTS + docs.appia.vip fallback 'all'） | ✅ | M7-T5；InAppWebIntercepts.kt:53-96 |
+| 会议外链拦截（腾讯会议 http(s)→外部浏览器；wemeet:// 拒载） | ✅ | M7-T5；InAppWebIntercepts.kt isTencentMeetingHttpUrl/isWemeetSchemeUrl；AntMeeting 归 M8 原生替换（协议十七节差异 2 已收口） |
+| postMessage 桥（SetTitle 改标题 / onResetPasswordSuccess→登出+goBack / navigationStateChange） | ✅ | M7-T5；InAppWebScreen.kt:208-225,629-644（addJavascriptInterface("ReactNativeWebView")） |
+| 返回决策链全分支（chat-gpt pop / BACK_CLOSE_URL_SEGMENTS / 根页比较 / ANT_AGENT_FORCE_POP_URLS 两 URL） | ✅ | M7-T5；InAppWebIntercepts.kt resolveInAppWebBackAction（:117-162 全分支） |
+| needVPN 探活（HEAD 10s 超时→「需 VPN」错误页）+ RECRUITMENT 隐藏顶栏注入 | ✅ | M7-T5；InAppWebIntercepts.kt vpnHeadProbe + InAppWebScreen.kt:260 buildRecruitmentHideChromeScript |
+| 遥测埋点 skip（onError/HttpError/RenderProcessGone 上报） | 🔶 | 协议十七节差异 8（AA 无 analytics 总线——KDoc 注明） |
+| Android 泛微注入时序（onPageStarted/Finished+doUpdateVisitedHistory 重现） | 🔶 | 协议十七节差异 11（M6 已证与 RN-on-Android 逐位同）；InAppWebScreen.kt:509-518 |
+| AI SSE 客户端（POST 流式 body 手写 + 小写 x-auth-token/x-user-id + FINISH/DONE 立即停读 + chunk text??content??raw 次序） | ✅ | M7-T6；core/network/sse/AiStreamClient.kt（坑 4 停读纪律） |
+| bot 端点映射（staffService.bot→saveToStaffServiceAgent / agent.bot+personal.bot→sendToAI / Agent_Bot_List→saveToClawAgent / 否则 null） | ✅ | M7-T6；core/ai/BotEndpoints.kt（映射表完整保留——staffService 使用归 M10） |
+| 触发判定（parseBotMentions 保序去重 + prompt 剔除 @bot + shouldTriggerAi） | ✅ | M7-T6；AiTurnResolver.kt（剔除正则 RN 同款） |
+| 附件 prompt 模板（image-url / file-proxy——Site_Url） | ✅ | M7-T6；AiPromptBuilder.kt imagePromptTemplate/filePromptTemplate |
+| 槽位机制（agentLoadingMsg 注入 u=bot/msg=prompt/msgData{relatedUserMessageId,botReplyIndex}；同 id 不重复注入；真实消息到达 clear + 15s 兜底强清） | ✅ | M7-T7；AiRoomStateMachine.kt + AgentLoadingMessage.kt（坑 5/6 双兜底与防闪烁） |
+| 串行驱动（先 setProcessing 再 await clear——顺序反了覆盖槽位；60s 兜底超时） | ✅ | M7-T7；AiRoomStateMachine.kt runAiTurn（坑 6 反重排不变量） |
+| 停止按钮（abort+finalize；停止后有文本仍持久化） | ✅ | M7-T7；AiRoomStateMachine.kt setStopping + AgentLoadingMessage finalize（saveAiMessage 恰一次） |
+| staffService 客服域（转人工/评价/FastModelMessage 引文 bot.docs citation） | 🔶 | 协议十七节差异 1（划 M10）；AiResponseMessage.kt fastModelMsg 类型桩（AI_FAST_MODEL 纯文本占位） |
+| AI 流式中纯文本完成后才切 markdown | 🔶 | 协议十七节差异 5（RN 同构）；AiResponseMessage.kt ai_response 走 M3 链+复制按钮 |
+| 跨触发交错（首流未 finalize 即丢弃部分文本） | 🔶 | 协议十七节差异 6（RN unmount 同型） |
+| myAgents 虚拟行（个人助手段固定行 + MMKV 缓存 rid + im.create 自聊 DM + fromAgent 自动标题 Agent） | ✅ | M7-T8；AgentChannelRow.kt（agentChannelRowOrNull + ensureAgentRoom） |
+| agents 管理（AgentEditor 创建/编辑/禁用/恢复 + base64 快捷添加 + 重复 id 错误识别） | ✅ | M7-T8；feature/agents/ui/AgentEditorScreen.kt + ClawAgentEdit.kt + ClawAgentsApi.kt 四 POST（协议十一节差异 1/2 部分收口注记见 M4 节） |
+| AgentEditor edit+success 冒烟等待裁撤 | 🔶 | 协议十七节差异 12（Robolectric 下 onSaved 到达慢——wire 断言保留） |
+
+## 附：状态分布（全量）
 
 | 域 | 行数 | ✅ | ❌ | 🔶 |
 |---|---|---|---|---|
@@ -159,7 +279,11 @@
 | M2 会话列表单聊 | 26 | 22 | 2 | 2 |
 | M3 消息完整 | 37 | 20 | 6 | 11 |
 | M4 群组联系人 | 39 | 30 | 1 | 8 |
-| 合计 | 126 | 92 | 9 | 25 |
+| M5 搜索 presence 设置 | 38 | 32 | 0 | 6 |
+| M6 推送自更新 | 26 | 16 | 0 | 10 |
+| M7 待办工作台 AI | 41 | 31 | 0 | 10 |
+| 合计 | 231 | 171 | 9 | 51 |
 
 > ❌ 行与缺口编号 #G1-#G9 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
 > #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）。T5 汇总时 #G5/#G8/#G9 与 T1「追进发布」清单防双计。
+> 扩展域（M5-M7）零 ❌：全部差异均有协议十三/十五/十七节或里程碑裁定背书（🔶 26 项）；M5-M7 期间已收口的早期差异（十三.10 跳转平跳、十五.3 oncall、十七.2 AntMeeting、十七.9 跨组织刷新）按 ✅+收口注记收录。
