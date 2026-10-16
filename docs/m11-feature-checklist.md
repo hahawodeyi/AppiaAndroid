@@ -182,7 +182,7 @@
 | ProfileScreen 只读基线（头像/姓名只读 + 二维码 + 邮箱 + 设置入口） | ✅ | M5-T9；feature/settings/ui/ProfileScreen.kt（RN 无编辑端点不发明——计划 Global Constraint） |
 | MyCard 迁正（唯一入口 ProfileScreen；Enterprise_Name 表读显示） | ✅ | M5-T9；MyCardScreen.kt:322（Enterprise_Name 两侧细线） |
 | 头像上传不做（RN ProfileScreen 未实现） | 🔶 | 协议十三节差异 1（只读对齐） |
-| 检查更新（设置-关于：GET /provider/api/v1/version 免登录 + 结果 Alert） | ✅ | M5-T9 + M6-T6；SettingsScreen.kt:179-194 + AppReleaseApi.kt；应用内弹窗 M6 收口 |
+| 检查更新（设置-关于：GET /provider/api/v1/version 免登录 + 结果 Alert） | ✅ | M5-T9 + M6-T6；SettingsScreen.kt:179-194 + AppReleaseApi.kt；应用内弹窗仅自动检查链路由 M6 收口——手动检查弹窗为缺口 #G10（M6 节登记） |
 | 清除缓存（teardown → 删库 → 重 bootstrap） | ✅ | M5-T9；feature/settings/ClearLocalCache.kt（generation 防竞态） |
 | 退出其他设备（users.removeOtherTokens 确认弹窗） | ✅ | M5-T9；SettingsScreen.kt 账户分区 |
 | guest 删号判定（username 含 appia.guest 显示删号入口） | ✅ | M5-T9；SettingsScreen.kt（判定走登出链） |
@@ -218,7 +218,8 @@
 | 自更新检查无瞬时重试（失败保持旧结果） | 🔶 | 协议十五节差异 6（RN TanStack 3 retry 不移植——终态一致） |
 | 前台重查受 3h 窗口门（RN invalidateQueries 每前台真查） | 🔶 | 协议十五节差异 7（最大提示滞后 3 小时） |
 | semver 比较省略长度帽/边界锚 | 🔶 | 协议十五节差异 11（19+ 位数字段抛异常 vs RN 降级字典序——服务端可控输入判不可达） |
-| 自更新弹窗（强制无暂不+返回键不可关；可选暂不=会话内内存静默冷启动重弹；手动检查 bypassDismiss；下载中隐藏按钮） | ✅ | M6-T7；feature/settings/ui/AppUpdateModal.kt + AppUpdatePromptController.kt（坑 11/12 语义） |
+| 自更新弹窗（强制无暂不+返回键不可关；可选暂不=会话内内存静默冷启动重弹；下载中隐藏按钮；自动检查链路 AppUpdatePromptHost 完整） | ✅ | M6-T7；feature/settings/ui/AppUpdateModal.kt + AppUpdatePromptController.kt（坑 11/12 语义——自动检查链路无缺；手动检查接线缺口见 #G10 行） |
+| 手动「检查更新」弹应用内弹窗（bypassDismiss——点过暂不也立即弹） | ❌ | RN SettingsScreen :157-160 → useAppUpdateUiStore.show(row, {bypassDismiss:true})；AA SettingsScreen.kt:172-199 onPressCheckUpdate 有新版时仍 openUrl 跳浏览器（M5-T9 时代行为）——AppUpdatePromptController.showManual() 已备但全仓零调用点（仅测试），M6-T7 未接线（协议十四节自测 4「手动检查→立即弹」AA 验不过）。见缺口清单 #G10 |
 | 弹窗头图 update.png | 🔶 | 协议十五节差异 8（无美术资产——主题化头盒承载同文案） |
 | 应用内 APK 下载安装（app 专属 Download 免权限→临时名→改名→FileProvider→系统安装器；缓存命中同名跳下载；挂载清理旧版） | ✅ | M6-T7；AppReleaseInstaller.kt（downloadAndInstall/cleanupInstalled） |
 | FileProvider authority 差异 | 🔶 | 协议十五节差异 9（${applicationId}.provider vs RN 硬编码 cn.appia.im.provider） |
@@ -232,7 +233,7 @@
 | 待办四接口（GET appia/todos / set-message-todo status:1 / update-message-todo-status -1 / update-message-todo） | ✅ | M7-T2；core/network/api/TodosApi.kt（发送值≠显示值服务端约定照抄——坑 2） |
 | 待办分区段头 + 段内四分排序（高优+草稿>高优>普通+草稿>普通） | ✅ | M7-T2；ChatListSectioner.kt（TODO("roomList_sectionTodo") 段头落地） |
 | 待办双计数源（抽屉=REST total / 红点=DDP todoCount 有意不同步） | 🔶 | 协议十七节差异 4（RN 同构勿统一——坑 1）；ChatListScreen.kt:142 REST 线 + ChatRow.kt:167 DDP 线 |
-| 抽屉待办卡（⋮ 菜单：total 计数 + 首条标题；点击→全量列表） | 🔶 | 协议十七节差异 3（迁菜单后附件缩略图/元信息框无宿主未移植——仅 total+首条标题）；ChatListScreen.kt:231-253 |
+| 抽屉待办卡（⋮ 菜单：total 计数 + 首条标题；点击→全量列表） | 🔶 | 协议十七节差异 3（迁菜单后附件缩略图/元信息框无宿主未移植——仅 total+首条标题）；ChatListScreen.kt:231-253。量级补注：RN 卡含附件缩略图（MessageImageRow）+ 创建/提醒时间元信息框 + 高优徽标完整视觉，AA 仅两行文本——T5 重估候选 |
 | 会话行头像红点（todoCount>0；>99 显 99+） | ✅ | M7-T3；ChatRow.kt:165-170 + TodoCard.kt RoomItemTodoBadge（红底白字） |
 | 房间头待办入口（todoCount>0 显 ☑ → 房间待办屏） | ✅ | M7-T3；RoomScreen.kt:287,701-719（qa-room-header-todo；todo→search 顺序 RN 同） |
 | 长按设待办/完成待办（互斥二元：appia_todo 进行中→完成否则设为） | ✅ | M7-T3；MessageActionController.kt:113,138（SET_TODO/FINISH_TODO；M3 长按菜单全集行交叉引用） |
@@ -280,10 +281,10 @@
 | M3 消息完整 | 37 | 20 | 6 | 11 |
 | M4 群组联系人 | 39 | 30 | 1 | 8 |
 | M5 搜索 presence 设置 | 38 | 32 | 0 | 6 |
-| M6 推送自更新 | 26 | 16 | 0 | 10 |
+| M6 推送自更新 | 27 | 16 | 1 | 10 |
 | M7 待办工作台 AI | 41 | 31 | 0 | 10 |
-| 合计 | 231 | 171 | 9 | 51 |
+| 合计 | 232 | 171 | 10 | 51 |
 
-> ❌ 行与缺口编号 #G1-#G9 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
-> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）。T5 汇总时 #G5/#G8/#G9 与 T1「追进发布」清单防双计。
-> 扩展域（M5-M7）零 ❌：全部差异均有协议十三/十五/十七节或里程碑裁定背书（🔶 26 项）；M5-M7 期间已收口的早期差异（十三.10 跳转平跳、十五.3 oncall、十七.2 AntMeeting、十七.9 跨组织刷新）按 ✅+收口注记收录。
+> ❌ 行与缺口编号 #G1-#G10 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
+> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）/ #G10 手动检查更新弹窗未接线（M6，main-chain）。T5 汇总时 #G5/#G8/#G9 与 T1「追进发布」清单防双计。
+> 扩展域（M5-M7）差异均有协议十三/十五/十七节或里程碑裁定背书（🔶 26 项）；M5-M7 期间已收口的早期差异（十三.10 跳转平跳、十五.3 oncall、十七.2 AntMeeting、十七.9 跨组织刷新）按 ✅+收口注记收录。#G10 为 Fix round 1 拆行（原误挂 ✅ 行内的漏出验收项）。
