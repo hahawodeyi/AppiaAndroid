@@ -1,9 +1,10 @@
-# M11 功能 Checklist——基础域（M1-M4）+ 扩展域（M5-M7）
+# M11 功能 Checklist——基础域（M1-M4）+ 扩展域（M5-M7）+ RTC 域（M8-M10）
 
 > RN 锚 = 冻结基线 `c92e3df`（`git -C ../appiaMobile show c92e3df:<path>` 可复核）。
 > 状态三值：✅已实现（AA 文件锚 + 里程碑终审）/ ❌缺口（入结构化缺口清单）/ 🔶授权差异（引用协议已知差异节号或总纲裁定）。
-> 协议差异节 = `docs/superpowers/plans/2026-09-11-M1-user-acceptance.md`（四/六/八/九/十/十一/十三/十五/十七节）。
-> 本文件 T2 建档（基础域 M1-M4）；T3 追加扩展域（M5-M7）；T4 追加 RTC 域。
+> 协议差异节 = `docs/superpowers/plans/2026-09-11-M1-user-acceptance.md`（四/六/八/九/十/十一/十三/十五/十七/十九/二十一/二十三节）。
+> 本文件 T2 建档（基础域 M1-M4）；T3 追加扩展域（M5-M7）；T4 追加 RTC 域（M8-M10）。
+> M8/M10 为 GREENFIELD 混合域：RN 会议本体是 WebView H5、RN 语音未过 M0 真机门禁（`docs/VOICE_CALL_M0_GATE.md` 冻结点未勾选）——两域功能面以 AA spec/计划 UI 清单 + RN 仓既有代码为锚，🔶 密集引用协议十九/二十三节。
 
 ## 一、M1 认证与多组织
 
@@ -272,6 +273,127 @@
 | agents 管理（AgentEditor 创建/编辑/禁用/恢复 + base64 快捷添加 + 重复 id 错误识别） | ✅ | M7-T8；feature/agents/ui/AgentEditorScreen.kt + ClawAgentEdit.kt + ClawAgentsApi.kt 四 POST（协议十一节差异 1/2 部分收口注记见 M4 节） |
 | AgentEditor edit+success 冒烟等待裁撤 | 🔶 | 协议十七节差异 12（Robolectric 下 onSaved 到达慢——wire 断言保留） |
 
+## 八、M8 会议
+
+> 域性质：PORT（预订/面板/纪要/表单/入口）+ GREENFIELD（Agora 原生 RTC 替换 RN 的 WebView H5——M8 调研 §1.4 VERDICT）。RN 锚 = 入口/线缆/UI 逻辑文件；RTC 本体无 RN 锚。
+
+| 功能点（锚） | AA 状态 | 证据/差异引用 |
+|---|---|---|
+| 会议 wire 层 6 接口（meetingRoomBook/RecordUpdate/editPeriodicSingle/cancelPeriodicSingle/meetingRoomList/room members——services/api/meeting.ts） | ✅ | M8-T2；core/network/api/MeetingApi.kt（6 端点 + RoomMembersResult） |
+| payload 构建/校验（buildMeetingPayload:69-108——周期 periodicInfo/编辑追加 announcementId/坑 11 手动模式 meetCode+meetUrl 都必填/周期结束不早于单次） | ✅ | M8-T2；core/meeting/MeetingPayloadBuilder.kt（timezone getUTCOffset/腾讯置空串） |
+| 会议面板双 tab（RoomMeetingScreen/index.tsx——预订 upcoming 升序在前 past 降序在后（endSec>now 分组 meetingBookingDisplay:19,60,151）+ 纪要 tab ymd 倒序） | ✅ | M8-T3；feature/meeting/ui/RoomMeetingScreen.kt（MeetingTab.BOOKINGS/MINUTES）+ MeetingPanelData.kt |
+| 仅 upcoming 且有 joinUrl 显「加入」（坑 9：meetUrl 优先 else meetCode??:tencentMeetingId） | ✅ | M8-T3；feature/meeting/MeetingPanelData.kt resolveMeetingJoin（WEMEET_SCHEME_RE 外跳/AntMeeting 码 URL 分流） |
+| 纪要详情纯本地渲染（MeetingSummaryDetailScreen——IMeetingSummary topic/timeBegin/place/host/participant/content blocks/files + buildMeetingMinutesBody，无独立接口） | ✅ | M8-T3；feature/meeting/ui/MeetingSummaryDetailScreen.kt（meeting_summaryplace/host/participants 信息行） |
+| 公告流会议/纪要卡（MeetingAnnouncementCard + MeetingMinutesCard——仅面板消费，聊天流无内嵌渲染点） | ✅ | M8-T3；feature/meeting/ui/MeetingCards.kt（RN 两卡组件移植；「聊天流无消费点」研究核对注记 :44） |
+| 会议表单全字段（MeetingFormScreen/index.tsx——主题/起止/会议室/与会人默认全房间联邦成员 :162-181/createTxMeeting 默认 true/周期预设 0-6/desc/材料/通知开关/私有网络） | ✅ | M8-T4；feature/meeting/ui/MeetingFormScreen.kt（extraMeetingRoom 保留） |
+| 周期三分支编辑（edit-normal/edit-periodic-single/edit-periodic-all——MeetingSubmitPlan 分派） | ✅ | M8-T4；feature/meeting/MeetingSubmitPlan.kt（PERIODIC_SINGLE/PERIODIC_ALL 常量 + periodicFromRecord） |
+| 删除（普通/周期整串 type:delete；周期单次 cancelPeriodicSingleMeeting {rid,announcementId}） | ✅ | M8-T3/T4；feature/meeting/MeetingDelete.kt + postSaveRoomSettings roomAnnouncementData |
+| 附件「会议」入口门控（canShowMeetingAttachment——Appia_Meeting_Enable≠false + 非 omnichannel + 非单聊，坑 8） | ✅ | M8-T4；feature/meeting/MeetingSubmitPlan.kt canShowMeetingAttachment + AttachmentSelector.kt chatinput_meeting 项 |
+| 会议首页（RN「+」菜单/抽屉「会议」行 → MEETING_HOME_URL H5 的原生替代——meetingRoomList 未来窗口平铺 upcoming） | ✅ | M8-T5；feature/meeting/ui/MeetingHomeScreen.kt + ChatListScreen.kt:272-277 drawer_meeting 菜单项（M5-T9 菜单化裁定） |
+| RoomInfo 会议行 → 面板（M4 占位收口——renderMeetingRow :356-361） | ✅ | M8-T3；feature/roominfo/ui/RoomInfoScreen.kt:142,258 MeetingRow（M4 节占位行交叉引用收口） |
+| InAppWeb AntMeeting 移交（初始 URL/页内跳转/openLink inApp 分支三路 → 原生会议，替换 M6-T5 外链处理） | ✅ | M8-T5；InAppWebScreen.kt resolveAntMeetingHandoff:157 + openLinkRoute:171 + SettingsScreen.kt:149（协议十七节差异 2 收口注记见 M7 节） |
+| 腾讯会议记录外跳（tencentMeetingId 兜底码 → wemeet:// 或 https 外开；meeting.tencent.com → 系统浏览器） | ✅ | M8-T3 + M7-T5；MeetingPanelData.kt External 分支 + InAppWebIntercepts.kt isTencentMeetingHttpUrl:110 |
+| 原生 RTC 引擎（GREENFIELD：Agora 4.5.2 + credentials 接口 `/api/v2/video/meeting/credentials` spike 结论 B + cert-less 兜底） | ✅ | M8-T1/T6；core/meeting/rtc/AgoraMeetingEngine.kt + MeetingCredentialsApi.kt（协议十九节差异 2/3——字段待抓包收紧/生产 token 待服务端） |
+| 会议状态机（meetingSessionStore phase 语义——idle/preheating/inMeeting/minimized；坑 4 consumesBack 仅 inMeeting） | ✅ | M8-T6；domain/meeting/MeetingSessionStateMachine.kt（openPreheat 单次/markInMeeting 两路） |
+| 会议房间 UI（GREENFIELD：视频宫格/控制条 mic·camera·share·members·minimize·leave/成员列表/离开确认弹层） | ✅ | M8-T7；feature/meetingroom/ui/MeetingRoomScreen.kt（qa-meeting-room-* testTag 全 + meeting_room_leave_confirm） |
+| 视频帧上屏 | 🔶 | 协议十九节差异 4（tile 呈现参与者态——帧渲染需扩 setupRemoteVideo/LocalVideo，M8 范围外后续补；被踢近似 差异 5/成员无名字映射 差异 6 同源） |
+| 与老 H5 会议互通 | 🔶 | 协议十九节差异 1（原生 RTC 替换 WebView H5，裁定不要求互通除非同 AppId+token 体系） |
+| 浮窗+气泡最小化（RN MeetingForegroundService Kotlin 近乎照抄——SPECIAL_USE/canDrawOverlays 降级链 坑 7/横条 verbatim 参数/应用内可拖拽气泡位置持久化） | ✅ | M8-T8；core/meeting/floatwin/（MeetingForegroundService/MeetingFloatWindow/MeetingFloatPolicy verdict）+ feature/meetingroom/ui/MeetingMiniBubble.kt + MeetingMiniBubbleLayout.kt（KvStore 持久化） |
+| 横屏三触发源（useOrientationToggle——共享驱动/顶栏转屏钮 toggle 直调 API/最小化强制竖屏）+ 会中常亮 keep-awake + 共享态顶栏悬浮 | ✅ | M8-T9；feature/meetingroom/MeetingOrientation.kt + MeetingRoomScreen.kt:122（FLAG_KEEP_SCREEN_ON/headerVisible tap toggle） |
+| 互斥不对称（坑 6：语音任意非 idle 阻塞会议；会议仅 inMeeting/minimized 阻塞语音 preheating 不算） | ✅ | M8-T9 + M10-T12 双侧收口；MeetingSessionStateMachine.blocksVoiceStart + MainActivity.kt:849 meetingBlockedByVoice（VoicePhase.Idle.name lowercase 陷阱注释在案） |
+| 横屏真全屏隐藏系统栏（RN 458994b MainActivity immersive——statusBars+navigationBars hide） | ❌ | T1 追进项 #4（RN 冻结后 delta，docs/m11-rn-delta.md 追进发布清单 4）：AA 横屏无 WindowInsetsController/WindowCompat 调用（全仓 grep 零命中）——横屏会中系统栏仍悬浮。visual 级，GREENFIELD 域内原生等价 UX。见缺口清单 #G11 |
+| prefersLandscape 跨会话残留 | 🔶 | 协议十九节差异 11（会议结束记忆不重置，下次恢复横屏一次——边缘影响裁定不修）；MeetingOrientation.kt:29 |
+| 会议室时间轴占用简化（MeetingRoomTimelineRow 可视化不移植——名称单选可空/extraMeetingRoom 编辑保留无创建 UI） | 🔶 | 协议十九节差异 7（brief 明文授权简化）；MeetingFormScreen.kt:577 注记 |
+| 15 分钟步进取整（RN minuteInterval=15 轮盘——Compose TimePicker 确认时向下取整） | 🔶 | 协议十九节差异 8；MeetingFormScreen.kt:488（TodoReminderPicker 复用） |
+| 与会人选择为表单内 dialog（RN VoiceMemberPicker intent:'meeting' 独立屏 + meetingFormDraftStore 往返） | 🔶 | 协议十九节差异 9（M4 选择器组织树数据源不匹配——浮层等义 + 草稿往返未移植）；MeetingFormScreen.kt:617,797 |
+| 消息内链接未走 openLink（InlineEnv.onLinkPress 兜底系统浏览器——AntMeeting 链接不自动移交） | 🔶 | 协议十九节差异 13（pre-existing，注记「T13 组装收口」为 M8 计划任务号笔误——M8 无 T13，实际状态：Settings 法律链接已接 openLink:149、聊天 InlineEnv 仍兜底 ACTION_VIEW）；InlineNodes.kt:311 兜底 |
+| 遥测 skip（会议错误埋点） | 🔶 | 协议十九节差异 12（AA 无 analytics 总线——KDoc 注明）；同型先例 M7 节遥测行 |
+| APK 包体 abiFilters（Agora SDK 24.3MB→93.1MB；arm64-v8a 单 ABI 裁定，x86_64 模拟器装不上） | 🔶 | 协议十九节差异 14（M8 终审裁定；splits/per-ABI versionCode 归 M11 发布工程）；app/build.gradle.kts ndk.abiFilters |
+
+## 九、M9 邮件
+
+> 域性质：PORT（RN 邮件域完整非 stub——M9 调研）。RN 锚 = src/lib/mail + screens/Mail*。
+
+| 功能点（锚） | AA 状态 | 证据/差异引用 |
+|---|---|---|
+| mail client 基座（mailClient.ts——`{server}/mail/api` 基址 + X-Auth-Token/X-User-Id + CookieJar + 401→`/auth/refresh`→重试一次） | ✅ | M9-T1；core/mail/MailClient.kt（独立 OkHttp 不走 RocketSdk） |
+| RSA-OAEP 凭证加密（mailCredentialTransport.ts——SPKI PEM + **显式 OAEPParameterSpec(SHA-256,MGF1,MGF1-SHA256)** 坑 1） | ✅ | M9-T1；core/mail/MailCredentialCipher.kt:25（固定向量互操作测试钉死） |
+| 公钥缓存按 keyVersion 记账（坑 2 改进——RN 永不刷新是缺陷） | ✅ | M9-T1；MailCredentialCipher.kt CachedKey(keyVersion)（协议二十一节差异 7——比 RN 更优的授权分歧） |
+| 403=未开通静默空 / bootstrap 链（useMailInit——GET /accounts 401→exchange→重试；坑 6） | ✅ | M9-T2；feature/mail/MailInit.kt bootstrapMailSession |
+| 绑定页（MailAccountSetupScreen——email 预取 user.emails[0]/手输 + 测试连接（先）+ 绑定（后）+ 引导图 step1/2.png 失败隐藏） | ✅ | M9-T2；feature/mail/ui/MailAccountSetupScreen.kt:139-140 guideStep URL |
+| 节流专用 toast（坑 5——429/`too many login attempts`/`too frequent` 判定） | ✅ | M9-T2；MailAccountSetupScreen.kt:246-247,276（isMailThrottleError → mail_throttle） |
+| 会话列表虚拟邮件行（buildMailChannelChatRow:36-69——`__appia_mail_channel__` assistant 段注入 + Appia_Mail_Channel_Enabled 门控） | ✅ | M9-T2；feature/mail/MailChannelRow.kt + ChatListScreen.kt:103-107,382（mailRow 流派生不触发重建 :124） |
+| 收件箱聊天式升序锚底（坑 9——旧→新/首屏滚底/onStartReached 翻旧页 pageSize=30） | ✅ | M9-T3；feature/mail/ui/MailChannelScreen.kt:60,106-122（anchorRequest 锚定链 + 顶部接近翻页） |
+| 文件夹 sheet（MailFolderSheet——specialUse 五映射 + path 正则兜底 坑 11 + IMAP Drafts 隐藏 + 虚拟 `__drafts__` + Virus Items 过滤） | ✅ | M9-T3；feature/mail/MailFolderUtils.kt + ui/MailFolderSheet.kt |
+| 草稿夹删光自动弹回 INBOX / 下拉刷新（非草稿先 sync 再重拉；草稿只重拉） | ✅ | M9-T3；MailChannelViewModel.kt（triggerMailSync :63） |
+| 搜索/未读过滤开关/行未读加粗已读变灰 | ✅ | M9-T3；MailChannelScreen.kt + MailChannelApi.kt searchMailMessages:50（搜索口不透传未读过滤——RN 同构注记） |
+| 详情 HTML 渲染 WebView **JS 禁用**（坑 10 等价安全位——RN render-html 无 sanitize） | ✅ | M9-T4；feature/mail/ui/MailDetailScreen.kt（协议二十一节差异 2——更严授权） |
+| 详情归一化（normalizeMailMessageDetail——坑 3 五组别名 + 坑 4 `mail-` 前缀剥离时机对齐） | ✅ | M9-T4；core/mail/MailModels.kt:270-314（剥前缀只发生在 URL 构造点——commit 88c7301 对齐 RN 剥前缀时机） |
+| 附件缓存/超时/分级（mailAttachmentCache `{msgId}_{part}` + 30s 超时 size/512KB 上限 120s + >25MB 仅下载/5-25MB 确认/≤5MB 直接 + 保存 DownloadManager） | ✅ | M9-T4；feature/mail/MailAttachmentController.kt:47,112（Download/appia + 通知；FileProvider cache_path 挂 :183） |
+| 附件预览分级系统查看器（非图片/视频/pdf → ACTION_VIEW 选择器） | 🔶 | 协议二十一节差异 9（无可用 App 时提示失败——RN 同为系统打开）；MailAttachmentController.kt |
+| 删除（普通→移 Trash 确认；Trash 内→永久删除二次确认文案不同） | ✅ | M9-T4；MailDetailScreen.kt:69,383-385（isMailTrashFolder path+name 判定） |
+| 线程三级降级（mailThread——thread 端点→列表查询 threadId/conversationId→仅锚点；蓝色边框高亮） | ✅ | M9-T4；feature/mail/MailThread.kt（MailThreadLoadResult）+ ui/MailThreadScreen.kt（协议二十一节差异 6——RN 同构降级） |
+| 撰写 5 模式（new/reply/replyAll/forward/draft——纯文本正文 + To/Cc/Bcc/主题） | ✅ | M9-T5；feature/mail/ui/MailComposeScreen.kt |
+| replyAll 全进 to 无 cc（坑 13——去重去自己）+ Re:/Fwd: 前缀去重 | ✅ | M9-T5；feature/mail/MailComposeRecipients.kt（验收断言口径注记） |
+| 联系人联想（≥2 字符 + 300ms debounce + 仅 To 域聚焦——contacts/search） | ✅ | M9-T5；MailComposeScreen.kt:79,197-212（CONTACT_DEBOUNCE_MS=300） |
+| 附件 JSON 内联 base64（坑 12——10 个/25MB 上限 + 流式读盘防峰值；不复用 M3 upload 链） | ✅ | M9-T5；feature/mail/MailComposeAttachments.kt（协议二十一节差异 4——分块 3KB 流式 RN 更优注记） |
+| 草稿链（dirty beforeRemove 拦截确认→Compose BackHandler 等义 + /drafts CRUD + drafts/:id/send 直发；new 直发不落服务端草稿） | ✅ | M9-T5；MailComposeScreen.kt:87-88,355-357 + MailChannelApi.kt:71-178（RN 同构 new 无残留） |
+| 转发 forward-draft 失败降级本地预填 | ✅ | M9-T5；MailChannelApi.kt createForwardMailDraft:145 + MailComposeScreen 降级分支 |
+| DDP mail.updated 角标（mailUpdatedHandler——stream-notify-user 全量帧被动解析不 subscribe + 坑 7 文件夹归一化剥 `\`+大写） | ✅ | M9-T6；core/mail/MailUpdatedHandler.kt:45-47（uid 含 `/` 容错 split 语义） |
+| 角标持久态（mailChannelStore version 2——pinned/lastVisitAt/未读/预览 per-org 分桶 + migrate + markChannelVisited 清零） | ✅ | M9-T6；feature/mail/MailBadgeStore.kt:85,100,120-123（MMKV 单键存 RN v2 快照；AA 无 v1 存量注记） |
+| 未读启发式 100 条天花板（坑 8——只扫 INBOX 首页 100 条照抄；无 mark-read 端点靠 GET detail 隐式置读） | 🔶 | 协议二十一节差异 3/5（RN 同构天花板 + 已读依赖服务端）；MailChannelApi.kt:225-250 fetchMailUnreadCount |
+| 行预览 `{fromName}：{subject}` + 时间列 | ✅ | M9-T6；MailChannelApi.kt buildLatestMailPreview:189 + fetchLatestMailPreview:207 |
+| 推送 newCount 缺失按 0（只刷新预览不计角标） | 🔶 | 协议二十一节差异 8（RN 同构）；MailUpdatedHandler 消费侧 |
+| 无独立账户管理页（RN 也无——解绑/删除/签名/多账户） | 🔶 | 协议二十一节差异 1（「账户设置」=绑定页，勿排任务）；M9 计划 Global Constraint |
+| 邮件真收发边界（服务端 mail 网关 + 真邮箱 = 用户域依赖） | 🔶 | 协议二十节前置 1/2 + 差异 10（Maestro 仅「行显示+点击进入」冒烟边界） |
+
+## 十、M10 语音通话
+
+> 域性质：GREENFIELD 完整实现（RN 语音 M0 真机门禁冻结点未通过——`docs/VOICE_CALL_M0_GATE.md`/`VOICE_CALL_GAP_STATUS.md`：逻辑在 store/UI 待真机、录音摘要部分实现、busy 无信令源）。功能面锚 = RN 仓既有语音代码（src/lib/voice 50 纯函数 + features/voice + stores/voiceSessionStore.ts）+ AA spec §3 UI 清单；🔶 密集引协议二十三节 12 项。
+
+| 功能点（锚） | AA 状态 | 证据/差异引用 |
+|---|---|---|
+| callMsg 解析/状态判定决策包 A（lib/voice——parseCallMsg 双层 JSON/callRecordStatus exist 混杂形态/groupVoiceCall 群组判定/isRoomCallMsgActive/reconcileStale） | ✅ | M10-T1；core/voice/lib/（ParseCallMsg/CallRecordStatus/GroupVoiceCall/IsRoomCallMsgActive/IsRoomVoiceInProgress/ReconcileStaleLocalRoomCallMsg——RN 测试即规格全转写） |
+| 决策包 B（shouldPresentIncoming/voiceCallDismissed/isVoiceAnsweredOnOtherDevice/resolveAgoraJoinUid 找不到绝不回退 8888/shouldAcceptRemoteUserJoined 不做精确过滤/shouldEndCallFromCallMsg/queueOtherIncoming/mapCallMsgToVoiceUsers） | ✅ | M10-T2；core/voice/lib/（ShouldPresentIncoming/VoiceCallDismissed/IsVoiceAnsweredOnOtherDevice/ResolveAgoraJoinUid/ShouldAcceptRemoteUserJoined/ShouldEndCallFromCallMsg/ShouldQueueOtherIncoming/MapCallMsgToVoiceUsers——历史坑 KDoc 保留） |
+| 决策包 C（房间横幅 shouldShowRoomVoiceJoinBanner/选人 buildVoiceReceivers/跨 org voiceOrgLabels+findLoginCandidateForVoiceOrg/pickDirectVoicePeer/groupRejoinEligibility 三函数） | ✅ | M10-T3；core/voice/lib/（ResolveRoomVoiceJoinBanner/BuildVoiceReceivers/VoiceOrgLabels/FindLoginCandidateForVoiceOrg/PickDirectVoicePeer/GroupRejoinEligibility） |
+| 状态机（voiceStateMachine.ts:12-55 全迁移矩阵 + VoicePhase 十相位） | ✅ | M10-T3；domain/voice/VoiceSessionStateMachine.kt + core/voice/VoicePhase.kt（表驱动测试全行对照） |
+| oncall 网关客户端（oncallApi.ts:116-285 verbatim——POST `token` 头/GET `X-Auth-Token`/notify 两头皆不带/一律 `org` 头/40002→invalidate/路径尾问号原样） | ✅ | M10-T4；core/voice/OncallApi.kt（OncallContext/OncallTokenExpiredException/13 端点全量） |
+| 网关常量（voiceEnv.ts——PROD/QA host `.dev.` 分流/AGORA_APP_ID 硬编码/org=Enterprise_ID trim 回退 bitmain）+ token 缓存 2 天 TTL | ✅ | M10-T4；core/voice/VoiceEnv.kt（VOICE_HOSTER_AGORA_UID=8888）+ VoiceTokenCache.kt |
+| Agora 语音引擎（agoraRtc.ts 284 行——LiveBroadcasting+Broadcaster/音量指示 500ms/加密 Aes128Gcm/回铃 startAudioMixing 音量 10/500ms 音频路由延迟窗口/released 守卫） | ✅ | M10-T5；core/voice/rtc/VoiceRtcEngine.kt:117-127（协议二十三节差异 6——500ms 待真机裁定） |
+| 通话计时器（voiceCallTimers——主叫 30s 提示/65s 挂断 + 被叫 65s，recordId 锚定） | ✅ | M10-T6；core/voice/VoiceCallTimers.kt（HOST_HINT_MS=30_000/HOST_END_MS=CALLEE_END_MS=65_000 锚不符 no-op） |
+| 主叫链编排（voiceSessionStore :1034-1242——占位 callMsg→token→init→join(8888)→回铃；40002 重试一次/代数防竞态/generation mismatch 丢弃/endCall 单飞/ringing 相位 cancel·接通后 leave） | ✅ | M10-T7；domain/voice/VoiceSessionController.kt startOutgoing:144（终审修正 32c2afa toast 键/IO 读体/乐观清除） |
+| 被叫链（:1244-1439——presentIncoming 无 channelId 跳过/accept 解析 uid 带 recordOrg/reject 标记 dismissed/跨 org ctx 切换） | ✅ | M10-T8；VoiceSessionController.kt（VoiceUidResolveException Controller 捕获） |
+| callMsg 同步裁定面（:806-1032 逐段——sync 他房活跃忽略/空闲发现呈来电/残缺快照抑制 :905-936/stale ended for host/单聊 peer hangup/群组 invitee 计数增长重锚计时器/第二路入队） | ✅ | M10-T8；VoiceSessionController.kt syncCallMsgFromRoom（VoiceSyncCallMsgTest 十用例） |
+| joinExisting/joinOngoing/startFromMessage（:1734-2078——横幅加入刷新缺 channel 记录/消息卡片点击 idle 守卫） | ✅ | M10-T8 + 终审 089d599（等待语义与读库护栏） |
+| 三源同步观察器（useRoomListChats:61 + useRoomChatByRid:29 双源——chatDao observe 全表 callMsg 变化→sync；同值不重触发） | ✅ | M10-T10；domain/voice/CallSyncWatcher.kt（AA 全表 observe 统一——同 rid 幂等由 Controller 判定） |
+| 推送语音分流（voicePushBridge/voicePushIngress——isCallEnd 丢弃/未登录入队/callMsg 嵌入短路 fetch/无则 getRecordStatusV2 拉） | ✅ | M10-T10 + M6 桩收口；domain/voice/VoicePushIngress.kt + VoicePushQueue.kt + PushClickRouter onVoiceOncall（协议十五节差异 3 收口——M6 节 oncall 行交叉引用） |
+| 推送点击离线走 V2 fetch 全量（RN 最小合成即响铃） | 🔶 | 协议二十三节差异 12（AA 严格更强——入队重试 vs 即响铃） |
+| Telecom ConnectionService 自管连接（GREENFIELD 增强——PhoneAccount SELF_MANAGED/reportIncomingCall 降级 false 不抛/接通 setActive/挂断 setDisconnected/权限引导 Settings） | ✅ | M10-T9；core/voice/platform/TelecomCallBridge.kt + VoiceConnectionService.kt（协议二十三节差异 7——RN CallKeep iOS-only，AA 双端系统级来电为增强非差异） |
+| 主动呼出不上报 Telecom（spec §0 裁定——系统通话记录无呼出条目） | 🔶 | 协议二十三节差异 3（RN Android 侧同样不写系统记录） |
+| microphone FGS + 通知渠道（VoiceForegroundService.kt 72 行移植——voice_active IMPORTANCE_LOW + voice_incoming IMPORTANCE_HIGH + API 30+ microphone type） | ✅ | M10-T9；core/voice/platform/VoiceForegroundService.kt + PushNotificationChannels（5 条 i18n 补迁 en+zh） |
+| 铃声双轨（voiceRingtone.ts AppState 分流——前台 AndroidVoiceRinger RingtoneManager+震动 [0,500,1000,500]；后台交 Telecom 系统铃声） | ✅ | M10-T9 + 终审 c15f1bf（self-managed 无系统铃——前台应用内响铃补偿）；core/voice/platform/AndroidVoiceRinger.kt |
+| 通话 UI 全家（VoiceCallHost 189 行相位分流——Idle 不渲染/IncomingRinging 横幅→全屏确认/活跃相位全屏 overlay/宫格波纹/第二路 Banner 叠加/三型 Alert/uiMinimized 气泡接管） | ✅ | M10-T11；feature/voice/ui/VoiceCallHost.kt + VoiceIncomingBanner/VoiceCallOverlay/VoiceParticipantCenter/VoiceOtherCallBanner/VoiceOtherCallAlert（qa-voice-* testTag 全） |
+| 第二路三型弹窗（getOtherIncomingAlertType 1/2/3——同 org 单聊「接听将挂断」/join 邀请「加入群聊通话」/跨 org 切换确认） | ✅ | M10-T11；core/voice/lib/GetOtherIncomingAlertType.kt + VoiceOtherCallAlert.kt（RN 1:1） |
+| 第二路横幅与 Alert 同显 z 序相反 | 🔶 | 协议二十三节差异 11（边缘场景裁定不修） |
+| 选人页（VoiceMemberPickerScreen 516 行——intent=start/invite 分支 + 组织树/搜索/多选/chips + 群聊单人拦截 :46-49） | ✅ | M10-T11/T12；feature/voice/ui/VoiceMemberPickerScreen.kt（复用 M4 选人基建裁剪 intent=start 单源；终审 f2c49ff chips 陈旧修正） |
+| MemberPicker 失败反馈全局弹窗层（RN 页面内 Alert） | 🔶 | 协议二十三节差异 9（Task 11 M-6 授权分歧——VoiceCallHost 常驻根部） |
+| 最小化气泡（VoiceCallMiniBubble——拖拽累积/贴边吸附/位置 KvStore 持久化杀进程保留/单击恢复不掉线） | ✅ | M10-T12；feature/voice/ui/VoiceCallMiniBubble.kt:103-127（loadVoiceBubblePosition/saveVoiceBubblePosition；终审 8dce79a 边界修正） |
+| 出应用系统级通话浮窗 | 🔶 | 协议二十三节差异 2（v1 以 FGS CATEGORY_CALL 常驻通知承载——RN CallKeep 浮窗 Android 对位缓 backlog-m10 项 2） |
+| 通话录音与摘要 UI（VoiceRecordControl——RN 侧部分实现：手动开关有/查看录音页无） | 🔶 | 协议二十三节差异 1（i18n key 已迁移入库（strings.xml:1076,1087）/UI 面缓 backlog-m10 项 1；VoiceCallOverlay.kt:148 录音钮裁定③不渲染） |
+| busy 相位无信令源（状态机 busy 保留/服务端不回信令——RN 同构） | 🔶 | 协议二十三节差异 4（靠 65s 超时兜底；backlog-m10 项 3——RemoteBusy 事件已在位）；VoiceSessionStateMachine |
+| onUserOffline 故意 no-op（对齐旧版 commit 096dd3a——远端掉线不挂断靠 callMsg 同步/轮询收尾） | 🔶 | 协议二十三节差异 5（RN 同构——shouldAcceptRemoteUserJoined KDoc 历史坑保留） |
+| 主叫入口双路（MemberProfile「语音通话」钮 handleVoiceCall + 附件菜单 voice_chat——单聊直拨/群聊跳选人页） | ✅ | M10-T12；MemberProfileScreen.kt:253-265（qa-member-profile-voice，M4 期占位收口）+ AttachmentSelector.kt:98,152-155 |
+| 房间加入横幅（RoomVoiceJoinBanner——通话中房间顶部「加入」横幅）+ 通话消息卡片（VoiceChatMessage calling/talking 卡片点击 startFromMessage） | ✅ | M10-T12；feature/voice/ui/RoomVoiceJoinBanner.kt + feature/chat/ui/VoiceChatMessageCard.kt（MessageRow.kt:428 消费 + voicePhaseIdle 守卫） |
+| 跨 org 通话（switchSessionToVoiceCallOrg——切主 org 数据面/来电方 org 名展示/多组织另一 org 进行中横幅 VoiceCrossOrgNotifier） | ✅ | M10-T12；VoiceSessionController.kt:992-1007 switchToVoiceOrg + feature/voice/ui/VoiceCrossOrgNotifier.kt:85 poll/switchOrg（MainActivity.kt:3275,3396 onResume 轮询装配） |
+| openVoiceChatFromRoom 预检口径（parseCallMsg 无 DB 合并 vs RN parseEffectiveRoomCallMsg） | 🔶 | 协议二十三节差异 8（Task 12 L-1 裁定——Controller 内部守卫兜底正确性） |
+| ON_RESUME 音频重应用三相位（InCall/Connecting/OutgoingRinging——reapplyInCallAudio 直调） | ✅ | M10 终审 ce4cfd5 收口协议二十三节差异 10（与 RN 三相位口径一致后成立）；VoiceRoomHandle |
+| 互斥收口（会议 inMeeting/minimized 阻塞语音 + 语音任意非 idle 阻塞入会——meeting_end_voice_first 双向） | ✅ | M10-T12；VoiceSessionController.kt:146 meetingPhaseProvider + MainActivity.kt:846-850（协议十八节自测 8 对向收口） |
+| 登出/切组织汇入（logout 序列 endCall("logout") + watcher.stop + ringer.stop + FGS stop——与 mailBadge.reset 同位） | ✅ | M10-T12；feature/voice/VoiceRoomHandle.kt shutdown + AuthRepository.kt（8dce79a 终审 shutdown 语义修正） |
+| 麦克风运行时权限门（requestVoiceMicrophonePermission 三态——拒绝 Alert voice_error_mic_denied） | ✅ | M10-T12；feature/voice/VoiceMicGate.kt（VoiceSessionDeps.requestMicPermission 生产装配体；granted/拒绝/异常三态收敛） |
+| 回铃资源（calling_sound.wav——RN iOS Copy Bundle Resources 未验收项） | ✅ | M10-T11；app/src/main/assets/voice_calling.wav（HOST_RINGBACK_ASSET=/assets/voice_calling.wav——VoiceSessionController.kt:1591；c1e400a 路径断言对齐） + drawable voice_call_bg/call_end |
+| 群聊宫格动态宽与等待动画（VoiceParticipantCenter 140 行——波纹/说话角标/静音角标/参与者 tile 增减） | ✅ | M10-T11 + 终审 f2c49ff（宫格动态宽与脉冲修正）；VoiceParticipantCenter.kt（RN 无旧版 showFrequency 音量波纹——VOICE_CALL_GAP_STATUS「部分实现」清单，AA 按 RN 现状不复刻） |
+| RN 未完成项不复刻清单（react-native-notifier 顶栏/消息长按「重拨」/sendOncallMessage 补发——RN 仓「未做/未验收」清单项） | 🔶 | 总纲 M10 裁定「完整实现不等 RN（RN 版仍在 M0 gate）」+ 冻结基线裁定「语音通话无 RN 参照物→方案可重做」——功能面锚=RN 仓既有代码（VOICE_CALL_GAP_STATUS.md 冻结点自认未做项不虚构）；登记防 T5 误报缺口 |
+
 ## 附：状态分布（全量）
 
 | 域 | 行数 | ✅ | ❌ | 🔶 |
@@ -283,8 +405,12 @@
 | M5 搜索 presence 设置 | 38 | 32 | 0 | 6 |
 | M6 推送自更新 | 27 | 16 | 1 | 10 |
 | M7 待办工作台 AI | 41 | 31 | 0 | 10 |
-| 合计 | 232 | 171 | 10 | 51 |
+| M8 会议 | 30 | 20 | 1 | 9 |
+| M9 邮件 | 30 | 25 | 0 | 5 |
+| M10 语音通话 | 40 | 30 | 0 | 10 |
+| 合计 | 332 | 246 | 11 | 75 |
 
-> ❌ 行与缺口编号 #G1-#G10 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
-> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）/ #G10 手动检查更新弹窗未接线（M6，main-chain）。T5 汇总时 #G5/#G8/#G9 与 T1「追进发布」清单防双计。
+> ❌ 行与缺口编号 #G1-#G11 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
+> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）/ #G10 手动检查更新弹窗未接线（M6，main-chain）/ #G11 会议横屏隐藏系统栏（M8，与 T1 delta 追进项 #4 同源，visual 级）。T5 汇总时 #G5/#G8/#G9/#G11 与 T1「追进发布」清单防双计。
 > 扩展域（M5-M7）差异均有协议十三/十五/十七节或里程碑裁定背书（🔶 26 项）；M5-M7 期间已收口的早期差异（十三.10 跳转平跳、十五.3 oncall、十七.2 AntMeeting、十七.9 跨组织刷新）按 ✅+收口注记收录。#G10 为 Fix round 1 拆行（原误挂 ✅ 行内的漏出验收项）。
+> RTC 域（M8-M10）差异均有协议十九/二十一/二十三节或里程碑/spike 裁定背书（🔶 24 项）；M8-M10 期间收口的早期差异（十五.3 oncall 分流、十七.2 AntMeeting 拦截、十一.5/11.12 语音·会议占位行）在对应 ✅ 行内以交叉引用注记收录。#G11 = T1 追进项 #4 预归位（458994b，visual 级，controller 可降级记档）。
