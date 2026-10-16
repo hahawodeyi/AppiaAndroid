@@ -219,6 +219,30 @@ cn.appia.im/
 
 **本里程碑流程教训（入册）**：①评审探针实证价值（T8 C-2 拖拽不累积由评审临时探针实证——Robolectric 320px 视口巧合掩盖真机 bug）；②简报引研究前先抽查现状（M7 教训延续——M8 简报 SYSTEM_ALERT_WINDOW"已声明"实为研究引 RN manifest，实现者纠正）；③计划明文授权的简化被评审误读为缺陷时，控制器对账计划原文裁定（T4 时间轴）——授权记录是裁决依据。
 
+## 4.10 M9+M10 遗留与 M11 前置任务（2026-10-15 M10 终审裁定；M9 交接节补记——原 workspace 已删，以收尾 commit ba413c0 与协议二十一节为据）
+
+**M9 终审 APPROVED**（收尾 ba413c0：门禁×3 既有 flake 延续/第三轮全量绿、Maestro 1.0.0 双绿、模拟器零崩溃；协议二十节自测清单+二十一节已知差异 10 项落盘）。M9 无代码级遗留——已知差异 10 项全部为「RN 同构」或「安全等价更严」型，无待办。
+
+**M10 终审 FINDINGS → 修复轮收口**（0C/3I/4M；ce4cfd5 一次修齐：token 三态解析+裸端点/主线程 poll/音频重应用直调；复审 PASS 7/7；遗留裁定 40+ 项 = 4 FIX 已修 / 12 BACKLOG 收编 backlog-m10.md #6-#13 / 其余 CLOSE）。
+
+**写 M11 计划时必须列为显式任务行**：
+1. **全量功能 checklist 验收**（M11 本体，总纲 §3 表）：side-by-side 对照冻结 RN 基线逐域盘点——M1-M10 十域 + 协议各节自测清单汇总核对
+2. **abiFilters splits 评估**（M8 §4.9-3 延续）：现 arm64-v8a 单 ABI 93.1MB；M11 发布清单含 per-ABI 拆分评估
+3. **release 签名构建**（总纲 §3 M11 行）：release.properties VERSION_* 接线（versionCode > 28187853，M6 已设下限守卫 28187900）、keystore 用户放入、release 构建冒烟
+4. **应用图标**（总纲 §3 M11 行）：现沿 debug 图标，发布前替换
+5. **.gitignore 死路径清理 + gradlew.bat 重生成**（总纲 §3 M11 行）
+6. **性能**（总纲 §3 M11 行）：冷启动、列表帧率
+7. **双语言核对**（总纲 §3 M11 行）：zh/en 全量 key 走查
+8. **T8 toIntOrNull 静默回退收紧**（M6 §4.7 可带走，归 M11）：低危
+9. **backlog 收编评估**：backlog-m6/m8/m10 三页 + RN 移动靶新功能（总纲 §6 风险表）——M11 统一评估哪些进发布、哪些记档不做
+10. **用户域验收汇总**：协议各节外部依赖项（EMAS 控制台/worktable/bot/凭据抓包/Agora AppId/真机 OEM/双账号语音）汇总成 M11 验收前置清单
+
+**运维/用户域**：M6-M10 各节外部依赖未闭合项（EMAS 控制台、服务端 bot/worktable、RTC 凭据抓包、Agora AppId、语音双账号+shengwang 网关、Telecom OEM 真机）。
+
+**可带走**：各里程碑报告侧计数笔误/KDoc 润色三组（backlog-m10 #6）/测试外观两处（#12）——低危有记录。
+
+**本里程碑流程教训（入册）**：①里程碑交接节必须当期固化——M9 终审后直接进 M10 brainstorming，§4.10 缺位靠 M10 spec 兜底，本次补记以收尾 commit+协议节为据（流程债，勿再犯）；②终审「等价」前提声明要源码级复核——M10 plan:460「voice token 请求等价」实为 web 变体带 url/source/platform 三参，RN voice 路径是裸端点，终审翻案（I-2）；③终审裁定表的 BACKLOG 计数要逐行复核——终审返回摘要「8 项」实为 12 项，controller 逐行核对后收编（计数笔误）。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
