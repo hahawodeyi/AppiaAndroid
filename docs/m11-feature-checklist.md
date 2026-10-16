@@ -301,7 +301,7 @@
 | 浮窗+气泡最小化（RN MeetingForegroundService Kotlin 近乎照抄——SPECIAL_USE/canDrawOverlays 降级链 坑 7/横条 verbatim 参数/应用内可拖拽气泡位置持久化） | ✅ | M8-T8；core/meeting/floatwin/（MeetingForegroundService/MeetingFloatWindow/MeetingFloatPolicy verdict）+ feature/meetingroom/ui/MeetingMiniBubble.kt + MeetingMiniBubbleLayout.kt（KvStore 持久化） |
 | 横屏三触发源（useOrientationToggle——共享驱动/顶栏转屏钮 toggle 直调 API/最小化强制竖屏）+ 会中常亮 keep-awake + 共享态顶栏悬浮 | ✅ | M8-T9；feature/meetingroom/MeetingOrientation.kt + MeetingRoomScreen.kt:122（FLAG_KEEP_SCREEN_ON/headerVisible tap toggle） |
 | 互斥不对称（坑 6：语音任意非 idle 阻塞会议；会议仅 inMeeting/minimized 阻塞语音 preheating 不算） | ✅ | M8-T9 + M10-T12 双侧收口；MeetingSessionStateMachine.blocksVoiceStart + MainActivity.kt:849 meetingBlockedByVoice（VoicePhase.Idle.name lowercase 陷阱注释在案） |
-| 横屏真全屏隐藏系统栏（RN 458994b MainActivity immersive——statusBars+navigationBars hide） | ❌ | T1 追进项 #4（RN 冻结后 delta，docs/m11-rn-delta.md 追进发布清单 4）：AA 横屏无 WindowInsetsController/WindowCompat 调用（全仓 grep 零命中）——横屏会中系统栏仍悬浮。visual 级，GREENFIELD 域内原生等价 UX。见缺口清单 #G11 |
+| 横屏真全屏隐藏系统栏（RN 458994b MainActivity immersive——statusBars+navigationBars hide） | ❌ | T1 追进项 #4（RN 冻结后 delta，docs/m11-rn-delta.md 追进发布清单 4）：AA main/test 源集零 WindowInsetsController/WindowCompat 命中（debug-only EditorSpikeActivity 有一处无关 WindowCompat）——横屏会中系统栏仍悬浮。visual 级，GREENFIELD 域内原生等价 UX。见缺口清单 #G11 |
 | prefersLandscape 跨会话残留 | 🔶 | 协议十九节差异 11（会议结束记忆不重置，下次恢复横屏一次——边缘影响裁定不修）；MeetingOrientation.kt:29 |
 | 会议室时间轴占用简化（MeetingRoomTimelineRow 可视化不移植——名称单选可空/extraMeetingRoom 编辑保留无创建 UI） | 🔶 | 协议十九节差异 7（brief 明文授权简化）；MeetingFormScreen.kt:577 注记 |
 | 15 分钟步进取整（RN minuteInterval=15 轮盘——Compose TimePicker 确认时向下取整） | 🔶 | 协议十九节差异 8；MeetingFormScreen.kt:488（TodoReminderPicker 复用） |
@@ -323,6 +323,7 @@
 | 绑定页（MailAccountSetupScreen——email 预取 user.emails[0]/手输 + 测试连接（先）+ 绑定（后）+ 引导图 step1/2.png 失败隐藏） | ✅ | M9-T2；feature/mail/ui/MailAccountSetupScreen.kt:139-140 guideStep URL |
 | 节流专用 toast（坑 5——429/`too many login attempts`/`too frequent` 判定） | ✅ | M9-T2；MailAccountSetupScreen.kt:246-247,276（isMailThrottleError → mail_throttle） |
 | 会话列表虚拟邮件行（buildMailChannelChatRow:36-69——`__appia_mail_channel__` assistant 段注入 + Appia_Mail_Channel_Enabled 门控） | ✅ | M9-T2；feature/mail/MailChannelRow.kt + ChatListScreen.kt:103-107,382（mailRow 流派生不触发重建 :124） |
+| 邮件行左右滑快捷动作（MailChannelItem/index.tsx Swipeable——左滑标未读 setUnreadCount(1)+置顶 setPinned/右滑标已读 markChannelVisited；RoomListSectionedChatList 消费未禁用） | ❌ | T4 审查 I-1 补行（RN 冻结版实装完整 Swipeable）：AA ChatListScreen.kt:385 注记「不走滑壳」——专用渲染器无 Swipeable 包裹；MailBadgeStore.setPinned/setUnreadCount 除测试外零生产调用方（置顶/未读常规路径完整——角标行/进收件箱清零不受影响）。协议二十一节无此差异项。minor 级。见缺口清单 #G12 |
 | 收件箱聊天式升序锚底（坑 9——旧→新/首屏滚底/onStartReached 翻旧页 pageSize=30） | ✅ | M9-T3；feature/mail/ui/MailChannelScreen.kt:60,106-122（anchorRequest 锚定链 + 顶部接近翻页） |
 | 文件夹 sheet（MailFolderSheet——specialUse 五映射 + path 正则兜底 坑 11 + IMAP Drafts 隐藏 + 虚拟 `__drafts__` + Virus Items 过滤） | ✅ | M9-T3；feature/mail/MailFolderUtils.kt + ui/MailFolderSheet.kt |
 | 草稿夹删光自动弹回 INBOX / 下拉刷新（非草稿先 sync 再重拉；草稿只重拉） | ✅ | M9-T3；MailChannelViewModel.kt（triggerMailSync :63） |
@@ -406,11 +407,11 @@
 | M6 推送自更新 | 27 | 16 | 1 | 10 |
 | M7 待办工作台 AI | 41 | 31 | 0 | 10 |
 | M8 会议 | 30 | 20 | 1 | 9 |
-| M9 邮件 | 30 | 25 | 0 | 5 |
+| M9 邮件 | 31 | 25 | 1 | 5 |
 | M10 语音通话 | 40 | 30 | 0 | 10 |
-| 合计 | 332 | 246 | 11 | 75 |
+| 合计 | 333 | 246 | 12 | 75 |
 
-> ❌ 行与缺口编号 #G1-#G11 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
-> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）/ #G10 手动检查更新弹窗未接线（M6，main-chain）/ #G11 会议横屏隐藏系统栏（M8，与 T1 delta 追进项 #4 同源，visual 级）。T5 汇总时 #G5/#G8/#G9/#G11 与 T1「追进发布」清单防双计。
+> ❌ 行与缺口编号 #G1-#G12 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
+> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）/ #G10 手动检查更新弹窗未接线（M6，main-chain）/ #G11 会议横屏隐藏系统栏（M8，与 T1 delta 追进项 #4 同源，visual 级）/ #G12 邮件行左右滑快捷动作（M9，minor——T4 审查 I-1 补行）。T5 汇总时 #G5/#G8/#G9/#G11 与 T1「追进发布」清单防双计。
 > 扩展域（M5-M7）差异均有协议十三/十五/十七节或里程碑裁定背书（🔶 26 项）；M5-M7 期间已收口的早期差异（十三.10 跳转平跳、十五.3 oncall、十七.2 AntMeeting、十七.9 跨组织刷新）按 ✅+收口注记收录。#G10 为 Fix round 1 拆行（原误挂 ✅ 行内的漏出验收项）。
 > RTC 域（M8-M10）差异均有协议十九/二十一/二十三节或里程碑/spike 裁定背书（🔶 24 项）；M8-M10 期间收口的早期差异（十五.3 oncall 分流、十七.2 AntMeeting 拦截、十一.5/11.12 语音·会议占位行）在对应 ✅ 行内以交叉引用注记收录。#G11 = T1 追进项 #4 预归位（458994b，visual 级，controller 可降级记档）。
