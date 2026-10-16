@@ -281,10 +281,10 @@ fun buildViewerImage(
 ): ViewerImage? {
     if (a.authorName != null) return null
     val raw = a.titleLink?.takeUnless { it.isEmpty() } ?: a.imageUrl ?: return null
-    val url = AttachmentUrlFormatter.format(raw, userId, token, server)
+    val url = AttachmentUrlFormatter.format(raw, userId, token, server, a.appiaBaseUrl)
     if (url.isEmpty()) return null
     val thumbnailUrl = a.thumbUrl?.takeUnless { it.isEmpty() }
-        ?.let { AttachmentUrlFormatter.format(it, userId, token, server) }
+        ?.let { AttachmentUrlFormatter.format(it, userId, token, server, a.appiaBaseUrl) }
     val previewDataUri = if (thumbnailUrl == null && !a.imagePreview.isNullOrEmpty()) {
         "data:${a.imageType ?: "image/jpeg"};base64,${a.imagePreview}"
     } else {
@@ -339,9 +339,9 @@ fun buildImageViewerGrid(
 data class ViewerVideo(val url: String, val thumbnailUrl: String?, val title: String?)
 
 fun buildViewerVideo(a: ParsedAttachment, userId: String, token: String, server: String): ViewerVideo? {
-    val url = AttachmentUrlFormatter.format(a.videoUrl, userId, token, server)
+    val url = AttachmentUrlFormatter.format(a.videoUrl, userId, token, server, a.appiaBaseUrl)
     if (url.isEmpty()) return null
     val thumb = a.thumbUrl?.takeUnless { it.isEmpty() }
-        ?.let { AttachmentUrlFormatter.format(it, userId, token, server) }
+        ?.let { AttachmentUrlFormatter.format(it, userId, token, server, a.appiaBaseUrl) }
     return ViewerVideo(url = url, thumbnailUrl = thumb, title = a.title ?: a.name)
 }

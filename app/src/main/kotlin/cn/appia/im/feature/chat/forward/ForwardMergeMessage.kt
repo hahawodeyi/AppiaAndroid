@@ -36,6 +36,8 @@ data class ForwardMessageItem(
     val msgData: String? = null,
     val md: String? = null,
     val t: String? = null,
+    /** 服务端标注：该条消息附件所在主体域名（合并转发跨主体场景，RN aa93319）。 */
+    val appiaBaseUrl: String? = null,
 )
 
 private fun JsonObject.str(key: String): String? =
@@ -65,6 +67,7 @@ fun parseForwardMsgData(raw: String?): ForwardMsgData? {
                 msgData = o.str("msgData"),
                 md = o["md"]?.let { if (it is JsonNull) null else it.toString() },
                 t = o.str("t"),
+                appiaBaseUrl = o.str("appiaBaseUrl"),
             )
         }.orEmpty(),
     )
@@ -116,6 +119,26 @@ fun parseTimestampMs(ts: JsonElement?): Long? = when (ts) {
 }
 
 /**
+ * 消息级 appiaBaseUrl 合并进 attachments JSON 每项（RN aa93319 MessageBody :68-72 同一规则：
+ * `att.appiaBaseUrl ?? message.appiaBaseUrl`，附件自带优先）。AA 等价落点——MessageEntity
+ * 无消息级列，MessageRow 走 MessageEntity.attachments JSON，映射时合并即消费链全通。
+ * 无消息级标注或 attachments 空/坏 JSON → 原样返回。
+ */
+internal fun mergeMessageAppiaBaseUrls(raw: String?, appiaBaseUrl: String?): String? {
+    if (raw.isNullOrEmpty() || appiaBaseUrl.isNullOrEmpty()) return raw
+    val arr = runCatching { Json.parseToJsonElement(raw) as? JsonArray }.getOrNull() ?: return raw
+    return JsonArray(arr.map { item ->
+        val o = item as? JsonObject ?: return@map item
+        val own = (o["appiaBaseUrl"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull
+        if (!own.isNullOrEmpty()) {
+            item
+        } else {
+            JsonObject(o + ("appiaBaseUrl" to JsonPrimitive(appiaBaseUrl)))
+        }
+    }).toString()
+}
+
+/**
  * RN mapForwardMessagesToIMessages :50-73 → Android MessageEntity（复用 M2 渲染行）：
  * ts 回退 index、`_id` 回退 `forward-{originRid}-{index}-{ts}`、u 序列化串直传。
  */
@@ -133,7 +156,7 @@ fun mapForwardMessagesToEntities(
         parse_urls = "",
         _updated_at = ts.toDouble(),
         msg = item.msg,
-        attachments = item.attachments,
+        attachments = mergeMessageAppiaBaseUrls(item.attachments, item.appiaBaseUrl),
         msg_type = item.msgType,
         msg_data = item.msgData,
         md = item.md,

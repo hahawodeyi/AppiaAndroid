@@ -2,6 +2,8 @@ package cn.appia.im.feature.chat.forward
 
 import cn.appia.im.core.database.entity.ChatEntity
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -45,6 +47,21 @@ class ForwardMergeMessageTest {
         assertNull(parseForwardMsgData(""))
         assertNull(parseForwardMsgData("not-json{"))
         assertNull(parseForwardMsgData("[1,2]")) // 非对象
+    }
+
+    @Test
+    fun `parse keeps per message appiaBaseUrl`() {
+        // RN aa93319：服务端在 msgData.messages 每条消息上带 appiaBaseUrl（跨主体附件域名）
+        val raw = """
+            {"originRoom":{"rid":"room1"},
+             "messages":[
+               {"_id":"m1","msg":"hi","appiaBaseUrl":"other.maindomain.cn"},
+               {"_id":"m2","msg":"no marker"}
+             ]}
+        """.trimIndent()
+        val messages = parseForwardMsgData(raw)!!.messages
+        assertEquals("other.maindomain.cn", messages[0].appiaBaseUrl)
+        assertNull(messages[1].appiaBaseUrl)
     }
 
     // ── parseTimestampMs（RN parseTimestamp.ts）──
@@ -115,6 +132,70 @@ class ForwardMergeMessageTest {
         assertEquals("forward-room1-0-0", rows[0]._id)
         assertEquals(0.0, rows[0].ts, 0.0)
         assertEquals("forward-room1-1-1", rows[1]._id) // RN ts 回退 index
+    }
+
+    // ── 消息级 appiaBaseUrl 合并（RN aa93319 MessageBody/mediaPreview 同一规则）──
+
+    @Test
+    fun `map merges message level appiaBaseUrl into every attachment item`() {
+        // 消息级合并进 attachments JSON 每项（AA 等价落点：MessageEntity 无该列）
+        val rows = mapForwardMessagesToEntities(
+            listOf(
+                ForwardMessageItem(
+                    _id = "m1",
+                    attachments = """[{"title":"a.png","title_link":"/file-upload/r1/f1/a.png"},{"title":"b.png"}]""",
+                    appiaBaseUrl = "other.maindomain.cn",
+                ),
+            ),
+            "room1",
+        )
+        val merged = (Json.parseToJsonElement(rows[0].attachments!!) as JsonArray).map { it as JsonObject }
+        assertEquals(
+            "other.maindomain.cn",
+            (merged[0]["appiaBaseUrl"] as JsonPrimitive).content,
+        )
+        assertEquals(
+            "other.maindomain.cn",
+            (merged[1]["appiaBaseUrl"] as JsonPrimitive).content,
+        )
+        // 原字段保留
+        assertEquals("/file-upload/r1/f1/a.png", (merged[0]["title_link"] as JsonPrimitive).content)
+    }
+
+    @Test
+    fun `map keeps attachment own appiaBaseUrl over message level`() {
+        // RN `att.appiaBaseUrl ?? message.appiaBaseUrl`：附件自带优先
+        val rows = mapForwardMessagesToEntities(
+            listOf(
+                ForwardMessageItem(
+                    _id = "m1",
+                    attachments = """[{"image_url":"/a.png","appiaBaseUrl":"self.maindomain.cn"}]""",
+                    appiaBaseUrl = "other.maindomain.cn",
+                ),
+            ),
+            "room1",
+        )
+        val att = (Json.parseToJsonElement(rows[0].attachments!!) as JsonArray).single() as JsonObject
+        assertEquals("self.maindomain.cn", (att["appiaBaseUrl"] as JsonPrimitive).content)
+    }
+
+    @Test
+    fun `map leaves attachments untouched without message level marker`() {
+        val raw = """[{"title":"a.png","title_link":"/file-upload/r1/f1/a.png"}]"""
+        val rows = mapForwardMessagesToEntities(
+            listOf(ForwardMessageItem(_id = "m1", attachments = raw)),
+            "room1",
+        )
+        assertEquals(raw, rows[0].attachments)
+    }
+
+    @Test
+    fun `map with message level but no attachments keeps attachments null`() {
+        val rows = mapForwardMessagesToEntities(
+            listOf(ForwardMessageItem(_id = "m1", appiaBaseUrl = "other.maindomain.cn")),
+            "room1",
+        )
+        assertNull(rows[0].attachments)
     }
 
     // ── 发送侧 ──

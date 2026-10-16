@@ -295,4 +295,27 @@ class AttachmentShapeTest {
         assertEquals("https://server.com/t.png?rc_uid=u1&rc_token=tk", video.thumbnailUrl)
         assertEquals("clip", video.title)
     }
+
+    // ── appiaBaseUrl 第五参透传（RN aa93319 formatAttachmentUrl(..., attachment.appiaBaseUrl)）──
+
+    @Test
+    fun `viewer image uses attachment appiaBaseUrl domain with file-proxy rewrite`() {
+        // 跨主体合并转发：附件带 appiaBaseUrl 时相对链接拼该主体域且 /file-upload → /file-proxy
+        val att = parseServerAttachments(
+            """[{"title_link":"/file-upload/1/2/a.png","thumb_url":"/thumb/t.png","appiaBaseUrl":"other.maindomain.cn"}]""",
+        ).single()
+        val img = buildViewerImage(att, "u1", "tk", "https://server.com")!!
+        assertEquals("https://other.maindomain.cn/file-proxy/1/2/a.png?rc_uid=u1&rc_token=tk", img.url)
+        assertEquals("https://other.maindomain.cn/thumb/t.png?rc_uid=u1&rc_token=tk", img.thumbnailUrl)
+    }
+
+    @Test
+    fun `viewer video uses attachment appiaBaseUrl domain with file-proxy rewrite`() {
+        val att = parseServerAttachments(
+            """[{"video_url":"/file-upload/1/2/v.mp4","thumb_url":"/thumb/t.png","appiaBaseUrl":"other.maindomain.cn"}]""",
+        ).single()
+        val video = buildViewerVideo(att, "u1", "tk", "https://server.com")!!
+        assertEquals("https://other.maindomain.cn/file-proxy/1/2/v.mp4?rc_uid=u1&rc_token=tk", video.url)
+        assertEquals("https://other.maindomain.cn/thumb/t.png?rc_uid=u1&rc_token=tk", video.thumbnailUrl)
+    }
 }
