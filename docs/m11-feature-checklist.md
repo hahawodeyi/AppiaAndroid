@@ -34,6 +34,7 @@
 | 区号回落显示时机（乐观先显 vs 返回后显示） | 🔶 | 协议四节差异 2 |
 | 组织候选离线延迟（缓存即显 vs 会话就绪一次加载） | ✅ | 协议四节差异 3 已由 M2-T1 两段式收口；feature/org/OrgListRepository.kt |
 | VerificationScreen 死路由不复刻 | 🔶 | 协议四节差异 6（RN 侧死路由，两侧用户均不可见） |
+| 首启隐私同意门禁（RN 原生层 PrivacyConsentActivity + PrivacyConsentStore hasAgreed——MainApplication.onCreate 门 init；冻结点内 5a1ac1f） | ✅ | T5 槽位 3 修复（f1e6e4e）：core/privacy/PrivacyConsentStore.kt（MMKV 键 privacy_consent_agreed 同 RN KEY_AGREED）+ feature/privacy/ui/PrivacyConsentScreen.kt + MainActivity setContent 根门禁；T7 审查发现 #G13 |
 
 ## 二、M2 会话列表 + 单聊
 
@@ -96,7 +97,7 @@
 | 回复引用（composeQuotedMessageText permalink+@mention + ReplyPreview 横幅） | ✅ | M3-T11；MessageActionController.kt:273-302 + RoomScreen.kt 回复预览 |
 | 消息编辑（buildEditContent 回填 + updateMessage 直发 + stash 草稿） | ✅ | M3-T12；MessageEditController.kt + ChatInputBarController.kt |
 | @提及补全（beforeinput trigger + MentionSuggestion 多选 + agent 房门控） | ✅ | M3-T12；MentionSuggestionScreen.kt（ALL_MEMBER 首项 + Agent_Bot_List 门控）；bot 候选/成员头像 M4/M5 收口（协议九节差异 8 已收） |
-| 合并转发消息级 appiaBaseUrl 透传（跨主体附件域名——裂图/404） | ❌ | RN aa93319（MessageBody/mediaPreview 逐消息 appiaBaseUrl 合并进附件 URL）；AA ForwardMergeMessage.kt 的 ForwardMessageItem/mapForwardMessagesToEntities 无该字段——服务端已下发、AA 丢弃，跨主体合并转发图片裂图/文件 404。T1 追进项 #2（T1 评审定级主链路渲染缺陷）。见缺口清单 #G9 |
+| 合并转发消息级 appiaBaseUrl 透传（跨主体附件域名——裂图/404） | ✅ | T5 槽位 1 修复（ebc1171）：ForwardMergeMessage appiaBaseUrl 消息级合并进 attachments + buildViewerImage/Video 四处透传 |
 | 公告列表 updateTime 降序 + originSender 展示（消息转公告显示原始发送人） | ❌ | RN 32c8984（roomAnnouncements 排序 + 「XX 发布的消息，由 YY 设为公告」）；AA RoomAnnouncements.kt parseMainAnnouncements 无排序无 originSender 字段，getAnnouncementPreviewText 取 items.last()（RN 取最新=排序后首条）；RoomAnnouncementScreen.kt 仅 announcement_published_by[_time]，strings.xml 缺 announcement_from_sender_by 键。T1 追进项 #1（M4 域功能，登记于 M3 节防漏；亦在 M4 公告行交叉引用）。见缺口清单 #G8 |
 | 聊天内公告卡（AnnouncementMessage：room_*_announcement 专卡——标题+分隔线+md 正文+图片行+文件） | ❌ | RN RoomMessageRowBody.tsx:41-47（isAnnouncementType→AnnouncementMessage 专卡）+ AnnouncementMessage/index.tsx；AA MessageRow.kt:67-75 将三型排除系统消息后走普通气泡行——「announcement 走普通行=RN」注记与 RN 实际不符（T1 移交项 1 复核属实：实现误读）。见缺口清单 #G3 |
 | 多选「设为公告」（MultiSelectActionBar showAnnouncement 门 + saveRoomSettings roomAnnouncementData） | ❌ | RN MultiSelectActionBar/index.tsx:55-63 + RoomScreen/index.tsx:939-978（handleSetAnnouncement）；AA MessageActionsSheet.kt:64 注记「归 M7 不移植」但 M7 计划全文无此任务（T1 移交项 2 复核属实：未收编）。见缺口清单 #G4 |
@@ -114,7 +115,7 @@
 |---|---|---|
 | RoomInfo 非直聊（成员网格 ≤20 槽加减/信息卡/设置卡/退出） | ✅ | M4-T4；feature/roominfo/ui/RoomInfoScreen.kt |
 | 成员网格槽位（members/v2 + 加人/移除/更多成员入口） | ✅ | M4-T4；RoomInfoScreen.kt（onAddMembers/onRemoveMembers/onMoreMembers 装配） |
-| 分类行（仅 c|p，canEditRoomUsage 门 + 抽屉四选） | ✅ | M4-T4；RoomInfoScreen.kt + RoomInfoActions.kt（appiaUsage） |
+| 分类行（仅 c\|p，canEditRoomUsage 门 + 抽屉四选） | ✅ | M4-T4；RoomInfoScreen.kt + RoomInfoActions.kt（appiaUsage） |
 | 静音/置顶 toggle 乐观更新 + 失败回滚 | ✅ | M4-T4；RoomInfoActions.kt（mute/pin 乐观） |
 | 退出房间（markPendingSelfLeave → postLeaveRoom 失败清标记） | ✅ | M4-T4；PendingSelfLeave.kt |
 | RoomInfo 直聊分支（对方头像卡 + 加号建群 peer 预选 + 会议行） | ✅ | M4-T4 + M8；RoomInfoScreen.kt（onDirectAddChannel intent=create） |
@@ -124,9 +125,9 @@
 | 部门行长按移除整个部门（removeDepartment） | ✅ | M4-T5；RoomMembersScreen.kt |
 | 批量移除（并行 per-user + 每 dep 一个 removeDepartment） | ✅ | M4-T5；RoomMembersScreen.kt |
 | team 主房移除双调用（teams.removeMember → kick） | ✅ | M4-T3；RoomSettingsApi.kt（wire TDD） |
-| 角色徽标（owner→owner / moderator|ghost-owner|admin→admin） | ✅ | M4-T5；ResolveMemberRoleTag.kt |
+| 角色徽标（owner→owner / moderator\|ghost-owner\|admin→admin） | ✅ | M4-T5；ResolveMemberRoleTag.kt |
 | GhostOwner API 落地不接 UI | 🔶 | 协议十一节差异 13（RN 同款：API 层存在无 UI 调用方，忠实一致） |
-| 公告解析（plain/JSON/双重编码/嵌入文件拆分/meeting|summary 分类） | ✅ | M4-T7；core/chat/RoomAnnouncements.kt（全形态 TDD） |
+| 公告解析（plain/JSON/双重编码/嵌入文件拆分/meeting\|summary 分类） | ✅ | M4-T7；core/chat/RoomAnnouncements.kt（全形态 TDD） |
 | 公告屏（列表/编辑双态 + 发布/删除 + announcement.bot 附件端点 + md 渲染 + 编辑门） | ✅ | M4-T7；feature/roominfo/ui/RoomAnnouncementScreen.kt（列表序/originSender 缺口见 M3 节 #G8 行——T1 追进项 #1 交叉引用） |
 | 直聊不可传公告文件 | ✅ | M4-T7；RoomAnnouncementScreen.kt（上传入口门控） |
 | 改名屏（fname/dname max80 + error-invalid-room-name 友好提示） | ✅ | M4-T7；feature/roominfo/ui/RoomChannelNameEditScreen.kt |
@@ -220,7 +221,7 @@
 | 前台重查受 3h 窗口门（RN invalidateQueries 每前台真查） | 🔶 | 协议十五节差异 7（最大提示滞后 3 小时） |
 | semver 比较省略长度帽/边界锚 | 🔶 | 协议十五节差异 11（19+ 位数字段抛异常 vs RN 降级字典序——服务端可控输入判不可达） |
 | 自更新弹窗（强制无暂不+返回键不可关；可选暂不=会话内内存静默冷启动重弹；下载中隐藏按钮；自动检查链路 AppUpdatePromptHost 完整） | ✅ | M6-T7；feature/settings/ui/AppUpdateModal.kt + AppUpdatePromptController.kt（坑 11/12 语义——自动检查链路无缺；手动检查接线缺口见 #G10 行） |
-| 手动「检查更新」弹应用内弹窗（bypassDismiss——点过暂不也立即弹） | ❌ | RN SettingsScreen :157-160 → useAppUpdateUiStore.show(row, {bypassDismiss:true})；AA SettingsScreen.kt:172-199 onPressCheckUpdate 有新版时仍 openUrl 跳浏览器（M5-T9 时代行为）——AppUpdatePromptController.showManual() 已备但全仓零调用点（仅测试），M6-T7 未接线（协议十四节自测 4「手动检查→立即弹」AA 验不过）。见缺口清单 #G10 |
+| 手动「检查更新」弹应用内弹窗（bypassDismiss——点过暂不也立即弹） | ✅ | T5 槽位 2 修复（fcf7ab9）：SettingsScreen onCheckUpdateShow 接线 showManual + AppUpdatePromptHost 迁 NavHost 全局槽 + manualCheckOutcome 纯函数 |
 | 弹窗头图 update.png | 🔶 | 协议十五节差异 8（无美术资产——主题化头盒承载同文案） |
 | 应用内 APK 下载安装（app 专属 Download 免权限→临时名→改名→FileProvider→系统安装器；缓存命中同名跳下载；挂载清理旧版） | ✅ | M6-T7；AppReleaseInstaller.kt（downloadAndInstall/cleanupInstalled） |
 | FileProvider authority 差异 | 🔶 | 协议十五节差异 9（${applicationId}.provider vs RN 硬编码 cn.appia.im.provider） |
@@ -399,19 +400,20 @@
 
 | 域 | 行数 | ✅ | ❌ | 🔶 |
 |---|---|---|---|---|
-| M1 认证多组织 | 24 | 20 | 0 | 4 |
+| M1 认证多组织 | 25 | 21 | 0 | 4 |
 | M2 会话列表单聊 | 26 | 22 | 2 | 2 |
-| M3 消息完整 | 37 | 20 | 6 | 11 |
+| M3 消息完整 | 37 | 21 | 5 | 11 |
 | M4 群组联系人 | 39 | 30 | 1 | 8 |
 | M5 搜索 presence 设置 | 38 | 32 | 0 | 6 |
-| M6 推送自更新 | 27 | 16 | 1 | 10 |
+| M6 推送自更新 | 27 | 17 | 0 | 10 |
 | M7 待办工作台 AI | 41 | 31 | 0 | 10 |
 | M8 会议 | 30 | 20 | 1 | 9 |
 | M9 邮件 | 31 | 25 | 1 | 5 |
 | M10 语音通话 | 40 | 30 | 0 | 10 |
-| 合计 | 333 | 246 | 12 | 75 |
+| 合计 | 334 | 249 | 10 | 75 |
 
-> ❌ 行与缺口编号 #G1-#G12 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
-> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G9 合并转发 appiaBaseUrl（M3，与 T1 追进项 #2 同源）/ #G10 手动检查更新弹窗未接线（M6，main-chain）/ #G11 会议横屏隐藏系统栏（M8，与 T1 delta 追进项 #4 同源，visual 级）/ #G12 邮件行左右滑快捷动作（M9，minor——T4 审查 I-1 补行）。T5 汇总时 #G5/#G8/#G9/#G11 与 T1「追进发布」清单防双计。
+> ❌ 行与缺口编号 #G1-#G13 的对应及严重度评定见任务报告结构化缺口清单（T5 消费输入）：
+> #G1 只读横幅（M2）/ #G2 组织 Tab 条（M2）/ #G3 聊天内公告卡（M3）/ #G4 多选设为公告（M3）/ #G5 多选新频道（M3，与 T1 delta 追进项 #3 同源）/ #G6 回复态草稿（M3）/ #G7 扫码（M4）/ #G8 公告置顶+originSender（M3 节登记，与 T1 追进项 #1 同源）/ #G10 手动检查更新弹窗未接线（M6，main-chain）/ #G11 会议横屏隐藏系统栏（M8，与 T1 delta 追进项 #4 同源，visual 级）/ #G12 邮件行左右滑快捷动作（M9，minor——T4 审查 I-1 补行）/ #G13 首启隐私同意门禁（T7 审查新发现，main-chain）。T5 汇总时 #G5/#G8/#G9/#G11 与 T1「追进发布」清单防双计。
+> **M11 终态（T8 收口）**：main-chain 3 项全修复翻 ✅——#G9（ebc1171）/ #G10（fcf7ab9）/ #G13（f1e6e4e，新增 ✅ 行见 M1 域）；minor 9 + visual 1 记档 `docs/backlog-m11.md` §二；终态 334 行 = ✅249/❌10/🔶75（❌ 余量 = #G1-G8/G11/G12 记档行）。
 > 扩展域（M5-M7）差异均有协议十三/十五/十七节或里程碑裁定背书（🔶 26 项）；M5-M7 期间已收口的早期差异（十三.10 跳转平跳、十五.3 oncall、十七.2 AntMeeting、十七.9 跨组织刷新）按 ✅+收口注记收录。#G10 为 Fix round 1 拆行（原误挂 ✅ 行内的漏出验收项）。
 > RTC 域（M8-M10）差异均有协议十九/二十一/二十三节或里程碑/spike 裁定背书（🔶 24 项）；M8-M10 期间收口的早期差异（十五.3 oncall 分流、十七.2 AntMeeting 拦截、十一.5/11.12 语音·会议占位行）在对应 ✅ 行内以交叉引用注记收录。#G11 = T1 追进项 #4 预归位（458994b，visual 级，controller 可降级记档）。

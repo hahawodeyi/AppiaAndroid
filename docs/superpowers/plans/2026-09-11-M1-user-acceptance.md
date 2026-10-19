@@ -1,7 +1,7 @@
-# Appia 原生重写用户自测协议（M1 登录链路 + M2 会话列表/聊天 + M3 富文本消息 + M4 群组/通讯录 + M5 搜索/设置 + M6 推送/自更新 + M7 待办/工作台/AI + M8 会议 + M9 邮件 + M10 语音通话，版本 1.1.0）
+# Appia 原生重写用户自测协议（M1 登录链路 + M2 会话列表/聊天 + M3 富文本消息 + M4 群组/通讯录 + M5 搜索/设置 + M6 推送/自更新 + M7 待办/工作台/AI + M8 会议 + M9 邮件 + M10 语音通话 + M11 收尾验收，版本 1.2.0）
 
-> 本文是面向自测人的操作手册。原生版（`cn.appia.im.debug`，versionName **1.1.0**）已实现 M1 全部链路（企业码验证 → 服务器列表 → SMS 登录 → 会话持久化 → 组织切换 → 登出/会话失效）、M2 全部链路（会话列表 + 房间聊天）、M3 全部链路（富文本编辑/渲染、附件收发查看、转发、表情回应、已读回执、编辑/撤回、@提及、长按菜单）与 M4 全部链路（房间信息页/成员管理/公告/改名/选人器/通讯录/名片/房间访问丢失）、M5（搜索/presence/设置）、M6（推送/自更新）、M7（待办/工作台/AI）、M8（会议）、M9 全部链路（邮件：账户绑定/收件箱/详情/撰写回复转发草稿/推送角标）与 M10 全部链路（语音通话：单聊/群聊/被叫 Telecom/第二路/跨组织/最小化气泡/超时计时）。
-> 自测方法：**与 RN 版（appiaMobile）side-by-side 对照**——同一操作在两个版本各做一遍，比较表现差异。M1 链路见第二~五节，M2 见第六~七节，M3 见第八~九节，M4 见第十~十一节，M5 见第十二~十三节，M6 见第十四~十五节，M7 见第十六~十七节，M8 见第十八~十九节，M9 见第二十~二十一节，M10 见第二十二~二十三节。
+> 本文是面向自测人的操作手册。原生版（`cn.appia.im.debug`，versionName **1.2.0**）已实现 M1 全部链路（企业码验证 → 服务器列表 → SMS 登录 → 会话持久化 → 组织切换 → 登出/会话失效 + 首启隐私同意门禁）、M2 全部链路（会话列表 + 房间聊天）、M3 全部链路（富文本编辑/渲染、附件收发查看、转发、表情回应、已读回执、编辑/撤回、@提及、长按菜单）与 M4 全部链路（房间信息页/成员管理/公告/改名/选人器/通讯录/名片/房间访问丢失）、M5（搜索/presence/设置）、M6（推送/自更新）、M7（待办/工作台/AI）、M8（会议）、M9 全部链路（邮件：账户绑定/收件箱/详情/撰写回复转发草稿/推送角标）与 M10 全部链路（语音通话：单聊/群聊/被叫 Telecom/第二路/跨组织/最小化气泡/超时计时）。
+> 自测方法：**与 RN 版（appiaMobile）side-by-side 对照**——同一操作在两个版本各做一遍，比较表现差异。M1 链路见第二~五节，M2 见第六~七节，M3 见第八~九节，M4 见第十~十一节，M5 见第十二~十三节，M6 见第十四~十五节，M7 见第十六~十七节，M8 见第十八~十九节，M9 见第二十~二十一节，M10 见第二十二~二十三节，**M11 收尾验收见第二十四~二十五节**。
 
 ## 一、安装步骤
 
@@ -12,7 +12,7 @@ APK 由开发侧交付（也可自建：仓库根目录执行 `./gradlew :app:as
 adb install -r app-debug.apk
 ```
 
-启动：桌面点开 **Appia** 图标（debug 版）。确认版本号 0.9.0：企业码页底部页脚常驻版本行，应显示 `0.9.0`。
+启动：桌面点开 **Appia** 图标（debug 版）。确认版本号 1.2.0：企业码页底部页脚常驻版本行，应显示 `1.2.0`。首次启动（或清除数据后）先弹**隐私同意屏**（对齐 RN 生产版）：同意 → 进企业码页；不同意/返回键 → 退出应用。
 
 **与生产版共存**：debug 包名为 `cn.appia.im.debug`（生产版为 `cn.appia.im`），二者可同时安装在同一台设备，数据完全隔离，互不影响。注意 debug 版**不会**覆盖 RN/生产版的数据，需用真实账号重新登录一次。
 
@@ -119,7 +119,7 @@ sqlite3 /tmp/appia.db "SELECT _id, substr(custom_fields,1,80) FROM rooms LIMIT 5
 2. **RN 表现**：（同操作在 RN 版的行为/文案/时序；「RN 也这样」也要写明）
 3. **原生表现**：实际看到的行为/文案/时序
 4. **截图/录屏**：两侧各一张（`adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png`）
-5. 环境：设备型号、Android 版本、App 版本号（0.9.0）
+5. 环境：设备型号、Android 版本、App 版本号（1.2.0）
 
 示例：
 
@@ -127,7 +127,7 @@ sqlite3 /tmp/appia.db "SELECT _id, substr(custom_fields,1,80) FROM rooms LIMIT 5
 > - RN 表现：弹层内点击后约 1s 主屏切换完成
 > - 原生表现：点击后主屏立即切换，但连接状态文本 3s 内显示「离线」再变「在线」
 > - 截图：attach
-> - 环境：Pixel 7 / Android 14 / 0.9.0
+> - 环境：Pixel 7 / Android 14 / 1.2.0
 
 ## 四、已知差异（对照 RN 版，非缺陷，请勿按缺陷反馈）
 
@@ -519,7 +519,7 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 2. **字体设置仅持久化**：字体段选择保存但不改变渲染（RN 真实应用字体资产/allowFontScaling——Android 侧 M6+ 评估）。
 3. **letter 头像 URL 变体**：appiaAvatarType=letter 的 /avatar/@name 变体未在头像渲染消费（M6+）。
 4. **检查更新**：M6 边界——展示+跳浏览器（无应用内自更新弹窗）。
-5. **快捷回复行 no-op**：设置页快捷回复行渲染但不可导航（CustomQuickReply 屏计划外）。
+5. **快捷回复两端未实现**：RN 全链 = CustomQuickReplyScreen 编辑屏（setUserPreferences appiaQuickReplies）+ ChatInputBar 表情键盘内 Picker；AA 两端均缺（无表情键盘宿主 + 设置行渲染但不可导航）——记档 `docs/backlog-m11.md` §三（minor）。
 6. **加密房搜索字面匹配**：LIKE 转义语义与 RN watermelondb@0.28 不同（RN 非字母数字→_ 通配退化；Android 字面匹配——修正 RN 缺陷，故意分歧）。
 7. **links tab 启发式**：照抄 RN 临时方案（RN 注释自认）。
 8. **mentions 客户端过滤**：空页 addedCount==0 止步（RN 同构）；服务端 query+客户端双层。
@@ -725,7 +725,7 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 10. **浮窗降级链**：无悬浮窗权限 → 仅前台服务通知+toast。
 11. **prefersLandscape 跨会残留**：会议结束后记忆不重置（下次会议恢复为横屏一次）——边缘影响。
 12. **遥测 skip**：会议错误埋点 AA 无 analytics 总线。
-13. **消息内链接未走 openLink**：InlineEnv.onLinkPress 未接线（pre-existing，T13 组装收口——接线后 AntMeeting 链接自动走会议移交）。
+13. **消息内链接未走 openLink**：InlineEnv.onLinkPress 未接线（pre-existing；实际状态：Settings 法律链接已接 openLink、聊天 InlineEnv 仍兜底 ACTION_VIEW——接线后 AntMeeting 链接自动走会议移交）。
 14. **APK 包体（abiFilters 裁定）**：Agora 原生 SDK 使包体 24.3MB → **93.1MB**（universal 4-ABI 原为 257.6MB；M8 终审裁定 `abiFilters += "arm64-v8a"` 单 ABI，增量 +68.8MB）。真机（RTC 双设备验收）与 Apple Silicon 模拟器均 arm64 可直接安装；**x86_64/Intel 模拟器**安装会报 `INSTALL_FAILED_NO_MATCHING_ABIS`——临时移除 `app/build.gradle.kts` defaultConfig 内 `ndk { abiFilters }` 行重建即可。splits/per-ABI versionCode 归 M11。
 
 ## 二十、M9 自测清单（邮件，双端对照）
@@ -887,3 +887,93 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 11. **第二路横幅与 Alert 同显 z 序相反**：横幅与确认弹窗同显时堆叠序与 RN Modal 相反（边缘场景，裁定不修）。
 12. **推送点击离线走 V2 fetch 全量**：RN 离线时最小合成 callMsg 即响铃；AA 走 getRecordStatusV2 拉全量记录（严格更强）——离线点击极端场景下 AA 入队重试、RN 即响铃。
 
+
+## 二十四、M11 收尾验收清单（全量盘点与发布前核对）
+
+> M11 为收尾里程碑：对 M1-M10 全量功能面做 checklist 化盘点（334 行）、RN 冻结基线 `c92e3df` 后 69 提交 delta 盘点、缺口修复与记档、发布工程（图标/release/版本）与 i18n 双语核对。本节为发布前核对索引。
+
+### 1. 全量功能 checklist（十域 334 行）
+
+- 全景与逐行证据：`docs/m11-feature-checklist.md`（RN 锚 = 冻结基线 c92e3df，可 `git -C ../appiaMobile show c92e3df:<path>` 复核）。
+- 终态计数：**334 行 = ✅249 / ❌10 / 🔶75**（❌10 = 记档项，见下；🔶 = 授权差异，均有协议差异节或里程碑裁定背书）。
+- 分域：M1 25（21/0/4）/ M2 26（22/2/2）/ M3 37（21/5/11）/ M4 39（30/1/8）/ M5 38（32/0/6）/ M6 27（17/0/10）/ M7 41（31/0/10）/ M8 30（20/1/9）/ M9 31（25/1/5）/ M10 40（30/0/10）。
+
+### 2. 缺口处置汇总
+
+| 类别 | 数量 | 处置 |
+|---|---|---|
+| main-chain 缺口 | 3 | **全部修复**：G9 合并转发消息级 appiaBaseUrl 透传（ebc1171）/ G10 设置页手动检查更新接线应用内弹窗（fcf7ab9）/ G13 首启隐私同意门禁（f1e6e4e——T7 审查新发现，对齐 RN 原生层 PrivacyConsentActivity） |
+| minor 缺口 | 9 | 记档 `docs/backlog-m11.md` §二（G1-G8/G12） |
+| visual 缺口 | 1 | 记档 backlog-m11 §二（G11 会议横屏系统栏） |
+| 🔶 重估 | 2 | 快捷回复屏记档（协议十三节差异 5 措辞已更新）/ 抽屉待办卡维持 🔶（backlog-m11 §三） |
+| RN delta 69 提交 | — | 记档不做 38（含已覆盖佐证 19）/ RN 域外 27 / 追进发布 4（=#G8/G9/G5/G11，已归位）/ 无法离线判定 0（明细 `docs/m11-rn-delta.md`） |
+
+### 3. 外部依赖前置汇总（用户域验收环境，M1-M10 各节合并）
+
+| 依赖 | 涉及节 | 说明 |
+|---|---|---|
+| EMAS 控制台 | 十四（M6 推送） | 生产包 cn.appia.im（appKey 334251807）在案；debug 包真机收推送须控制台补 cn.appia.im.debug |
+| 厂商通道真机 + GMS 设备 | 十四（M6 推送） | 华为/荣耀/vivo 通道推送需对应真机；FCM 离线送达需 GMS 机型 + release 包（debug 不含 google-services 插件） |
+| 自更新服务端 | 十四（M6 自更新） | 服务端可配置自更新 URL + 已装生产 RN 版（versionCode 28187853）设备做覆盖安装验证 |
+| 服务端 bot + worktable_config | 十六（M7 待办/工作台/AI） | AI 流式需 Agent_Bot_List 配置 bot 在线；工作台宫格需服务端配置数据；泛微/石墨/WPS 需对应内网/账号 |
+| Agora AppId + RTC 凭据抓包 | 十八（M8 会议） | Agora 控制台 AppId（cert-less 测试期）；`/api/v2/video/meeting/credentials` 响应字段抓包回填；RTC 真会议至少两台设备 |
+| 语音双账号 + shengwang 网关 | 二十二（M10 语音） | 两个可互通测试账号分属两设备；shengwang-server[.qa].appia.vip 可达；Telecom phone account 授权一次 |
+| mail 网关 + 真实邮箱 | 二十（M9 邮件） | 服务端 mail 网关部署且开通（Appia_Mail_Channel_Enabled=true）+ 一对真实邮箱（绑定 + 收发对照） |
+| 真实企业码/账号 | 二（M1 登录） | 设备可访问真实验证环境（企业码 verify 走 https://appia.cn） |
+
+### 4. 性能实测记录（M11-T8，Pixel 7 模拟器 emulator-5554，debug 1.2.0）
+
+- **冷启动 ×5**（`am start -W -S` 先杀进程）：TotalTime 3349/3519/3593/3766/3796 ms，**中位 3593ms**（WaitTime 与 TotalTime 差 <10ms）。模拟器含磁盘 IO 放大，真机预期显著更快；无 ANR。
+- **滚动帧采样**：模拟器无会话态（pm clear 后未登录），在企业码页（auth_branded_scroll 滚动容器）采样——输入未聚焦时滚动零帧渲染（屏无可滚动内容）；聚焦输入法弹键盘后连续滑动 39 帧，Janky 35.9%（其中 High input latency 35 帧——软键盘输入通道占用所致），50th 17ms/90th 32ms。**会话列表滚动帧采样为模拟器无会话态走查边界**（无账号可登录，真机登录态走查归用户域）。
+- **主观走查**：启动、同意屏、企业码页滚动、弹窗交互无肉眼卡顿、无 ANR、无崩溃。
+
+### 5. i18n 双语核对记录（M11-T7）
+
+- **对称性 100%**：AA zh/en 各 1143 键，键集完全一致，占位符（%n$s/d）零错位。
+- **RN-only 9 键全部有既有裁定**：G5 多选新频道 ×3 / G8 公告 originSender ×2（含 _time 变体延伸）/ 通知权限弹窗故意分歧 ×3（AA 走系统原生申请）/ roomlist_addmenu_meeting ×1（M5-T9 菜单化裁定）。
+- **AA-only 59 键全部合法来源**：RN 原生 android strings.xml 逐字补迁 10 / GREENFIELD 会议 UI 有消费 16 / migrate 自未冻结工作副本带入待消费 29（meeting_prejoin_* 等——未来会议 UI 落地消费或清理）/ AA 自有 4。
+- **模拟器抽查（per-app locale 双向）**：企业码页/验证失败弹窗/空码弹窗/设置页 en+zh 全渲染无裸 key；登录后主链路界面不可达（无企业码）为边界。
+
+### 6. release 验证记录（M11-T6）
+
+- **debug 签名降级路径已验证**：无 release.properties 时 `./gradlew :app:assembleRelease` 产出 debug 签名 `app-release.apk`（92.6MB），模拟器安装 + am start ok + 0 FATAL。
+- **versionCode 机制**：`release.properties` 的 `VERSION_CODE`（或同名环境变量）注入；下限守卫 `> 28187853`（生产 RN 版已装用户设备，降级安装被系统拒绝）——注入 28188000 构建通过、注入 100 构建正确拒绝。未提供时兜底 28187900。
+- **真签名发布步骤（用户域）**：仓库根放置 `release.properties`（KEYSTORE=路径 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD，可被同名环境变量覆盖）→ `./gradlew :app:assembleRelease` → `adb install -r app/build/outputs/apk/release/app-release.apk` → 验证安装与版本行。
+- **图标状态**：RN 全套已接（6 密度 mipmap + adaptive XML + 两个 drawable 矢量，md5 与 RN 逐字节一致）；模拟器桌面蓝渐变圆形 adaptive 图标人工核对通过。
+
+## 二十五、M11 发布状态（版本/签名/ABI/已知差异总索引）
+
+### 1. 版本
+
+- versionName **1.2.0**（M11 收尾里程碑）。
+- versionCode：默认 28187900；`release.properties` VERSION_CODE 显式注入（下限守卫 > 28187853，防覆盖安装失败）。发布时建议显式注入（如 28188000）。
+
+### 2. 签名
+
+- 机制沿用 RN 的 `release.properties`（文件缺失仅警告）；**发布生产包须配置真 keystore**（KEYSTORE/KEYSTORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD，环境变量可覆盖）。
+- 未配置时 release 产物为 debug 签名（仅开发用途）——不用于发布。
+
+### 3. APK 形态（abiFilters 终态结论，M11-T6 定稿）
+
+**APK 形态保持 arm64-v8a 单 ABI（现状即终态）。**
+- 理由：目标用户真机全为 arm64；AA 无 splits（单一 universal APK 内仅 arm64-v8a so），无 per-ABI versionCode 拆分需求（RN 的 abi*2^20+base 公式仅服务多 APK splits，AA 不采用）。
+- x86_64（模拟器/Chromebook）需求：走既有惯例——临时移除 `ndk { abiFilters += "arm64-v8a" }` 行重建（app/build.gradle.kts:53-58 注释即文档，README 安装节有说明）。
+- AAB per-ABI 动态下发：不在范围，不做 AAB（发布形态为 APK 自分发）。
+- 实测包体 93.1MB（universal 4-ABI 为 257.6MB）。
+
+### 4. 全量已知差异总索引（M1-M10 各差异节一览）
+
+| 节 | 域 | 差异数 | 代表项 |
+|---|---|---|---|
+| 四 | M1 认证 | 6 | CAS enabled 严格布尔（fail-closed） |
+| 七 | M2 会话列表/单聊 | 8 | 下拉刷新失败仅 Alert 不触发断线横幅 |
+| 九 | M3 消息 | 14 | KaTeX 公式降级原式文本（点击全屏 WebView 渲染） |
+| 十一 | M4 群组/通讯录 | 15 | ContactsScreen 不做（TeamScreen 双树覆盖） |
+| 十三 | M5 搜索/presence/设置 | 12 | 快捷回复两端未实现（M11 措辞更新——backlog-m11 §三） |
+| 十五 | M6 推送/自更新 | 12 | POST_NOTIFICATIONS 运行时申请（AA 有、RN 无——故意分歧） |
+| 十七 | M7 待办/工作台/AI | 12 | staffService 客服域划 M10（fastModelMsg 纯文本占位） |
+| 十九 | M8 会议 | 14 | 原生 RTC 替换 H5（不互通裁定） |
+| 二十一 | M9 邮件 | 10 | HTML 渲染禁 JS（安全等价更严） |
+| 二十三 | M10 语音 | 12 | Telecom 双端系统级来电（增强非差异） |
+
+> 各节内多数条目为「RN 同构/授权分歧/已收口注记」性质；全部条目见对应节原文。记档不修事项见 `docs/backlog-m11.md`（+ 三页域内 backlog：backlog-m6/m8/m10.md）。
