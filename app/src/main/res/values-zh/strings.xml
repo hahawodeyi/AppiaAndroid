@@ -784,6 +784,16 @@
     <string name="pushbattery_settings_hint">若杀掉应用后收不到新消息通知，请到系统设置允许本应用后台运行：设置 → 应用 → Appia → 电池 → 不受限制（不同手机路径略有差异）。</string>
     <string name="pushbattery_status_ok">已允许</string>
     <string name="pushbattery_status_restricted">受限制</string>
+    <!-- M11-T5 Slot3（G13）首启隐私同意门禁：8 键手补（禁跑 migrate_i18n.py）。
+         RN 侧无 values-zh 专文件即中文即默认无英文版，按裁定 en/zh 两侧同放 RN 原中文文案（忠实生产事实）。 -->
+    <string name="privacy_consent_title">服务协议和隐私政策</string>
+    <string name="privacy_consent_message">感谢您使用 Appia！我们非常重视您的个人信息和隐私保护。请您认真阅读《用户协议》和《隐私政策》的全部条款，了解我们对个人信息的处理规则。\n\n点击「同意并继续」即表示您已阅读并同意上述协议；如您不同意，将无法使用本应用。</string>
+    <string name="privacy_consent_agree">同意并继续</string>
+    <string name="privacy_consent_disagree">不同意并退出</string>
+    <string name="privacy_consent_terms_link">查看《用户协议》</string>
+    <string name="privacy_consent_privacy_link">查看《隐私政策》</string>
+    <string name="privacy_consent_terms_url">https://appia.cn/service/services-terms.html</string>
+    <string name="privacy_consent_privacy_url">https://appia.cn/service/privacy.html</string>
     <string name="readreceipt_details">消息详情</string>
     <string name="readreceipt_empty">没有已办人员</string>
     <string name="readreceipt_readtab">已读</string>

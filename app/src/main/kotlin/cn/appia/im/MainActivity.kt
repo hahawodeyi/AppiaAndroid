@@ -57,6 +57,8 @@ import cn.appia.im.core.network.LoginCredentials
 import cn.appia.im.core.network.LoginResult
 import cn.appia.im.core.network.RocketSdk
 import cn.appia.im.core.permissions.PermissionsStore
+import cn.appia.im.core.privacy.PrivacyConsentStore
+import cn.appia.im.feature.privacy.ui.PrivacyConsentScreen
 import cn.appia.im.core.network.rest.SessionExpiredBus
 import cn.appia.im.BuildConfig
 import cn.appia.im.core.push.BatteryOptimizationGuide
@@ -3461,7 +3463,21 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     Modifier.fillMaxSize()
                 }
+                // M11-T5 Slot3（G13）首启隐私同意门禁（RN PrivacyConsentActivity 对齐）：
+                // 未同意时整树替换为 PrivacyConsentScreen——用户看不到任何业务 UI（等价 RN
+                // 抢 LAUNCHER 的独立 Activity 门）。同意后 setAgreed 已持久化，翻转 gateState
+                // 进主树；不同意/返回键 = finishAffinity（RN 同语义）。可变 state 供单测翻转。
+                var gateState by remember { mutableStateOf(!PrivacyConsentStore.hasAgreed(kv)) }
                 Surface(rootModifier) {
+                    if (gateState) {
+                        PrivacyConsentScreen(
+                            onAgree = {
+                                PrivacyConsentStore.setAgreed(kv)
+                                gateState = false
+                            },
+                            onDisagree = { finishAffinity() },
+                        )
+                    } else {
                     AppiaNavHost(
                         session = session,
                         startAuthenticated = startAuthenticated,
@@ -3483,6 +3499,7 @@ class MainActivity : AppCompatActivity() {
                             voice,
                         ),
                     )
+                    }
                 }
             }
         }
