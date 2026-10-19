@@ -39,9 +39,10 @@ import cn.appia.im.core.network.api.UserPreferencesApi
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.feature.settings.BatteryOptimization
 import cn.appia.im.feature.settings.ClearLocalCache
+import cn.appia.im.feature.settings.ManualCheckOutcome
 import cn.appia.im.feature.settings.SettingsConstants
 import cn.appia.im.feature.settings.isGuestUser
-import cn.appia.im.feature.settings.isServerVersionNewer
+import cn.appia.im.feature.settings.manualCheckOutcome
 import cn.appia.im.feature.settings.readableAppVersion
 import cn.appia.im.feature.settings.serverHostLabel
 import kotlinx.coroutines.CancellationException
@@ -59,6 +60,20 @@ private data class ConfirmPayload(
 private enum class ConfirmAction { CLEAR_CACHE, DELETE_ACCOUNT, LOGOUT, LOGOUT_OTHER }
 
 /**
+ * legacy 免登录拉取行（core.network.api）→ 弹窗域行（core.update，showManual 口径）。
+ * RN 侧 fetchAppReleaseViaQueryClient 直接产 useAppUpdateUiStore 行；AA 免登录客户端
+ * 先落 legacy 形状（M5-T9），此处映射（字段一一对应）。
+ */
+private fun AppReleaseApi.AppReleaseRow.toUpdateDomainRow() = cn.appia.im.core.update.AppReleaseRow(
+    platform = platform,
+    version = version,
+    url = url,
+    is_force_update = isForceUpdate,
+    file_hash = null,
+    notes = notes,
+)
+
+/**
  * 设置页（M5-T9，RN screens/SettingsScreen/index.tsx 五分区逐行对照）：
  *
  * 通用：语言三段【T11 占位——onLanguageChange 参数化回调，T9 不落 LocaleController】/
@@ -68,7 +83,8 @@ private enum class ConfirmAction { CLEAR_CACHE, DELETE_ACCOUNT, LOGOUT, LOGOUT_O
  * 通知：电池优化状态行（PowerManager.isIgnoringBatteryOptimizations + 机型门；ON_RESUME 刷新
  *   ——RN AppState 'active' 等价）+ hint。null（探测未定）不渲染分区（RN :350 同）。
  * 关于：应用版本（点按 ACTION_SEND 分享）/ 服务器版本（GET /api/info 免登录 + host 两行）/
- *   检查更新（GET /provider/api/v1/version 免登录；M6 前无自更新弹窗：展示结果 + 跳浏览器下载页）。
+ *   检查更新（GET /provider/api/v1/version 免登录；M11 G10：三分支纯判定 + 有新版走
+ *   onCheckUpdateShow 弹应用内弹窗，null 回退跳浏览器下载页）。
  * 法律：服务条款 / 隐私政策（LEGAL_URLS 外链 ACTION_VIEW）。
  * 账户：guest 删号判定（username 含 appia.guest → 「删除账号」，确认走登出链）/ 清除本地缓存
  *   （ClearLocalCache：teardown→删库→重 bootstrap）/ 退出登录 / 注销其它设备登录
@@ -94,6 +110,9 @@ fun SettingsScreen(
     onOpenInAppWeb: (url: String) -> Unit = {},
     // M8-T5：openLink inApp 分支 AntMeeting 链接移交原生会议（RN openLink.ts:54-55）
     onAntMeeting: (url: String) -> Unit = {},
+    // M11 G10：有新版时改弹应用内更新弹窗（RN show(row, {bypassDismiss:true})）；
+    // null 回退 M5-T9 旧行为（openUrl 跳浏览器下载页——UI 测试无注入路径）
+    onCheckUpdateShow: ((cn.appia.im.core.update.AppReleaseRow) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val colors = LocalAppiaColors.current
@@ -173,28 +192,35 @@ fun SettingsScreen(
         if (checkUpdating) return
         checkUpdating = true
         scope.launch {
-            try {
-                val row = AppReleaseApi.fetchLatestAppRelease(localVersion = BuildConfig.VERSION_NAME)
-                if (row == null) {
-                    info = context.t("settings_check_update") to context.t("appupdate_checkfailed")
-                } else if (!isServerVersionNewer(row.version, BuildConfig.VERSION_NAME)) {
-                    info = context.t("settings_check_update") to context.t("appupdate_latest")
-                } else {
-                    // M6 前无自更新弹窗/下载基建（plan 边界）：报新版并跳浏览器下载页
-                    // ——RN useAppUpdateUiStore.show(row) 的「先展示」等价（报告偏差注明）
-                    openUrl(
-                        AppReleaseApi.resolveAppReleaseOpenUrl(row.url).ifEmpty {
-                            AppReleaseApi.APP_DOWNLOAD_URL_ANDROID
-                        },
-                    )
-                }
+            // RN :148-160：异常路径与 null 行同落 checkFailed 告警（manualCheckOutcome 内映射）
+            val row = try {
+                AppReleaseApi.fetchLatestAppRelease(localVersion = BuildConfig.VERSION_NAME)?.toUpdateDomainRow()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                info = context.t("settings_check_update") to context.t("appupdate_checkfailed")
-            } finally {
-                checkUpdating = false
+                null
             }
+            when (val outcome = manualCheckOutcome(row, BuildConfig.VERSION_NAME)) {
+                ManualCheckOutcome.Failed ->
+                    info = context.t("settings_check_update") to context.t("appupdate_checkfailed")
+                ManualCheckOutcome.Latest ->
+                    info = context.t("settings_check_update") to context.t("appupdate_latest")
+                is ManualCheckOutcome.Show -> {
+                    val show = onCheckUpdateShow
+                    if (show != null) {
+                        // M11 G10：应用内弹窗（bypassDismiss——点过暂不的同版本仍立即弹）
+                        show(outcome.row)
+                    } else {
+                        // M5-T9 旧行为回退（无注入路径）：跳浏览器下载页
+                        openUrl(
+                            AppReleaseApi.resolveAppReleaseOpenUrl(outcome.row.url).ifEmpty {
+                                AppReleaseApi.APP_DOWNLOAD_URL_ANDROID
+                            },
+                        )
+                    }
+                }
+            }
+            checkUpdating = false
         }
     }
 

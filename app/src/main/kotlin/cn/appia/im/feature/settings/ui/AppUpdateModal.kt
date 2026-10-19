@@ -190,12 +190,14 @@ fun AppUpdateModal(
 }
 
 /**
- * 弹窗宿主（RN screens/AppUpdatePromptHost.tsx 的 Android 等价，单例挂 Main 路由）：
+ * 弹窗宿主（RN screens/AppUpdatePromptHost.tsx 的 Android 等价，挂 NavHost 兄弟全局槽——
+ * M11 G10 自 MainRoute 内迁出，与 RN MainNavigator 根部同位，Settings 内手动弹窗可渲染）：
  * - 挂载清理旧版 APK/临时文件（RN :58-60）；
  * - T6 检查流 → 状态机（RN :77-94；enabled 登录门在 AppReleaseCheckController 内）；
  * - 立即升级 → 下载（进度回调）→ 系统安装器；失败告警（RN :105-127 catch → Alert）。
- * 登出收弹窗（RN :62-66 !enabled → hide）由 Main 路由卸载等价达成。
- * 手动检查入口：[AppUpdatePromptController.showManual]（T9 设置页接线）。
+ * 登出收弹窗（RN :62-66 !enabled → hide）由 AuthRepository.logout → onSessionInactive 达成
+ * （Host 全局常驻，不再随 Main 卸载）。
+ * 手动检查入口：[AppUpdatePromptController.showManual]（M11 G10 设置页接线）。
  */
 @Composable
 fun AppUpdatePromptHost(

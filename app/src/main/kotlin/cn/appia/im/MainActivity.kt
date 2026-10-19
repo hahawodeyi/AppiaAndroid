@@ -1127,19 +1127,6 @@ fun AppiaNavHost(
                 }
                 // 推送会话挂载效果（M6-T3）：通知权限申请 + 电池优化引导（冷启动/登录双触发收敛点）
                 PushSessionTriggers()
-                // M6-T7 自更新弹窗宿主（RN MainNavigator 单例挂载 AppUpdatePromptHost 同位）：
-                // 挂载清理旧 APK + release 流 → 状态机 + 下载/安装拉起
-                val check = deps.appReleaseCheck
-                val prompt = deps.appUpdatePrompt
-                if (check != null && prompt != null) {
-                    val hostContext = LocalContext.current
-                    AppUpdatePromptHost(
-                        check = check,
-                        prompt = prompt,
-                        installer = remember { AppReleaseInstaller(hostContext) },
-                        localVersion = BuildConfig.VERSION_NAME,
-                    )
-                }
                 // M6-T5 深链 drain 接线点②（RN MainNavigator.tsx:38-40 挂载 useEffect）：
                 // 登录完成 goMain 重挂 Main 时冲刷 90s TTL 内积压（登出期间点击的 RN 同语义）
                 if (drainer != null) LaunchedEffect(Unit) { drainer.onMainMounted() }
@@ -2437,6 +2424,9 @@ fun AppiaNavHost(
                     // M8-T5：openLink inApp 分支 AntMeeting 链接移交（终审 Minor 收口：T7 原生
                     // 会议室已建，接 openMeetingRoom——InlineEnv.onLinkPress T13 接线后即生效）
                     onAntMeeting = { url -> openMeetingRoom(url, null) },
+                    // M11 G10：有新版 → showManual（bypassDismiss）；Host 已在 NavHost 全局槽，
+                    // Settings 内弹窗仍渲染。prompt 单例可空（UI 测试 null 回退 openUrl）
+                    onCheckUpdateShow = deps.appUpdatePrompt?.let { p -> { row -> p.showManual(row) } },
                 )
             }
         }
@@ -3276,6 +3266,23 @@ fun AppiaNavHost(
         cn.appia.im.feature.voice.ui.VoiceCrossOrgNotifierBanner(
             notifier = voiceHandle.crossOrgNotifier,
             t = { key -> context.t(key) },
+        )
+    }
+
+    // M11 G10 自更新弹窗宿主（RN MainNavigator.tsx:120 AppUpdatePromptHost 挂 MainNavigator
+    // 根部——所有已认证屏之上；AA 原挂 MainRoute destination 内，导航到 Settings 后 Main
+    // 离开组合即宿主死亡，showManual 置态无人渲染。移至 NavHost 兄弟全局槽同位）：
+    // 挂载清理旧 APK + release 流 → 状态机 + 下载/安装拉起 + 设置页手动检查 showManual 消费。
+    // 检查流源为 @Inject app 级单例（AppReleaseCheckController），Host 只 collectAsState 消费
+    // release 流——搬家不卸载收集器，自动检查行为等价（start/onAppForeground 均在 Activity 层）。
+    val appReleaseCheckHandle = deps?.appReleaseCheck
+    val appUpdatePromptHandle = deps?.appUpdatePrompt
+    if (appReleaseCheckHandle != null && appUpdatePromptHandle != null) {
+        AppUpdatePromptHost(
+            check = appReleaseCheckHandle,
+            prompt = appUpdatePromptHandle,
+            installer = remember { AppReleaseInstaller(context) },
+            localVersion = BuildConfig.VERSION_NAME,
         )
     }
     }

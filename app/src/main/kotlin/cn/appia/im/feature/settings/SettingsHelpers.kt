@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import cn.appia.im.core.update.AppReleaseRow
 
 /**
  * 电池优化引导（M5-T9，RN lib/batteryOptimization 对照——设置页通知分区状态行）：
@@ -67,3 +68,25 @@ fun readableAppVersion(versionName: String, versionCode: Long): String =
 
 /** RN guest 删号判定（SettingsScreen:296 / LaborScreen:28）：username 含 `appia.guest`。 */
 fun isGuestUser(username: String): Boolean = username.contains("appia.guest")
+
+/** M11 G10：设置页手动检查更新的三分支（RN SettingsScreen/index.tsx:149-158 判定链）。 */
+sealed interface ManualCheckOutcome {
+    /** 无发布/拉取失败 → appUpdate_checkFailed 告警（RN :150-151 与 catch :159 同文案）。 */
+    data object Failed : ManualCheckOutcome
+
+    /** 已是最新 → appUpdate_latest 告警（RN :153-154）。 */
+    data object Latest : ManualCheckOutcome
+
+    /** 有新版 → show(row, { bypassDismiss: true })（RN :157）。 */
+    data class Show(val row: AppReleaseRow) : ManualCheckOutcome
+}
+
+/**
+ * 手动检查三分支纯判定（RN :149-158；null 行与异常路径同映射 [ManualCheckOutcome.Failed]
+ * ——RN :150-151 与 catch :159 同文案告警，调用方 catch 后传 null 即可复用本函数）。
+ */
+fun manualCheckOutcome(row: AppReleaseRow?, local: String): ManualCheckOutcome = when {
+    row == null -> ManualCheckOutcome.Failed
+    !isServerVersionNewer(row.version, local) -> ManualCheckOutcome.Latest
+    else -> ManualCheckOutcome.Show(row)
+}
