@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 由 scripts/migrate_i18n.py 从 appiaMobile/src/i18n/zh.json 生成，勿手改；1124 条 -->
+<!-- M0 由 scripts/migrate_i18n.py 初始生成；M4 起各里程碑手工维护（禁跑该脚本）；当前 1151 条 -->
 <resources>
 
     <string name="appia_quick_reply">快捷回复：</string>
