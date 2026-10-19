@@ -4,7 +4,7 @@ appiaMobile（React Native）的原生 Android 重写。当前版本 **1.2.0**�
 
 ## M11 状态与验收指引
 
-- **M11 范围**：收尾验收——全量功能 checklist 十域盘点（334 行 = ✅249/❌10/🔶75，`docs/m11-feature-checklist.md`）；RN 冻结基线后 69 提交 delta 盘点（`docs/m11-rn-delta.md`）；main-chain 缺口修复 3 项（G9 合并转发 appiaBaseUrl 透传 ebc1171 / G10 手动检查更新接线 fcf7ab9 / G13 首启隐私同意门禁 f1e6e4e）；发布工程（RN 全套图标接线/release 构建验证/versionCode 下限守卫 28187853/abiFilters arm64 单 ABI 终态）；i18n 中英双语核对（1143/1143 键对称 100%）；性能走查（冷启动中位 ~3.6s 模拟器）。
+- **M11 范围**：收尾验收——全量功能 checklist 十域盘点（334 行 = ✅249/❌10/🔶75，`docs/m11-feature-checklist.md`）；RN 冻结基线后 69 提交 delta 盘点（`docs/m11-rn-delta.md`）；main-chain 缺口修复 3 项（G9 合并转发 appiaBaseUrl 透传 ebc1171 / G10 手动检查更新接线 fcf7ab9 / G13 首启隐私同意门禁 f1e6e4e）；发布工程（RN 全套图标接线/release 构建验证/versionCode 下限守卫 28187853/abiFilters arm64 单 ABI 终态）；i18n 中英双语核对（1151/1151 键对称 100%——T7 核对 1143 + G13 隐私同意 8 键）；性能走查（冷启动中位 ~3.6s 模拟器）。
 - **测试状态**：门禁×3（`--rerun-tasks` 强制全量，最终计数见下）；Maestro 启动/登录链冒烟双绿（1.2.0 断言，含首启隐私同意 optional 步骤）；模拟器冷启动×2 零 FATAL；桌面蓝渐变 adaptive 图标确认。
 - **验收指引**：真实凭证验收请按 [`docs/superpowers/plans/2026-09-11-M1-user-acceptance.md`](docs/superpowers/plans/2026-09-11-M1-user-acceptance.md) 执行——M1 第二~五节 … M10 第二十二~二十三节；**M11 收尾验收见第二十四节（全量盘点/缺口处置/外部依赖前置汇总/性能实测/i18n/release 验证）与第二十五节（发布状态：版本/签名/abiFilters 终态/已知差异总索引）**；逐行功能证据 `docs/m11-feature-checklist.md`；记档不修事项 `docs/backlog-m11.md`；真签名发布步骤见协议二十四节第 6 项（release.properties 四键 → assembleRelease）。
 

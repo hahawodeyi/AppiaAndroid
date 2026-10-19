@@ -926,10 +926,11 @@ internal const val ENABLE_PASSWORD_LOGIN = false
 - **冷启动 ×5**（`am start -W -S` 先杀进程）：TotalTime 3349/3519/3593/3766/3796 ms，**中位 3593ms**（WaitTime 与 TotalTime 差 <10ms）。模拟器含磁盘 IO 放大，真机预期显著更快；无 ANR。
 - **滚动帧采样**：模拟器无会话态（pm clear 后未登录），在企业码页（auth_branded_scroll 滚动容器）采样——输入未聚焦时滚动零帧渲染（屏无可滚动内容）；聚焦输入法弹键盘后连续滑动 39 帧，Janky 35.9%（其中 High input latency 35 帧——软键盘输入通道占用所致），50th 17ms/90th 32ms。**会话列表滚动帧采样为模拟器无会话态走查边界**（无账号可登录，真机登录态走查归用户域）。
 - **主观走查**：启动、同意屏、企业码页滚动、弹窗交互无肉眼卡顿、无 ANR、无崩溃。
+- **已知测试 flake 清单（门禁×3 实录）**：RealtimeSessionManagerTest（M1 起在案的全量负载 WS 时序 flake——R1/R3 各一次，隔离重跑绿）；MediaCacheTest `fetch downloads once then serves from cache`（**M11-T8 首次观察**，R2 一次，隔离 `--rerun-tasks` 重跑绿；当时任务零代码触碰，判环境性 flake——自本次起列入已知清单，口径同隔离绿标准）。
 
 ### 5. i18n 双语核对记录（M11-T7）
 
-- **对称性 100%**：AA zh/en 各 1143 键，键集完全一致，占位符（%n$s/d）零错位。
+- **对称性 100%**：AA zh/en 各 1151 键，键集完全一致，占位符（%n$s/d）零错位。（T7 核准时 1143/1143；G13 隐私同意门禁 f1e6e4e 手补 8 键后 1151/1151，对称结论不变。）
 - **RN-only 9 键全部有既有裁定**：G5 多选新频道 ×3 / G8 公告 originSender ×2（含 _time 变体延伸）/ 通知权限弹窗故意分歧 ×3（AA 走系统原生申请）/ roomlist_addmenu_meeting ×1（M5-T9 菜单化裁定）。
 - **AA-only 59 键全部合法来源**：RN 原生 android strings.xml 逐字补迁 10 / GREENFIELD 会议 UI 有消费 16 / migrate 自未冻结工作副本带入待消费 29（meeting_prejoin_* 等——未来会议 UI 落地消费或清理）/ AA 自有 4。
 - **模拟器抽查（per-app locale 双向）**：企业码页/验证失败弹窗/空码弹窗/设置页 en+zh 全渲染无裸 key；登录后主链路界面不可达（无企业码）为边界。
