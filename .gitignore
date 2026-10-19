@@ -4,6 +4,5 @@ local.properties
 .idea/
 *.iml
 .DS_Store
-android/release.local.properties
 .kotlin/
 .superpowers/
