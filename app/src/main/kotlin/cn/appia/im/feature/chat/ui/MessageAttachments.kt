@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -25,12 +24,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appia.im.core.database.entity.MessageEntity
+import cn.appia.im.core.i18n.t
 import cn.appia.im.core.media.AttachmentUrlFormatter
 import cn.appia.im.core.messaging.LocalAttachment
 import coil3.compose.AsyncImage
@@ -379,19 +380,19 @@ private fun LocalAttachmentRow(
                 }
             }
             if (retryBadge) {
+                val context = LocalContext.current
                 Box {
                     content()
                     Text(
-                        "↻",
+                        context.t("message_retryattachment").replace("{{name}}", item.name),
                         color = Color.White,
                         fontSize = 10.sp,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(2.dp)
-                            .size(18.dp)
+                            .padding(6.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(Color(0xFFFF4D4F))
-                            .wrapContentSize(Alignment.Center)
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
                             .clickable(enabled = !retryRequested) {
                                 if (!retryRequested) {
                                     retryRequested = true

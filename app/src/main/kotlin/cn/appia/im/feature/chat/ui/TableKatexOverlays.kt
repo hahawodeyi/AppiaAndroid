@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -71,13 +75,14 @@ internal fun MarkdownTableOverlay(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    "✕",
-                    color = colors.auxiliaryText,
-                    fontSize = 16.sp,
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = null,
+                    tint = colors.auxiliaryText,
                     modifier = Modifier
                         .clickable(onClick = onClose)
                         .padding(8.dp)
+                        .size(16.dp)
                         .testTag("qa-markdown-table-overlay-close"),
                 )
             }
@@ -204,13 +209,14 @@ internal fun KatexFormulaOverlay(
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    "✕",
-                    color = colors.auxiliaryText,
-                    fontSize = 16.sp,
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = null,
+                    tint = colors.auxiliaryText,
                     modifier = Modifier
                         .clickable(onClick = onClose)
                         .padding(8.dp)
+                        .size(16.dp)
                         .testTag("qa-katex-overlay-close"),
                 )
             }

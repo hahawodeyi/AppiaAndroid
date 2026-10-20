@@ -22,7 +22,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.res.painterResource
+import cn.appia.im.R
 import cn.appia.im.core.database.entity.MessageEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.domain.ai.AGENT_LOADING_MSG_TYPE
@@ -723,14 +729,15 @@ fun RoomScreen(
                     }
                 }
                 onOpenRoomSearch?.let { open ->
-                    Text(
-                        "⌕",
-                        color = colors.headerTintColor,
-                        fontSize = 20.sp,
+                    Icon(
+                        Icons.Outlined.Search,
+                        contentDescription = null,
+                        tint = colors.headerTintColor,
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .size(36.dp)
                             .wrapContentSize(Alignment.Center)
+                            .size(22.dp)
                             .clickable(onClick = open)
                             .testTag("qa-room-header-search"),
                     )
@@ -940,13 +947,14 @@ fun RoomScreen(
                         maxLines = 1,
                     )
                 }
-                Text(
-                    "✕",
-                    color = colors.auxiliaryText,
-                    fontSize = 16.sp,
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = null,
+                    tint = colors.auxiliaryText,
                     modifier = Modifier
                         .clickable { replyTo = null }
                         .padding(8.dp)
+                        .size(16.dp)
                         .testTag("qa-reply-close"),
                 )
             }
@@ -980,13 +988,14 @@ fun RoomScreen(
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        "✕",
-                        color = colors.auxiliaryText,
-                        fontSize = 16.sp,
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = colors.auxiliaryText,
                         modifier = Modifier
                             .clickable { exitEdit() }
                             .padding(8.dp)
+                            .size(16.dp)
                             .testTag("qa-edit-close"),
                     )
                 }
@@ -1104,46 +1113,60 @@ fun RoomScreen(
             // AI 处理态：停止按钮替换发送键（RN ChatInputBar :1300-1315 isProcessing 分支）
             if (aiRoom?.isProcessing == true) {
                 val stopping = aiRoom.isStopping
-                Text(
-                    if (stopping) "…" else "⏹",
-                    color = colors.tintColor,
-                    fontSize = 18.sp,
+                if (stopping) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(40.dp)
+                            .wrapContentSize(Alignment.Center)
+                            .testTag("qa-room-ai-stop")
+                            .size(18.dp),
+                        color = colors.tintColor,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        painterResource(R.drawable.ic_appia_stop),
+                        contentDescription = null,
+                        tint = colors.tintColor,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(40.dp)
+                            .wrapContentSize(Alignment.Center)
+                            .size(18.dp)
+                            .clickable {
+                                val now = System.currentTimeMillis()
+                                if (now - lastAiStopAt >= 500) {
+                                    lastAiStopAt = now
+                                    onAiStop()
+                                }
+                            }
+                            .testTag("qa-room-ai-stop"),
+                    )
+                }
+            } else {
+                Icon(
+                    painterResource(R.drawable.ic_appia_send),
+                    contentDescription = null,
+                    tint = if (controller.plainText.isNotBlank() || pendingAttachments.readyFiles.isNotEmpty()) {
+                        colors.tintColor
+                    } else {
+                        colors.auxiliaryText
+                    },
                     modifier = Modifier
                         .padding(start = 8.dp)
                         .size(40.dp)
                         .wrapContentSize(Alignment.Center)
-                        .clickable(enabled = !stopping) {
-                            val now = System.currentTimeMillis()
-                            if (now - lastAiStopAt >= 500) {
-                                lastAiStopAt = now
-                                onAiStop()
-                            }
+                        .clickable(
+                            enabled = controller.plainText.isNotBlank() ||
+                                pendingAttachments.readyFiles.isNotEmpty() ||
+                                pendingAttachments.isPreparing ||
+                                attachments.isNotEmpty(),
+                        ) {
+                            scope.launch { handleSend() }
                         }
-                        .testTag("qa-room-ai-stop"),
+                        .testTag("qa-room-send"),
                 )
-            } else {
-            Text(
-                "↑",
-                color = if (controller.plainText.isNotBlank() || pendingAttachments.readyFiles.isNotEmpty()) {
-                    colors.tintColor
-                } else {
-                    colors.auxiliaryText
-                },
-                fontSize = 22.sp,
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(40.dp)
-                    .wrapContentSize(Alignment.Center)
-                    .clickable(
-                        enabled = controller.plainText.isNotBlank() ||
-                            pendingAttachments.readyFiles.isNotEmpty() ||
-                            pendingAttachments.isPreparing ||
-                            attachments.isNotEmpty(),
-                    ) {
-                        scope.launch { handleSend() }
-                    }
-                    .testTag("qa-room-send"),
-            )
             } // 发送键（AI 处理态由停止按钮替换）
             }
 
