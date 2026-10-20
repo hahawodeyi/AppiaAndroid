@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -40,12 +41,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.chat.PartnerCheckState
 import cn.appia.im.core.chat.PartnerGroup
 import cn.appia.im.core.chat.RecentContactRow
@@ -805,43 +808,46 @@ fun CreateChannelMembersScreen(
                                         {
                                             val actionEnabled = !agentMutationInFlight && agentActionId != agent.id
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    "✎",
-                                                    color = Color(0xFFC9CDD4),
-                                                    fontSize = 16.sp,
+                                                Icon(
+                                                    painterResource(R.drawable.ic_appia_edit),
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFC9CDD4),
                                                     modifier = Modifier
                                                         .clickable(enabled = actionEnabled) {
                                                             onOpenAgentEditor("edit", agent)
                                                         }
                                                         .semantics { contentDescription = context.t("agents_editA11y") }
                                                         .padding(6.dp)
-                                                        .testTag("qa-ccm-agent-edit-${agent.id}"),
+                                                        .testTag("qa-ccm-agent-edit-${agent.id}")
+                                                        .size(16.dp),
                                                 )
                                                 if (!agent.active) {
-                                                    Text(
-                                                        "↺",
-                                                        color = Color(0xFF00B42A),
-                                                        fontSize = 16.sp,
+                                                    Icon(
+                                                        painterResource(R.drawable.ic_appia_restore),
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF00B42A),
                                                         modifier = Modifier
                                                             .clickable(enabled = actionEnabled) {
                                                                 confirmAgentAction = "restore" to agent
                                                             }
                                                             .semantics { contentDescription = context.t("agents_restoreA11y") }
                                                             .padding(6.dp)
-                                                            .testTag("qa-ccm-agent-restore-${agent.id}"),
+                                                            .testTag("qa-ccm-agent-restore-${agent.id}")
+                                                            .size(16.dp),
                                                     )
                                                 } else {
-                                                    Text(
-                                                        "✕",
-                                                        color = Color(0xFFF53F3F),
-                                                        fontSize = 16.sp,
+                                                    Icon(
+                                                        painterResource(R.drawable.ic_appia_delete),
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFF53F3F),
                                                         modifier = Modifier
                                                             .clickable(enabled = actionEnabled) {
                                                                 confirmAgentAction = "disable" to agent
                                                             }
                                                             .semantics { contentDescription = context.t("agents_disableA11y") }
                                                             .padding(6.dp)
-                                                            .testTag("qa-ccm-agent-disable-${agent.id}"),
+                                                            .testTag("qa-ccm-agent-disable-${agent.id}")
+                                                            .size(16.dp),
                                                     )
                                                 }
                                             }

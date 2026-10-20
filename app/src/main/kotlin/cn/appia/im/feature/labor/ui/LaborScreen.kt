@@ -18,9 +18,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -173,7 +176,7 @@ fun LaborScreen(
             value = search,
             onValueChange = { search = it },
             placeholder = { Text(context.t("labor_searchplaceholder"), color = Muted, fontSize = 15.sp) },
-            leadingIcon = { Text("⌕", color = Muted, fontSize = 16.sp) },
+            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Muted, modifier = Modifier.size(16.dp)) },
             singleLine = true,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = ScreenBg,

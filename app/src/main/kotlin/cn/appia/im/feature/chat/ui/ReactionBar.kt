@@ -7,8 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -199,14 +203,15 @@ fun ReactionBar(
                 Text(" ${reaction.usernames.size}", color = colors.tintColor, fontSize = 12.sp)
             }
         }
-        Text(
-            "＋",
-            color = colors.tintColor,
-            fontSize = 14.sp,
+        Icon(
+            Icons.Filled.Add,
+            contentDescription = null,
+            tint = colors.tintColor,
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .clickable { pickerOpen = true }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
+                .size(14.dp)
                 .testTag("qa-reaction-add"),
         )
         DropdownMenu(expanded = pickerOpen, onDismissRequest = { pickerOpen = false }) {

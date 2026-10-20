@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,10 +36,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.voice.VoiceCallMsg
 import cn.appia.im.core.voice.VoiceChatHoster
 import cn.appia.im.core.voice.VoiceUser
@@ -151,12 +154,18 @@ private fun ParticipantCell(user: VoiceUser, avatarSize: Int, t: (String) -> Str
                 WaitingOverlay(size = avatarSize, label = t(uiState.labelKey))
             }
             if (showMuted) {
+                // RN badgeMuted 20 白圆 + VoiceMutedBadgeIcon 15（#fa657a 麦克风斜杠，硬编码色透传 tint）
                 Badge(color = Color.White, tag = "qa-voice-participant-muted") {
-                    Text("✕", color = Color(0xFF6C727A), fontSize = 11.sp)
+                    Icon(
+                        painterResource(R.drawable.ic_appia_voice_muted_badge),
+                        contentDescription = null,
+                        tint = Color(0xFFFA657A),
+                        modifier = Modifier.size(15.dp),
+                    )
                 }
             }
             if (showSpeaking) {
-                // 说话徽标 alpha 脉冲 0.4→1f 循环（RN 静态 icon；AA 动效——ruling 允许）
+                // 说话声波 alpha 脉冲 0.4→1f 循环（RN 静态 VoiceSpeakingBadgeIcon 16 + badgeSpeaking 无底色——AA 动效 ruling 允许）
                 val pulse by rememberInfiniteTransition(label = "speaking")
                     .animateFloat(
                         initialValue = 0.4f,
@@ -164,8 +173,13 @@ private fun ParticipantCell(user: VoiceUser, avatarSize: Int, t: (String) -> Str
                         animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
                         label = "pulse",
                     )
-                Badge(color = Color(0xFF2DE0A5), tag = "qa-voice-participant-speaking", alpha = pulse) {
-                    Text("♪", color = Color.White, fontSize = 11.sp)
+                Badge(color = Color.Transparent, tag = "qa-voice-participant-speaking", alpha = pulse) {
+                    Icon(
+                        painterResource(R.drawable.ic_appia_voice_speaking_badge),
+                        contentDescription = null,
+                        tint = Color(0xFF2DC888),
+                        modifier = Modifier.size(16.dp),
+                    )
                 }
             }
         }

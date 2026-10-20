@@ -20,7 +20,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -129,15 +132,16 @@ fun GlobalSearchScreen(
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "←",
-                color = colors.headerTintColor,
-                fontSize = 22.sp,
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = null,
+                tint = colors.headerTintColor,
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onBack)
                     .padding(8.dp)
+                    .size(22.dp)
                     .testTag("qa-global-search-back"),
             )
             TextField(

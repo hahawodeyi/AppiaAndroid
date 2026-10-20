@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -103,6 +106,11 @@ private fun OtherBannerAction(color: Color, tag: String, onClick: () -> Unit) {
             .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
-        Text("✕", color = Color.White, fontSize = 16.sp)
+        Icon(
+            Icons.Filled.Close,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }

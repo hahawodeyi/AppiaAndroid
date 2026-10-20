@@ -11,7 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** M12-T2：十个手工移植 drawable 可加载可渲染（pathData 语法错在此暴露）。 */
+/** M12-T2：十个手工移植 drawable 可加载可渲染（pathData 语法错在此暴露）。M12-T7 增补 edit/restore/delete + voice 两徽标。 */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class AppiaIconsSmokeTest {
@@ -19,7 +19,7 @@ class AppiaIconsSmokeTest {
     val rule = createComposeRule()
 
     @Test
-    fun `ten hand-ported icons render`() {
+    fun `fifteen hand-ported icons render`() {
         rule.setContent {
             Row {
                 Icon(painterResource(R.drawable.ic_appia_mute), contentDescription = null)
@@ -32,6 +32,11 @@ class AppiaIconsSmokeTest {
                 Icon(painterResource(R.drawable.ic_appia_read), contentDescription = null)
                 Icon(painterResource(R.drawable.ic_appia_star), contentDescription = null)
                 Icon(painterResource(R.drawable.ic_appia_star_filled), contentDescription = null)
+                Icon(painterResource(R.drawable.ic_appia_edit), contentDescription = null)
+                Icon(painterResource(R.drawable.ic_appia_restore), contentDescription = null)
+                Icon(painterResource(R.drawable.ic_appia_delete), contentDescription = null)
+                Icon(painterResource(R.drawable.ic_appia_voice_muted_badge), contentDescription = null)
+                Icon(painterResource(R.drawable.ic_appia_voice_speaking_badge), contentDescription = null)
             }
         }
         rule.waitForIdle() // pathData 非法在此抛异常
