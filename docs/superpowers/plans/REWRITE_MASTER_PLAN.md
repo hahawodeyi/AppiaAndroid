@@ -79,6 +79,7 @@ cn.appia.im/
 | M9 | 邮件 | 凭证 RSA-OAEP 加密传输、账户设置、收件箱/详情/撰写 | 邮件收发对照 |
 | M10 | 语音通话 | oncall 完整实现（Agora + callkeep 等价物），**方案可重做，不等 RN**（RN 版仍在 M0 gate） | 双端语音通话 |
 | M11 | 收尾 | 全量功能 checklist 验收、性能（冷启动/列表帧率）、双语言核对、release 签名构建 | 全 checklist 通过 |
+| M12 | UI 优化 | M3 主题桥接（去紫）、图标混合替换（icons-core + 6 个 RN SVG 移植）、四域 RN 对齐 | 全测试绿 + 字形清扫达预期 |
 
 **依赖关系**：M0 → M1 → M2 → M3 → M4 → M5 →（M6–M10 依赖 M2/M3 的基础，可乱序）→ M11。
 

@@ -1,6 +1,12 @@
 # AppiaAndroid
 
-appiaMobile（React Native）的原生 Android 重写。当前版本 **1.2.0**（M11 收尾里程碑——重写工程闭合）。
+appiaMobile（React Native）的原生 Android 重写。当前版本 **1.2.0**（M12 UI 优化里程碑——视觉对齐 RN 收口）。
+
+## M12 状态与验收指引
+
+- **M12 范围**：UI 优化——消除视觉丑感三根因：M3 colorScheme 桥接 RN 色板去紫（b4ed23f）、图标混合替换（material-icons-core + 15 个 `ic_appia_*` RN SVG 移植 drawable，4d7e5be）、四域 RN 对齐（返回箭头/聊天域/会话列表/邮件+资料页/全仓字形清扫）。
+- **测试状态**：全量 2775 单测 0 失败；Maestro 启动/登录链双绿（versionName 1.2.0 断言）；装机截图与字形清扫 grep 终态见 `docs/m12-ui-acceptance.md`。
+- **验收指引**：验收记录（截图清单/grep 终态/用户真机确认五屏清单）见 [`docs/m12-ui-acceptance.md`](docs/m12-ui-acceptance.md)；登录态视觉请按该文档 §5 在真机确认（模拟器无凭证不可达，M11-T7 同款边界）。
 
 ## M11 状态与验收指引
 
