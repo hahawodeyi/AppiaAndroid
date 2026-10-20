@@ -45,7 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cn.appia.im.R
 import cn.appia.im.RouteDeps
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
@@ -404,7 +403,8 @@ fun ChatListScreen(
                                     if (sectionId in collapsedSections) "▶" else "▼",
                                     color = Color(0xFF666666),
                                     fontSize = 10.sp,
-                                    modifier = Modifier.size(22.dp).wrapContentSize(Alignment.Center),
+                                    modifier = Modifier.size(22.dp).wrapContentSize(Alignment.Center)
+                                        .padding(end = 4.dp), // RN chevronBox marginRight 4（RoomListSectionedChatList.tsx:201）
                                 )
                                 Text(
                                     context.t(section.key.titleKey),

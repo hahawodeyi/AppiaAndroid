@@ -1,5 +1,6 @@
 package cn.appia.im.core.theme
 
+import androidx.compose.ui.graphics.Color
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -16,6 +17,8 @@ class AppiaColorSchemeTest {
         assertEquals(AppiaColors.light.dangerColor, s.error)
         assertEquals(AppiaColors.light.borderColor, s.outline)
         assertEquals(AppiaColors.light.separatorColor, s.outlineVariant)
+        assertEquals(Color(0xFFE8F3FF), s.primaryContainer)            // Colors.primaryLight
+        assertEquals(Color(0xFF1D2129), s.onPrimaryContainer)          // Colors.textPrimary
     }
 
     @Test
@@ -25,5 +28,7 @@ class AppiaColorSchemeTest {
         assertEquals(AppiaColors.dark.backgroundColor, s.background)  // #030B1B
         assertEquals(AppiaColors.dark.titleText, s.onSurface)         // #F9F9F9
         assertEquals(AppiaColors.dark.auxiliaryText, s.onSurfaceVariant)
+        assertEquals(AppiaColors.dark.focusedBackground, s.primaryContainer)
+        assertEquals(AppiaColors.dark.titleText, s.onPrimaryContainer)
     }
 }

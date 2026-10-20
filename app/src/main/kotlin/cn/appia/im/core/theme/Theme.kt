@@ -29,7 +29,7 @@ fun appiaColorScheme(isDark: Boolean): ColorScheme {
             background = p.backgroundColor, onBackground = p.titleText,
             surface = p.backgroundColor, onSurface = p.titleText,
             surfaceVariant = p.auxiliaryBackground, onSurfaceVariant = p.auxiliaryText,
-            error = p.dangerColor,
+            error = p.dangerColor, onError = Color.White,
             outline = p.borderColor, outlineVariant = p.separatorColor,
         )
     } else {
@@ -40,7 +40,7 @@ fun appiaColorScheme(isDark: Boolean): ColorScheme {
             background = p.backgroundColor, onBackground = p.titleText,
             surface = p.backgroundColor, onSurface = p.titleText,
             surfaceVariant = p.auxiliaryBackground, onSurfaceVariant = p.auxiliaryText,
-            error = p.dangerColor,
+            error = p.dangerColor, onError = Color.White,
             outline = p.borderColor, outlineVariant = p.separatorColor,
         )
     }
