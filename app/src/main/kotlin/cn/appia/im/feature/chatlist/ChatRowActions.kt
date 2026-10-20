@@ -5,7 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,7 +15,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,11 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.database.DatabaseManager
 import cn.appia.im.core.database.ReadStateWriter
 import cn.appia.im.core.database.entity.ChatEntity
@@ -174,6 +182,15 @@ fun SwipeableChatRow(
                     contentReady = actionsReady,
                     onClick = { close(); onMarkUnread() },
                     tag = "qa-swipe-mark-unread", // Maestro 滑动用例定位（总纲 §4.3-6）
+                    // RN UnreadIcon 20 白
+                    icon = {
+                        Icon(
+                            painterResource(R.drawable.ic_appia_unread),
+                            tint = Color.White,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    },
                 )
             }
             SwipeActionButton(
@@ -182,6 +199,15 @@ fun SwipeableChatRow(
                 contentReady = actionsReady,
                 onClick = { close(); onToggleFavorite() },
                 tag = "qa-swipe-favorite",
+                // RN StarIcon 22（filled=chat.f，色 buttonText 白）
+                icon = {
+                    Icon(
+                        painterResource(if (chat.f) R.drawable.ic_appia_star_filled else R.drawable.ic_appia_star),
+                        tint = Color.White,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                    )
+                },
             )
             Spacer(Modifier.weight(1f))
             if (showMarkRead) {
@@ -191,6 +217,15 @@ fun SwipeableChatRow(
                     contentReady = actionsReady,
                     onClick = { close(); onMarkRead() },
                     tag = "qa-swipe-mark-read",
+                    // RN ReadIcon 24 白
+                    icon = {
+                        Icon(
+                            painterResource(R.drawable.ic_appia_read),
+                            tint = Color.White,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
                 )
             }
         }
@@ -242,7 +277,8 @@ private fun CoroutineScope.launchAnimateTo(
 
 /**
  * 单个滑出动作钮（RN renderLeftActions 的 RectButton）：底色壳常驻、可点性随 contentReady；
- * label（RN 图标+文案）首次拖拽后才组装（RN :55-56 性能细节，Compose 无 SVG 批挂问题，仅沿用语义）。
+ * 内容（图标+文案）首次拖拽后才组装（RN :55-56 性能细节，Compose 无 SVG 批挂问题，仅沿用语义）。
+ * RN actionBtn 形态：图标在上、标签在下（marginTop 4、14sp/600/白）。
  * [tag]：Maestro/Compose 定位（qa-swipe-*）——壳内钮可达性断言（总纲 §4.3-6）。
  */
 @Composable
@@ -252,6 +288,7 @@ private fun SwipeActionButton(
     contentReady: Boolean,
     onClick: () -> Unit,
     tag: String,
+    icon: @Composable () -> Unit = {},
 ) {
     Box(
         Modifier
@@ -263,14 +300,22 @@ private fun SwipeActionButton(
         contentAlignment = Alignment.Center,
     ) {
         if (contentReady) {
-            Text(
-                label,
-                color = Color.White,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                icon()
+                Text(
+                    label,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.W600,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 4.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

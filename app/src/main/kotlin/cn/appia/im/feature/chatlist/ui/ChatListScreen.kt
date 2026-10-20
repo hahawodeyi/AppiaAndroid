@@ -1,5 +1,6 @@
 package cn.appia.im.feature.chatlist.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,13 +15,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -31,6 +36,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -38,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.RouteDeps
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
@@ -45,6 +53,8 @@ import cn.appia.im.core.realtime.RealtimeTransportPhase
 import cn.appia.im.core.theme.LocalAppiaColors
 import cn.appia.im.domain.session.RoomsSyncRepository
 import cn.appia.im.domain.session.SessionBootstrapOrchestrator
+import cn.appia.im.feature.chat.ui.presenceBadge
+import cn.appia.im.feature.chatlist.ChatListSectionKey
 import cn.appia.im.feature.chatlist.ChatListViewModel
 import cn.appia.im.feature.chatlist.ChatRow
 import cn.appia.im.feature.chatlist.ChatRowActions
@@ -56,6 +66,7 @@ import cn.appia.im.feature.chatlist.isSelfDirectAssistantChat
 import cn.appia.im.feature.chatlist.roomTitleFromChat
 import cn.appia.im.feature.mail.isMailChannelRow
 import cn.appia.im.feature.org.ui.OrgSwitchSheet
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -187,7 +198,25 @@ fun ChatListScreen(
             .statusBarsPadding()
             .testTag("qa-room-list-screen"),
     ) {
-        // 顶栏（RN RoomListProfileHeader 最小版）：显示名 + search 占位 + ⋮ 菜单（无 icons 依赖，文本字形同 RoomHeader）
+        // 顶栏（RN RoomListProfileHeader）：头像（40dp 圆 + presence 绿点）+ 显示名 + search 占位 + ⋮ 菜单
+        // 头像 URL 构造同 ProfileScreen（/avatar/{username}?version=1&format=png&size=…&rc_token=…&rc_uid=…）
+        val user = session?.user
+        val headerUsername = user?.username?.trim().orEmpty()
+        val headerName = user?.name?.trim().orEmpty()
+        val headerDisplay = headerName.ifEmpty { headerUsername }
+        val headerAvatarUrl = if (serverUrl.isBlank() || headerUsername.isBlank()) null else buildString {
+            append(serverUrl.trimEnd('/')).append("/avatar/").append(headerUsername)
+            append("?version=1&format=png&size=").append(with(density) { 40.dp.roundToPx() })
+            if (!user?.id.isNullOrEmpty() && !session?.token.isNullOrEmpty()) {
+                append("&rc_token=").append(session?.token).append("&rc_uid=").append(user!!.id)
+            }
+        }
+        val headerPresence = presenceBadge(
+            userId = user?.id,
+            username = headerUsername.takeIf { it.isNotEmpty() },
+            fallbackStatus = null,
+            avatarSize = 40.dp,
+        )
         Row(
             Modifier
                 .fillMaxWidth()
@@ -195,11 +224,26 @@ fun ChatListScreen(
                 .testTag("qa-room-list-header"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // RN avatarWrap：40dp 圆 + initial 垫底 + AsyncImage + presence 绿点，marginRight 10
+            Box(Modifier.size(40.dp)) {
+                Box(
+                    Modifier.matchParentSize().clip(CircleShape).background(colors.chatComponentBackground),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        headerDisplay.take(1).uppercase().ifEmpty { "?" },
+                        color = colors.auxiliaryText,
+                        fontSize = 16.sp,
+                    )
+                    AsyncImage(model = headerAvatarUrl, contentDescription = null, modifier = Modifier.matchParentSize())
+                }
+                headerPresence()
+            }
+            Spacer(Modifier.width(10.dp))
             Text(
-                session?.user?.name?.takeIf { it.isNotBlank() }
-                    ?: session?.user?.username?.takeIf { it.isNotBlank() }
-                    ?: context.t("roomList_profileFallbackName"),
+                headerDisplay.ifEmpty { context.t("roomList_profileFallbackName") },
                 Modifier.weight(1f),
+                color = colors.titleText,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -217,10 +261,10 @@ fun ChatListScreen(
                     .testTag("qa-room-list-search"),
             )
             Box {
-                Text(
-                    "⋮",
-                    color = colors.headerTintColor,
-                    fontSize = 24.sp,
+                Icon(
+                    Icons.Filled.MoreVert,
+                    tint = colors.headerTintColor,
+                    contentDescription = null,
                     modifier = Modifier
                         .size(40.dp)
                         .wrapContentSize(Alignment.Center)
@@ -326,6 +370,9 @@ fun ChatListScreen(
             onManualReconnect = gateway::requestManualReconnect,
         )
 
+        // 分区折叠态（RN SectionList sectionToggles）：key = section.key.name.lowercase()
+        var collapsedSections by remember { mutableStateOf(setOf<String>()) }
+
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = ::onRefresh,
@@ -335,19 +382,41 @@ fun ChatListScreen(
             // key 重映射可崩（LazyLayoutIntervalContent.getKey Index 0 size 0）——整列不组合
             if (sections.isNotEmpty()) LazyColumn(Modifier.fillMaxSize().testTag("qa-room-list")) {
                 sections.forEach { section ->
-                    item(key = "header-${section.key}", contentType = "header") {
-                        Column(Modifier.fillMaxWidth()) {
-                            Text(
-                                context.t(section.key.titleKey),
-                                color = colors.auxiliaryText,
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                                    .testTag("qa-room-list-section-${section.key.name.lowercase()}"),
-                            )
+                    val sectionId = section.key.name.lowercase()
+                    // RN RoomListSectionedChatList:43-45：assistant 段无头（固定展开的独立段）
+                    if (section.key != ChatListSectionKey.ASSISTANT) {
+                        item(key = "header-${section.key}", contentType = "header") {
+                            // RN sectionHeader：底色 #F5F6F8 + ▼/#666/10sp + 标题 #666/13sp/500，
+                            // 整行可点折叠（RN ▼ 不旋转仅淡出，AA 用 ▼/▶ 二态等义）
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFF5F6F8))
+                                    .clickable {
+                                        collapsedSections =
+                                            if (sectionId in collapsedSections) collapsedSections - sectionId else collapsedSections + sectionId
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                                    .testTag("qa-room-list-section-${sectionId}"),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    if (sectionId in collapsedSections) "▶" else "▼",
+                                    color = Color(0xFF666666),
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.size(22.dp).wrapContentSize(Alignment.Center),
+                                )
+                                Text(
+                                    context.t(section.key.titleKey),
+                                    color = Color(0xFF666666),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
-                    items(section.chats, key = { it._id }, contentType = { "chat" }) { chat ->
+                    // 折叠段不渲染行（RN SectionList renderSectionBody 空态）
+                    if (sectionId !in collapsedSections) items(section.chats, key = { it._id }, contentType = { "chat" }) { chat ->
                         // 虚拟 myAgents 行不走滑壳（占位行无已读/置顶动作，避免假 rid 打服务端）
                         if (isAgentChannelRow(chat)) {
                             ChatRow(

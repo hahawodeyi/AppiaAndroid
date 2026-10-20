@@ -1,6 +1,5 @@
 package cn.appia.im.feature.chatlist
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -13,19 +12,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.LocalAppiaColors
@@ -41,7 +41,6 @@ private val BadgeBlue = Color(0xFF3677F2)
 private val MuteUnreadBlue = Color(0xFF1B5BFF)
 private val MuteGray = Color(0xFF9CA2A8)
 private val TodoRed = Color.Red
-private val StarGold = Color(0xFFFFBB00) // RN themeColors.favoriteBackground
 private val Hairline = Color(0xFFE5E5E5)
 
 /** RN tunreadLength.ts：tunread JSON 数组字符串 → 长度；空/坏 JSON/非数组 → 0。 */
@@ -87,7 +86,7 @@ internal fun chatAvatarUrl(
 /**
  * 会话列表行（RN RoomChatItem/index.tsx 的 M2 最小版）：
  * - 头像 48dp：initial 垫底 + Coil AsyncImage（URL 由 [chatAvatarUrl] 构造：鉴权参数+etag v+size×密度；
- *   RN DirectAvatar 双人合成/appiaUsage 分支未移植）；置顶 `f` 叠金色星标。
+ *   RN DirectAvatar 双人合成/appiaUsage 分支未移植）；置顶 `f` 整行灰底（RN shadowBackGround）。
  * - 首行：标题（`alert && !hideUnread` 加粗，alert = alert || tunread>0）+ 相对时间（未读主题色）。
  * - 二行：草稿前缀 > 提及前缀（user/group mentions>0）> 预览 > 静音图标（未读深蓝否则灰）> 未读徽标
  *   （hideUnread || unread<=0 不渲染；宽三档 16/24/28；>99 显 `99+`）。
@@ -138,6 +137,8 @@ fun ChatRow(
     Row(
         modifier = modifier
             .heightIn(min = 75.dp)
+            // RN isChatPinned → shadowBackGround rgb(238,238,238)（置顶行整行底色，替代星标）
+            .background(if (chat.f) Color(0xFFEEEEEE) else Color.Transparent)
             .combinedClickable(onClick = { onPress(chat) }, onLongClick = { onLongPress(chat) })
             .padding(start = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -170,9 +171,6 @@ fun ChatRow(
                     todoCount = todoCount,
                     modifier = Modifier.align(Alignment.TopEnd),
                 )
-            }
-            if (chat.f) {
-                Text("★", Modifier.align(Alignment.TopEnd), color = StarGold, fontSize = 14.sp)
             }
             // M5-T3：单聊绿点（RN RoomAvatar 直连分支——resolveDirectPeerUserId 链：
             // uids 剔除自己取 peer；仅 store 链，无 fallback/username）
@@ -232,9 +230,12 @@ fun ChatRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (hideUnread) {
-                    MuteGlyph(
-                        color = if (unread > 0) MuteUnreadBlue else MuteGray,
-                        modifier = Modifier.padding(start = 5.dp, end = 6.dp),
+                    // RN MuteIcon（ic_appia_mute 移植）：未读深蓝否则灰，默认 20dp
+                    Icon(
+                        painterResource(R.drawable.ic_appia_mute),
+                        contentDescription = null,
+                        tint = if (unread > 0) MuteUnreadBlue else MuteGray,
+                        modifier = Modifier.padding(start = 5.dp, end = 6.dp).size(20.dp),
                     )
                 }
                 if (!hideUnread && unread > 0) {
@@ -270,23 +271,6 @@ private fun UnreadBadge(unread: Int) {
             if (unread > 99) "99+" else unread.toString(),
             color = Color.White,
             fontSize = 10.sp,
-        )
-    }
-}
-
-/** M2 占位图形（RN MuteIcon SVG 移植前）：圆 + 斜杠示意静音，颜色按未读态切换。 */
-@Composable
-private fun MuteGlyph(color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(14.dp)) {
-        val stroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
-        val r = size.minDimension / 2 - stroke.width
-        drawCircle(color = color, radius = r, style = stroke)
-        drawLine(
-            color = color,
-            start = androidx.compose.ui.geometry.Offset(size.minDimension * 0.25f, size.minDimension * 0.25f),
-            end = androidx.compose.ui.geometry.Offset(size.minDimension * 0.75f, size.minDimension * 0.75f),
-            strokeWidth = stroke.width,
-            cap = StrokeCap.Round,
         )
     }
 }

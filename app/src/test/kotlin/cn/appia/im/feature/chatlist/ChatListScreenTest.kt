@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -82,6 +83,9 @@ class ChatListScreenTest {
     private fun tagExists(tag: String) =
         rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
 
+    private fun textExists(text: String) =
+        rule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+
     private fun setContent(phase: RealtimeTransportPhase, online: Boolean?, onOpenMeeting: () -> Unit = {}) {
         rule.setContent {
             ChatListScreen(
@@ -122,7 +126,8 @@ class ChatListScreenTest {
         fixture.kv.putString("AGEMNT_ROOM_ID_KEY_https://s1bob", "cached-rid")
         setContent(RealtimeTransportPhase.CONNECTED, online = true)
 
-        rule.waitUntil(5_000) { tagExists("qa-room-list-section-assistant") }
+        // assistant 段无段头（RN RoomListSectionedChatList:43-45）——直接等虚拟行标题上屏
+        rule.waitUntil(5_000) { textExists(context.t("Agent")) }
         rule.onNodeWithText(context.t("Agent")).assertExists()
 
         rule.onNodeWithText(context.t("Agent")).performClick()

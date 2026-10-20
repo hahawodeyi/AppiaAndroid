@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -18,10 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.database.entity.ChatEntity
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.LocalAppiaColors
@@ -35,10 +38,10 @@ private val Hairline = Color(0xFFE5E5E5)
 
 /**
  * 虚拟邮件行（RN components/MailChannelItem/index.tsx 移植，减滑动手势——T6 接 MailBadgeStore 后再议）：
- * - 头像：48dp 蓝底圆 + 白色信封字形（RN EmailIcon）
+ * - 头像：48dp 蓝底圆 + 白色信封图标（RN EmailIcon，ic_appia_email）
  * - 首行：mail_channel_title（未读加粗，RoomItemTitle 同语义）+ 相对时间
  * - 二行：预览副题（lastMessage = `{fromName}：{subject}`）+ 未读 pill（16/24/28dp 宽、>99 显 99+）
- * - 置顶 `f` 叠金色星标（RN isChatPinned → shadowBackGround + StarIcon 等义位）
+ * - 置顶 `f` 整行灰底（RN shadowBackGround 等义位）
  */
 @Composable
 fun MailChannelRow(
@@ -59,6 +62,8 @@ fun MailChannelRow(
         modifier
             .fillMaxWidth()
             .heightIn(min = 75.dp)
+            // RN isChatPinned → shadowBackGround rgb(238,238,238)（置顶行整行底色，替代星标）
+            .background(if (chat.f) Color(0xFFEEEEEE) else Color.Transparent)
             .clickable(onClick = onPress)
             .padding(start = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -71,11 +76,13 @@ fun MailChannelRow(
                     .background(MailBlue),
                 contentAlignment = Alignment.Center,
             ) {
-                // 信封字形占位（RN EmailIcon；无 icons-extended 依赖，字形等义）
-                Text("✉", color = Color.White, fontSize = 20.sp)
-            }
-            if (chat.f) {
-                Text("★", Modifier.align(Alignment.TopEnd), color = Color(0xFFFFBB00), fontSize = 14.sp)
+                // RN EmailIcon 24 白（ic_appia_email 移植）
+                Icon(
+                    painterResource(R.drawable.ic_appia_email),
+                    tint = Color.White,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
             }
         }
 
