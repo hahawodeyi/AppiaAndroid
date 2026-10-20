@@ -12,7 +12,7 @@
 grep -rn 'Text("' app/src/main/kotlin/ --include="*.kt" | grep -P 'Text\("[^"]*[←→↑↓◄►▲▼⌕⋮✓✕＋☰◀▶⌄]'
 ```
 
-终态命中 **11 处**，全部为计划保留清单内（RN parity，RN 用同款文本字形）：
+终态命中 **10 处**，全部为计划保留清单内（RN parity，RN 用同款文本字形）：
 
 | 位置 | 字形 | 理由 |
 |---|---|---|
@@ -21,9 +21,11 @@ grep -rn 'Text("' app/src/main/kotlin/ --include="*.kt" | grep -P 'Text\("[^"]*[
 | UnreadBanner.kt:53、MailDetailScreen.kt:369 | `↓` | RN 回到底部/展开同字形 |
 | RoomMembersScreen.kt:526/615、MeetingFormScreen.kt:605/927、RoomInfoScreen.kt:746 | `✓` | RN 勾选同字形 |
 
+另有一处保留字形未被上述单行 grep 模式命中（多行 `Text(` 调用）：ChatListScreen.kt:253 `⌕`（会话列表搜索入口，计划明示保留，RN RoomListSearchBar 同字形）。已被替换的 `⌕` 仅指 RoomScreen 房内搜索（→ Icons.Outlined.Search）。
+
 已被替换的：`←`（返回箭头 → AutoMirrored ArrowBack ×2）、`⋮`（MoreVert）、`⌕`（RoomScreen 搜索 → Icons.Outlined.Search）、`★`（去星标换置顶整行灰底 #EEEEEE）、`↻`（去红圆换文字 pill「重试」）、`⌹/⏹/✉/✎/›`（RN 特有 SVG 六枚 + RightArrow）。
 
-**图标终态计数**：Material `Icons.*` 22 处；RN SVG 手工移植 drawable（`ic_appia_*`，15 个资源）`painterResource` 14 处，覆盖 9 文件（chat/chatlist/settings/mail/contacts/voice 域）。
+**图标终态计数**：Material `Icons.*` 22 处；RN SVG 手工移植 drawable（`ic_appia_*`，15 个资源）`painterResource` 15 处调用点，覆盖 9 文件（chat/chatlist/settings/mail/contacts/voice 域）。
 
 ## 2. 全量测试与构建
 
@@ -50,7 +52,7 @@ grep -rn 'Text("' app/src/main/kotlin/ --include="*.kt" | grep -P 'Text\("[^"]*[
 - `maestro test maestro/launch_android.yaml`：**PASS**（launch → 隐私同意 optional → enterprise_code_input 可见 → 「版本: 1.2.0」断言通过——versionName 未被 M12 任何任务改动）
 - `maestro test maestro/login_reach_login.yaml`：**PASS**（企业码失败链路完整走通）
 
-testTag 零变化的设计验证成立：M12 全部为视觉替换，未动任何 `qa-*` 标签。
+testTag 设计验证成立：M12 为视觉替换，`qa-*` 标签模板未动。唯一例外已在 T5 提交内披露：assistant 分区按 RN parity 不再渲染段头，`qa-room-list-section-assistant` 实例随之消失（tag 模板 `qa-room-list-section-${sectionId}` 保留），`ChatListScreenTest` 同提交内改用 `textExists(t("Agent"))` 定位，Maestro 对该 tag 零引用。
 
 ## 5. 用户真机确认清单（登录态五屏）
 
