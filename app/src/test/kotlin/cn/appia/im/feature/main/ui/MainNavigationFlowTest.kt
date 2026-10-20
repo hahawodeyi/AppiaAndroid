@@ -251,8 +251,13 @@ class MainNavigationFlowTest {
         // 候选请求落 MockWebServer：REST 就绪门即刻命中（bootstrap 已 hydrate 的等价时序）
         fixture.saveSession(serverUrl = fixture.server.url("/").toString())
         fixture.makeRestReady()
+        // 候选名用 BetaCorp：a8dda73 起顶栏头像 initial「B」与单词「B」撞文本——
+        // onNodeWithText("B") 会先匹配顶栏 initial（无 OnClick），点击落空 → switchCalls 永空。
+        // 另：顶栏头像 AsyncImage 与候选请求同落本 MockWebServer（FIFO）——先垫 404 给
+        // avatar（Coil 失败回退 initial 垫底），JSON 才能轮到 getSwitchCandidate
+        fixture.server.enqueue(MockResponse().setResponseCode(404))
         fixture.server.enqueue(
-            MockResponse().setBody("{\"data\":[{\"appiaUrl\":\"https://b.cn/\",\"companyName\":\"B\"}]}"),
+            MockResponse().setBody("{\"data\":[{\"appiaUrl\":\"https://b.cn/\",\"companyName\":\"BetaCorp\"}]}"),
         )
         // switchOrg 缝：模拟 coordinator.applySession（更新 store）+ 记录，使完成路径可观测；
         // delay 等价真实换票 REST 挂起点——弹层关闭若取消承载 scope（修复前缺陷）则在此死掉
@@ -270,9 +275,9 @@ class MainNavigationFlowTest {
         // 顶栏 ⋮ → 我的企业 → 候选两段式
         rule.onNodeWithTag("qa-room-list-menu").performClick()
         rule.onNodeWithText(context.t("drawer_myenterprise")).performClick()
-        waitUntilExists { textExists("B") } // 候选行（REST 刷新）
+        waitUntilExists { textExists("BetaCorp") } // 候选行（REST 刷新）
 
-        rule.onNodeWithText("B").performClick()
+        rule.onNodeWithText("BetaCorp").performClick()
         // 修复前：onSwitch 先关弹层（host 离组合）→ host 自有 scope 被取消 → 切换静默无操作；
         // 修复后：切组织在 ChatListScreen 级 scope 跑完 → session 重读 → VM 按新 server 重建
         waitUntilExists { fixture.switchCalls.isNotEmpty() }
