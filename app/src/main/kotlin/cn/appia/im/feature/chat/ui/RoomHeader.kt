@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -60,11 +63,10 @@ fun RoomHeader(
                 )
             },
             navigationIcon = {
-                // 无 icons 依赖（material3 未带 icons-core 扩展）：文本箭头足够，语义由 testTag/描述承担
-                Text(
-                    "←",
-                    color = colors.headerTintColor,
-                    fontSize = 22.sp,
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    tint = colors.headerTintColor,
                     modifier = Modifier
                         .padding(start = 12.dp)
                         .size(40.dp)

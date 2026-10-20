@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -82,7 +85,7 @@ internal fun SettingsSep() {
 }
 
 /**
- * 设置页族公共头部（RoomHeader 同款文本箭头形态——internal 可见性限包故复制最小形态）：
+ * 设置页族公共头部（RoomHeader 同款返回箭头形态——internal 可见性限包故复制最小形态）：
  * 左返回 + 左对齐标题（RN StackHeader 路由标题）。
  */
 @Composable
@@ -94,10 +97,10 @@ internal fun SettingsHeader(title: String, onBack: () -> Unit, tag: String? = nu
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "←",
-            color = colors.headerTintColor,
-            fontSize = 22.sp,
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = null,
+            tint = colors.headerTintColor,
             modifier = Modifier
                 .padding(start = 4.dp)
                 .size(40.dp)
