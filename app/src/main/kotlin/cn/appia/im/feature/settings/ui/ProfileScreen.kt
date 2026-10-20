@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,9 +24,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.datastore.AuthSession
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.Colors
@@ -171,7 +174,13 @@ private fun ProfileNavRow(label: String, tag: String, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = LocalAppiaColors.current.titleText, fontSize = 16.sp)
-        Text("›", color = LocalAppiaColors.current.auxiliaryText, fontSize = 18.sp)
+        // RN RightArrowIcon #86909C 20 + chevron marginLeft 4
+        Icon(
+            painterResource(R.drawable.ic_appia_right_arrow),
+            contentDescription = null,
+            tint = Color(0xFF86909C),
+            modifier = Modifier.padding(start = 4.dp).size(20.dp),
+        )
     }
 }
 

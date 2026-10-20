@@ -18,8 +18,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -37,11 +40,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.theme.Colors
 import cn.appia.im.feature.mail.MAIL_LIST_ESTIMATED_ITEM_SIZE
@@ -59,7 +64,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * - 列表**升序、锚定底部**（坑 9）：LazyColumn 数据旧→新；首载/切夹/刷新后 scrollToItem(末位)
  *   （RN initialScrollIndex + scrollToEnd 锚定链）；onStartReached 语义 = 顶部接近 → 翻旧页
  * - 下拉刷新：PullToRefreshBox（ChatListScreen 同款）；syncing 状态条「email · 同步中…」
- * - 搜索：头部 ⌕ 切换（草稿夹隐藏）；未读开关（搜索条 + 文件夹弹层双入口）
+ * - 搜索：头部搜索图标切换（草稿夹隐藏）；未读开关（搜索条 + 文件夹弹层双入口）
  * - 状态分派：初始 loading / loadError / 空态（草稿/普通）→ 居中文案
  * - 无账户 → onSetupRequired（RN navigation.replace('MailAccountSetup')）
  * - 卡片动作：onOpenDetail/onReply/onReplyAll/onViewThread/onCompose = T4/T5 路由接线缝
@@ -131,31 +136,33 @@ fun MailChannelScreen(
     var folderSheetOpen by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize().background(Colors.bgTertiary)) {
-        // ── 头部：标题 + 文件夹 chip ▾（点开弹层）；右侧 ✎ 撰写 + ⌕ 搜索（草稿夹隐藏）──
+        // ── 头部：标题 + 文件夹 chip ▾（点开弹层）；右侧撰写/搜索图标（草稿夹隐藏搜索）──
         RoomHeader(
             title = context.t("mail_list_title"),
             onBack = onBack,
             headerAction = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "✎",
-                        color = Colors.textPrimary,
-                        fontSize = 22.sp,
+                    Icon(
+                        painterResource(R.drawable.ic_appia_compose),
+                        contentDescription = null,
+                        tint = Colors.textPrimary,
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .size(32.dp)
                             .wrapContentSize(Alignment.Center)
+                            .size(22.dp)
                             .clickable(onClick = onCompose)
                             .testTag("mail-compose-toggle"),
                     )
                     if (!isDraftsFolder) {
-                        Text(
-                            "⌕",
-                            color = if (state.searchVisible) Colors.primary else Colors.textPrimary,
-                            fontSize = 20.sp,
+                        Icon(
+                            Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = if (state.searchVisible) Colors.primary else Colors.textPrimary,
                             modifier = Modifier
                                 .size(32.dp)
                                 .wrapContentSize(Alignment.Center)
+                                .size(22.dp)
                                 .clickable(onClick = viewModel::toggleSearch)
                                 .testTag("mail-search-toggle"),
                         )

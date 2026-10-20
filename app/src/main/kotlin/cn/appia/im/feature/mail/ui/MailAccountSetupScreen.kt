@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -45,6 +47,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.appia.im.R
 import cn.appia.im.core.datastore.AuthSessionStore
 import cn.appia.im.core.i18n.t
 import cn.appia.im.core.mail.MailApiException
@@ -158,8 +161,13 @@ fun MailAccountSetupScreen(
                     .background(Colors.primaryLight, RoundedCornerShape(24.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                // ✉ 字形占位（RN EmailIcon；无 icons-extended 依赖，字形等义）
-                Text("✉", color = Colors.primary, fontSize = 22.sp)
+                // RN EmailIcon（ic_appia_email 移植）
+                Icon(
+                    painterResource(R.drawable.ic_appia_email),
+                    contentDescription = null,
+                    tint = Colors.primary,
+                    modifier = Modifier.size(28.dp),
+                )
             }
             Spacer(Modifier.height(12.dp))
             Text(context.t("mail_setup_heading"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Colors.textPrimary)
