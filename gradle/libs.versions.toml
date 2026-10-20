@@ -34,6 +34,7 @@ compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = 
 compose-ui = { group = "androidx.compose.ui", name = "ui" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core", version = "1.7.8" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation-compose" }
 hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hilt-navigation" }
 compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
@@ -89,7 +90,7 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidx-test-core" }
 
 [bundles]
-compose = ["compose-ui", "compose-material3", "compose-foundation", "navigation-compose", "hilt-navigation-compose"]
+compose = ["compose-ui", "compose-material3", "compose-foundation", "compose-material-icons-core", "navigation-compose", "hilt-navigation-compose"]
 network = ["retrofit", "okhttp", "okhttp-logging", "retrofit-serialization"]
 room = ["room-runtime", "room-ktx"]
 test = ["junit-jupiter", "coroutines-test", "mockwebserver"]
