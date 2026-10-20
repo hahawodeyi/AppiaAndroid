@@ -12,18 +12,31 @@
 grep -rn 'Text("' app/src/main/kotlin/ --include="*.kt" | grep -P 'Text\("[^"]*[←→↑↓◄►▲▼⌕⋮✓✕＋☰◀▶⌄]'
 ```
 
-终态命中 **10 处**，全部为计划保留清单内（RN parity，RN 用同款文本字形）：
+终态命中 **10 处**（单行 grep 模式；另有多行 `Text(` 形态漏计，见下）。逐处经 RN 冻结源核实，拆两栏：
 
-| 位置 | 字形 | 理由 |
+**栏 A · 已核实 RN parity（RN 用同款文本字形）**：
+
+| 位置 | 字形 | RN 对照 |
 |---|---|---|
 | MessageAttachments.kt:213/240 | `▶` | RN MessageVideo:46 / MessageAudio:48 同为 `▶` 文本字形 |
 | RoomSearchScreen.kt:540 | `▶` | RN 搜索播放按钮同字形 |
-| UnreadBanner.kt:53、MailDetailScreen.kt:369 | `↓` | RN 回到底部/展开同字形 |
-| RoomMembersScreen.kt:526/615、MeetingFormScreen.kt:605/927、RoomInfoScreen.kt:746 | `✓` | RN 勾选同字形 |
+| RoomMembersScreen.kt:526/615 | `✓` | RN RoomMembersScreen:108 勾选同字形 |
+| DocPreview.kt:150（多行） | `↓` | RN DocPreviewScreen:204 同为 `↓` 文本字形 |
+| ChatListScreen.kt:253（多行） | `⌕` | RN RoomListSearchBar:29 同字形（计划保留项） |
 
-另有一处保留字形未被上述单行 grep 模式命中（多行 `Text(` 调用）：ChatListScreen.kt:253 `⌕`（会话列表搜索入口，计划明示保留，RN RoomListSearchBar 同字形）。已被替换的 `⌕` 仅指 RoomScreen 房内搜索（→ Icons.Outlined.Search）。
+**栏 B · AA 现状保留，RN 为 SVG/无对应——真差距，记档 M13**（M12 终审新增盘点，详见总纲 §4.11）：
 
-已被替换的：`←`（返回箭头 → AutoMirrored ArrowBack ×2）、`⋮`（MoreVert）、`⌕`（RoomScreen 搜索 → Icons.Outlined.Search）、`★`（去星标换置顶整行灰底 #EEEEEE）、`↻`（去红圆换文字 pill「重试」）、`⌹/⏹/✉/✎/›`（RN 特有 SVG 六枚 + RightArrow）。
+| 位置 | 字形 | RN 实际 |
+|---|---|---|
+| UnreadBanner.kt:53 | `↓` | RN 用 ToTopIcon SVG（#2878FF 14dp） |
+| AttachmentViewer.kt:195（多行） | `↓` | RN 用 DownloadIcon SVG（保存钮，MediaPreviewScreen:137） |
+| MailDetailScreen.kt:369 | `↓` | RN 用 DownloadIcon SVG（附件下载，MailDetailScreen:519） |
+| RoomScreen.kt:891（多行） | `↓` | AA 自有滚到底控件，RN 无对应按钮 |
+| MeetingFormScreen.kt:605/927 | `✓` | RN 会议室选择为时间轴选格、成员选择无 ✓ 字形 |
+| RoomInfoScreen.kt:746 | `✓` | RN RoomUsageSettingDrawer 无 ✓，仅底色选中 |
+| RoomScreen.kt:717 | `☑` | RN 用 TodoIcon SVG（聊天头待办入口；`☑` 不在 grep 字符类内，第 15 处游离项） |
+
+全仓真终态 = 单行 10 + 多行 4 + 游离 ☑ 1 = **15 处**。已被替换的：`←`（返回箭头 → AutoMirrored ArrowBack ×10）、`⋮`（MoreVert）、`⌕`（RoomScreen 房内搜索 → Icons.Outlined.Search；ChatListScreen:253 保留）、`★`（去星标换置顶整行灰底）、`↻`（去红圆换文字 pill「重试」）、`⌹/⏹/✉/✎/›`（RN 特有 SVG 移植 + RightArrow）。
 
 **图标终态计数**：Material `Icons.*` 22 处；RN SVG 手工移植 drawable（`ic_appia_*`，15 个资源）`painterResource` 15 处调用点，覆盖 9 文件（chat/chatlist/settings/mail/contacts/voice 域）。
 
@@ -63,6 +76,7 @@ testTag 设计验证成立：M12 为视觉替换，`qa-*` 标签模板未动。�
 3. **资料设置**：SettingsHeader 返回箭头 + 资料页 `›`（ic_appia_right_arrow）行箭头 + `✎`（ic_appia_compose）编辑入口
 4. **邮件**：列表行 `✉`（ic_appia_email）+ 账户绑定 `✎` + 详情展开 `↓` + 撰写 `✎`
 5. **任一弹层**（如「我的企业」）：ModalBottomSheet 无紫色痕迹、Checkbox/列表色板对齐 RN
+6. **深色模式**（终审补）：切系统 dark 再走一遍上述五屏——T1 主题桥接改了全局 dark 映射，模拟器验收仅覆盖 light 态；已知遗留：4 个硬编码 `containerColor = Color.White` 的 ModalBottomSheet（OrgSwitchSheet/RoomInfo/RoomMembers/SmsCaptcha）在 dark 下为白底，M12 前遗留、记档总纲 §4.11
 
 ## 6. 登录域未动声明
 

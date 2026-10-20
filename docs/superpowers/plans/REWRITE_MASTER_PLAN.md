@@ -244,6 +244,18 @@ cn.appia.im/
 
 **本里程碑流程教训（入册）**：①里程碑交接节必须当期固化——M9 终审后直接进 M10 brainstorming，§4.10 缺位靠 M10 spec 兜底，本次补记以收尾 commit+协议节为据（流程债，勿再犯）；②终审「等价」前提声明要源码级复核——M10 plan:460「voice token 请求等价」实为 web 变体带 url/source/platform 三参，RN voice 路径是裸端点，终审翻案（I-2）；③终审裁定表的 BACKLOG 计数要逐行复核——终审返回摘要「8 项」实为 12 项，controller 逐行核对后收编（计数笔误）。
 
+## 4.11 M12 遗留与后续前置（2026-10-20 M12 终审裁定，不得静默丢失）
+
+M12（UI 优化：主题桥接去紫/图标混合替换/四域精修）终审 NEEDS_FIX 勘误后 APPROVED 可关。终审报告：`.superpowers` 工作区随计划归档删除，以 docs/m12-ui-acceptance.md 勘误后版本与 commit 99b8b79→勘误提交为据。
+
+**进 backlog 的遗留（写 M13 计划时必须列为显式任务行）**：
+
+1. **`↓`/`☑` 字形缺口（真差距 4 处 + AA 自有 1 处）**：`↓`/`☑` 不在 M12 spec §3.2 表、计划裁定清单、T7 grep 模式三者任一内（三层盲区）——聊天头待办 ☑（RoomScreen:717 ←→ RN TodoIcon SVG）/ 未读横幅 ↓（UnreadBanner:53 ←→ ToTopIcon）/ 图片预览保存 ↓（AttachmentViewer:195 ←→ DownloadIcon）/ 邮件附件下载 ↓（MailDetailScreen:369 ←→ DownloadIcon），均高频屏。修复路径：移植 3 个 SVG（DownloadIcon/ToTopIcon/TodoIcon）+ RoomScreen:891 滚到底裁定（AA 自有，可裁定 Material 等义图标）。MeetingForm ✓×2、RoomInfo ✓、DocPreview ↓ 三处为 AA 自有形态或真 parity，不动。
+2. **深色态验证空白**：T1 恰是全局改 dark 渲染的改动（AppiaTheme 唯一入口，dark 映射仅 appiaColorScheme(true) 单元断言覆盖），无截图/组合测试/用户确认清单任何 dark 面。验收文档 §5 已补 dark 行；M13 若动主题需先补 isDark=true 冒烟。
+3. **4 个 ModalBottomSheet 硬编码 `containerColor = Color.White`**（OrgSwitchSheet:49 / RoomInfoScreen:726 / RoomMembersScreen:361 / SmsCaptchaBottomSheet:66）：M12 前遗留，dark 态白底欠佳；T1 桥接后 near-white onBackground 文本对比问题被边际放大。M13 顺手改 `MaterialTheme.colorScheme.background` 或同款。
+4. **f1af5e5 测试时序耦合**：404 FIFO 垫底假设 avatar 请求恰发一次且严格先于候选请求，头像重组二次加载即吃掉候选 JSON；当前稳定绿但建议改 MockWebServer 按 path 分发（Dispatcher）消除耦合，M13 顺手。
+5. **分区头折叠交互无测试**（ChatListScreenTest 仅断言渲染态）、**spec §3.3-3/4 四屏（StatusEdit/MailThread/MailDetail/MailCompose）无对照证据产物**——两 nit 记档，随手可带。
+
 ## 5. 关键技术决策记录
 
 1. **DDP 客户端移植**（`ddpClient.ts` → Kotlin）：连接握手（`connect` version "1" + support）、ping/pong 心跳（20s）、resume 登录、`sub`/`unsub`（25s 超时、`ready`/`nosub` ack）、重连（5s reopen）、按 `msg`/`collection`/`id` 三路事件分发。**逐行为对齐 TS 实现，单测覆盖每种消息**。
